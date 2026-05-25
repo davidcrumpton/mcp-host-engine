@@ -1,0 +1,19 @@
+---
+port: "8000"
+host: "0.0.0.0"
+use_https: false
+bearer_token: "ooghoh9ob4eenohtoF2miMeixayeefosh5UNgae9Oopahsh9sho5zoh0wadeFaoZ"
+tools:
+  "ping": false
+  "google_search": false
+  "http_request_get": true
+AllowedDomains:
+  - "crumpton.org"
+  - "reddit.com"
+  - "github.com"
+  - "stackoverflow.com"
+  - "medium.com"
+  - "dev.to"
+  - "news.ycombinator.com"
+  - "gitlab.com"
+verbosity_level: 4

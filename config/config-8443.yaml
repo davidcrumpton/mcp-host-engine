@@ -1,0 +1,20 @@
+---
+port: "8443"
+host: "0.0.0.0"
+use_https: true
+cert_file: "./tls/fullchain.pem"
+key_file: "./tls/privkey.pem"
+bearer_token: "Nae8shoedadaeshainaihephecie1aiwa1uphohsheevoV4heizapei3ooTaa5mu"
+tools:
+  "ping": false
+  "google_search": false
+  "http_request_get": true
+AllowedDomains:
+  - "crumpton.org"
+  - "reddit.com"
+  - "github.com"
+  - "stackoverflow.com"
+  - "medium.com"
+  - "dev.to"
+  - "news.ycombinator.com"
+  - "gitlab.com"
