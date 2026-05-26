@@ -2,12 +2,12 @@
 port: "8000"
 host: "0.0.0.0"
 use_https: false
-bearer_token: "ooghoh9ob4eenohtoF2miMeixayeefosh5UNgae9Oopahsh9sho5zoh0wadeFaoZ"
+bearer_token: ""
 tools:
   "ping": false
   "google_search": false
   "http_request_get": true
-AllowedDomains:
+allowed_domains:
   - "crumpton.org"
   - "reddit.com"
   - "github.com"

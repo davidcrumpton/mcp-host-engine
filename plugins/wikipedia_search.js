@@ -15,12 +15,8 @@ module.exports = {
 
   call(params) {
     const encoded = encodeURIComponent(params.query);
-    // const url =
-    //   `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
     const url =
-        `http://localhost:9090/api/rest_v1/page/summary/${encoded}`;
-
-    let debugInfo = `Making request for: ${url}\n`;
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
 
     try {
       const response = host.httpGet(url, {
@@ -32,21 +28,16 @@ module.exports = {
       });
 
       const status = response.status ?? response.statusCode;
-      debugInfo += `Status: ${status}\n`;
-      debugInfo += `Headers: ${JSON.stringify(response.headers)}\n`;
 
       const body =
         typeof response.body === "string"
           ? response.body
           : response.text?.() ?? "";
 
-      debugInfo += `Body preview: ${body.substring(0, 200)}\n`;
-
       const payload = JSON.parse(body);
 
       return {
         success: true,
-        debugInfo,
         result: `${payload.title}: ${payload.extract}`
       };
     } catch (err) {
@@ -54,7 +45,6 @@ module.exports = {
 
       return {
         success: false,
-        debugInfo,
         result: err.message
       };
     }

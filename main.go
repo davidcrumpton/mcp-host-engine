@@ -46,9 +46,9 @@ var defaultConfig = Config{
 		"wikipedia_search": true,
 		"google_search":    true,
 		"get_ip":           true,
-		"read_file":        true,
-		"run_command":      true,
-		"battery_status":   true,
+		"read_file":        false,
+		"run_command":      false,
+		"date_time":   		true,
 		"http_request_get": true,
 	},
 	AllowedDomains: []string{},
@@ -122,6 +122,8 @@ func main() {
 		handler = validateBearerToken(handler, config.BearerToken)
 	}
 
+	config.Logf(1, "Starting server on %s:%s (HTTPS=%v)", config.Host, config.Port, config.UseHTTPS)
+
 	http.Handle("/rpc", handler)
 
 	addr := fmt.Sprintf("%s:%s", config.Host, config.Port)
@@ -175,12 +177,14 @@ func validateBearerToken(next http.HandlerFunc, token string) http.HandlerFunc {
 func handleHTTPRequest(w http.ResponseWriter, r *http.Request, config Config, pm *PluginManager) {
 	config.Logf(3, "Incoming request %s %s", r.Method, r.URL.Path)
 	if r.Method != http.MethodPost {
+		config.Logf(1, "Method not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		config.Logf(1, "Failed to read request body: %v", err)
 		sendJSON(w, ResponseWithErr{JSONRPC: "2.0", Error: &ErrorResponse{-32700, "Parse error"}, ID: nil})
 		return
 	}
@@ -250,6 +254,7 @@ func handleRequest(ctx context.Context, req Request, res *ResponseWithErr, confi
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
+			config.Logf(1, "Failed to parse tools/call parameters: %v", err)
 			res.Error = &ErrorResponse{-32602, "Invalid params"}
 			return
 		}
@@ -314,7 +319,7 @@ func (c Config) Verbose(level int) bool {
 
 func (c Config) Logf(level int, format string, args ...interface{}) {
 	if c.Verbose(level) {
-		fmt.Fprintf(os.Stderr, format+"\n", args...)
+		fmt.Fprintf(os.Stderr, time.Now().Format("2006-01-02 15:04:05")+" "+format+"\n", args...)
 	}
 }
 
@@ -333,14 +338,17 @@ func loadPlugins(config Config) (*PluginManager, error) {
 		dir = "plugins"
 	}
 	if _, err := os.Stat(dir); err != nil {
+		config.Logf(1, "Plugin directory %q missing: %v", dir, err)
 		return nil, fmt.Errorf("plugin directory %q missing: %w", dir, err)
 	}
 
 	files, err := filepath.Glob(filepath.Join(dir, "*.js"))
 	if err != nil {
+		config.Logf(1, "Failed to scan plugin directory: %v", err)
 		return nil, fmt.Errorf("failed to scan plugin directory: %w", err)
 	}
 	if len(files) == 0 {
+		config.Logf(1, "No JavaScript plugin files found in %q", dir)
 		return nil, fmt.Errorf("no JavaScript plugins found in %q", dir)
 	}
 
@@ -368,18 +376,21 @@ func loadPlugins(config Config) (*PluginManager, error) {
 func loadPlugin(path string, config Config) (*Plugin, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
+		config.Logf(1, "Failed to read plugin file %s: %v", path, err)
 		return nil, err
 	}
 
 	vm := goja.New()
 	hostValue := makeHostObject(config, context.Background())
 	if err := vm.Set("host", hostValue); err != nil {
+		config.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
 		return nil, err
 	}
 
 	script := fmt.Sprintf("var module = { exports: {} }; var exports = module.exports;\n%s\nmodule.exports", content)
 	value, err := vm.RunString(script)
 	if err != nil {
+		config.Logf(1, "Error executing plugin %s: %v", path, err)
 		return nil, err
 	}
 
@@ -390,13 +401,16 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 
 	name, ok := nameVal.Export().(string)
 	if !ok || name == "" {
+		config.Logf(1, "Plugin %q missing name", path)
 		return nil, fmt.Errorf("plugin %q missing name", path)
 	}
 	if callVal == nil {
+		config.Logf(1, "Plugin %q missing call function", name)
 		return nil, fmt.Errorf("plugin %q missing call function", name)
 	}
 	callFunc, ok := goja.AssertFunction(callVal)
 	if !ok {
+		config.Logf(1, "Plugin %q call property is not a function", name)
 		return nil, fmt.Errorf("plugin %q call property is not a function", name)
 	}
 
@@ -418,7 +432,9 @@ func makeHostObject(config Config, ctx context.Context) map[string]interface{} {
 	return map[string]interface{}{
 		"readFile":   func(path string) (string, error) { return hostReadFile(path) },
 		"runCommand": func(command string) (string, error) { return hostRunCommand(ctx, command) },
-		"httpGet":    func(urlStr string) (map[string]interface{}, error) { return hostHTTPGet(ctx, urlStr, config) },
+		"httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+    		return hostHTTPGet(ctx, urlStr, headers, config)
+},
 		"getEnv":     func(name string) string { return os.Getenv(name) },
 		"config":     hostConfig,
 	}
@@ -446,33 +462,50 @@ func hostRunCommand(ctx context.Context, command string) (string, error) {
 	return string(output), nil
 }
 
-func hostHTTPGet(ctx context.Context, urlStr string, config Config) (map[string]interface{}, error) {
+func hostHTTPGet(ctx context.Context, urlStr string, headers map[string]interface{}, config Config) (map[string]interface{}, error) {
 	config.Logf(3, "hostHTTPGet %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
+		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
+		config.Logf(1, "Failed to create HTTP request: %v", err)
 		return nil, err
+	}
+
+	// Apply headers from JS, if any
+	for k, v := range headers {
+		if str, ok := v.(string); ok {
+			req.Header.Set(k, str)
+		}
+	}
+
+	// Set a default User-Agent only if JS didn't provide one
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		config.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		config.Logf(1, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
-	headers := map[string]interface{}{}
+	headers = map[string]interface{}{}
 	for k, v := range resp.Header {
 		headers[k] = v
 	}
@@ -516,12 +549,14 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	config.Logf(2, "Calling tool %s with raw args %s", name, string(rawArgs))
 	plugin, ok := pm.byName[name]
 	if !ok {
+		config.Logf(1, "Tool %s not found", name)
 		return nil, fmt.Errorf("tool %q not found", name)
 	}
 
 	var args interface{}
 	if len(rawArgs) > 0 {
 		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			config.Logf(1, "Failed to parse arguments for tool %s: %v", name, err)
 			return nil, fmt.Errorf("invalid arguments: %w", err)
 		}
 	} else {
@@ -529,12 +564,14 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	}
 
 	if err := plugin.VM.Set("host", makeHostObject(config, ctx)); err != nil {
+		config.Logf(1, "Failed to set host API for tool %s: %v", name, err)
 		return nil, fmt.Errorf("failed to set host API: %w", err)
 	}
 
 	scriptArgs := plugin.VM.ToValue(args)
 	result, err := plugin.Call(goja.Undefined(), scriptArgs)
 	if err != nil {
+		config.Logf(1, "Error executing tool %s: %v", name, err)
 		return nil, fmt.Errorf("tool error: %w", err)
 	}
 	return result.Export(), nil

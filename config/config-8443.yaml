@@ -9,7 +9,7 @@ tools:
   "ping": false
   "google_search": false
   "http_request_get": true
-AllowedDomains:
+allowed_domains:
   - "crumpton.org"
   - "reddit.com"
   - "github.com"
