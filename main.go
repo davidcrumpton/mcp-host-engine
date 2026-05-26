@@ -47,6 +47,7 @@ var defaultConfig = Config{
 		"google_search":    true,
 		"get_ip":           true,
 		"read_file":        false,
+		"write_file":       false,
 		"run_command":      false,
 		"date_time":   		true,
 		"http_request_get": true,
@@ -431,10 +432,20 @@ func makeHostObject(config Config, ctx context.Context) map[string]interface{} {
 	}
 	return map[string]interface{}{
 		"readFile":   func(path string) (string, error) { return hostReadFile(path) },
+		"writeFile":  func(path string, content string) error { return os.WriteFile(path, []byte(content), 0644) },
 		"runCommand": func(command string) (string, error) { return hostRunCommand(ctx, command) },
 		"httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
     		return hostHTTPGet(ctx, urlStr, headers, config)
 },
+		"httpPost": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+			return hostHTTPPost(ctx, urlStr, headers, body, config)
+		},
+		"httpPut": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+			return hostHTTPPut(ctx, urlStr, headers, body, config) // Reuse httpPost for PUT as well
+		},
+		"httpDelete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+			return hostHTTPDelete(ctx, urlStr, headers, "", config) // Reuse httpPost for DELETE with empty body
+		},
 		"getEnv":     func(name string) string { return os.Getenv(name) },
 		"config":     hostConfig,
 	}
@@ -575,4 +586,163 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		return nil, fmt.Errorf("tool error: %w", err)
 	}
 	return result.Export(), nil
+}
+
+func hostHTTPPost(ctx context.Context, urlStr string, headers map[string]interface{}, body string, config Config) (map[string]interface{}, error) {
+	config.Logf(3, "hostHTTPPost %s", urlStr)
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, strings.NewReader(body))
+	if err != nil {
+		config.Logf(1, "Failed to create HTTP request: %v", err)
+		return nil, err
+	}
+
+	for k, v := range headers {
+		if str, ok := v.(string); ok {
+			req.Header.Set(k, str)
+		}
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "mcphe/1.0")
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		config.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		config.Logf(1, "Failed to read HTTP response body: %v", err)
+		return nil, err
+	}
+
+	respHeaders := map[string]interface{}{}
+	for k, v := range resp.Header {
+		respHeaders[k] = v
+	}
+
+	return map[string]interface{}{
+		"status":  resp.StatusCode,
+		"headers": respHeaders,
+		"body":    string(respBody),
+	}, nil
+}
+
+func hostHTTPPut(ctx context.Context, urlStr string, headers map[string]interface{}, body string, config Config) (map[string]interface{}, error) {
+	config.Logf(3, "hostHTTPPut called with URL: %s", urlStr)
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, urlStr, strings.NewReader(body))
+	if err != nil {
+		config.Logf(1, "Failed to create HTTP request: %v", err)
+		return nil, err
+	}
+
+	for k, v := range headers {
+		if str, ok := v.(string); ok {
+			req.Header.Set(k, str)
+		}
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "mcphe/1.0")
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		config.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		config.Logf(1, "Failed to read HTTP response body: %v", err)
+		return nil, err
+	}
+
+	respHeaders := map[string]interface{}{}
+	for k, v := range resp.Header {
+		respHeaders[k] = v
+	}
+
+	return map[string]interface{}{
+		"status":  resp.StatusCode,
+		"headers": respHeaders,
+		"body":    string(respBody),
+	}, nil
+}
+
+func hostHTTPDelete(ctx context.Context, urlStr string, headers map[string]interface{}, body string, config Config) (map[string]interface{}, error) {
+	config.Logf(3, "hostHTTPDelete called with URL: %s", urlStr)
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, urlStr, strings.NewReader(body))
+	if err != nil {
+		config.Logf(1, "Failed to create HTTP request: %v", err)
+		return nil, err
+	}
+
+	for k, v := range headers {
+		if str, ok := v.(string); ok {
+			req.Header.Set(k, str)
+		}
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "mcphe/1.0")
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		config.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		config.Logf(1, "Failed to read HTTP response body: %v", err)
+		return nil, err
+	}
+
+	respHeaders := map[string]interface{}{}
+	for k, v := range resp.Header {
+		respHeaders[k] = v
+	}
+
+	return map[string]interface{}{
+		"status":  resp.StatusCode,
+		"headers": respHeaders,
+		"body":    string(respBody),
+	}, nil
 }

@@ -22,7 +22,7 @@ module.exports = {
       const response = host.httpGet(url, {
         headers: {
           "User-Agent":
-            "llmctrlx-wikipedia-plugin/1.0 (https://github.com/davidcrumpton/llmctrlx)",
+            "llmctrlx-wikipedia-plugin/1.0 (https://github.com/davidcrumpton/mcphe/plugins/wikipedia_search.js; David Crumpton <david.crumpton>; mcphe <mcphe>)",
           "Accept": "application/json"
         }
       });
