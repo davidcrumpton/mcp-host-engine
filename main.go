@@ -35,10 +35,9 @@ type Config struct {
 	BearerToken    string          `yaml:"bearer_token"`
 	PluginDir      string          `yaml:"plugin_dir"`
 	Tools          map[string]bool `yaml:"tools"`
-	AllowedDomains []string        `yaml:"allowed_domains"`
 	Verbosity      int             `yaml:"verbosity_level"`
 	Version        string          `yaml:"version"`
-	Plugins        map[string]map[string]string `yaml:"plugins"` 
+	Plugins map[string]map[string]interface{} `yaml:"plugins"`
 }
 
 var defaultConfig = Config{
@@ -58,8 +57,7 @@ var defaultConfig = Config{
 		"date_time":   		true,
 		"http_request_get": true,
 	},
-	AllowedDomains: []string{},
-	Verbosity:      0,
+	Verbosity: 0,
 }
 
 type Request struct {
@@ -336,6 +334,136 @@ func (c Config) Logf(level int, format string, args ...interface{}) {
 	}
 }
 
+// AllowedReadFilePathsFor returns the allowed_read_file_paths list for the named plugin, falling back to nil (allow-all) if not configured.
+func (c Config) AllowedReadFilePathsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+	raw, ok := pCfg["allowed_read_file_paths"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		paths := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				paths = append(paths, s)
+			}
+		}
+		return paths
+	default:
+		return nil
+	}
+}
+
+// AllowedWriteFilePaths returns the allowed_write_file_paths list for the named plugin, falling back to nil (allow-all) if not configured.
+func (c Config) AllowedWriteFilePathsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+
+	raw, ok := pCfg["allowed_write_file_paths"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		paths := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				paths = append(paths, s)
+			}
+		}
+		return paths
+	default:
+		return nil
+	}
+}
+
+// AllowedDomainsFor returns the allowed_domains list for the named plugin,
+// falling back to an empty slice (allow-all) if not configured.
+func (c Config) AllowedDomainsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+	raw, ok := pCfg["allowed_domains"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		domains := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				domains = append(domains, s)
+			}
+		}
+		return domains
+	}
+	return nil
+}
+// Allowed Run commands returns the allowed_commands list for the named plugin, falling back to nil (allow-all) if not configured.
+func (c Config) AllowedRunCommandsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+	raw, ok := pCfg["allowed_commands"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		cmds := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				cmds = append(cmds, s)
+			}
+		}
+		return cmds
+	default:
+		return nil
+	}
+}
+
+// Allowed ENVs returns the allowed_env_vars list for the named plugin, falling back to nil (allow-all) if not configured.
+func (c Config) AllowedENVsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+	raw, ok := pCfg["allowed_env_vars"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		envs := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				envs = append(envs, s)
+			}
+		}
+		return envs
+	default:
+		return nil
+	}
+}
+
 func (c Config) IsToolEnabled(name string) bool {
 	if c.Tools == nil {
 		return true
@@ -459,9 +587,8 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 func makeHostObject(config Config, ctx context.Context, pluginName string) map[string]interface{} {
     // Build plugin-specific config — only keys for this plugin
     pluginConfig := map[string]interface{}{
-        "allowed_domains": config.AllowedDomains,
-        "mcp-version":     Version,
-        "mcp-commit":      Commit,
+        "mcp-version": Version,
+        "mcp-commit":  Commit,
     }
     if pCfg, ok := config.Plugins[pluginName]; ok {
         for k, v := range pCfg {
@@ -470,9 +597,9 @@ func makeHostObject(config Config, ctx context.Context, pluginName string) map[s
     }
 
     return map[string]interface{}{
-        "readFile":   func(path string) (string, error) { return hostReadFile(path) },
-        "writeFile":  func(path string, content string) error { return os.WriteFile(path, []byte(content), 0644) },
-        "runCommand": func(command string) (string, error) { return hostRunCommand(ctx, command) },
+        "readFile":   func(path string) (string, error) { return hostReadFile(path, config, pluginName) },
+        "writeFile":  func(path string, content string) error { return hostWriteFile(path, content, config, pluginName) },
+        "runCommand": func(command string) (string, error) { return hostRunCommand(ctx, config, pluginName, command) },
         "httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
             return hostHTTPGet(ctx, urlStr, headers, config)
         },
@@ -485,12 +612,24 @@ func makeHostObject(config Config, ctx context.Context, pluginName string) map[s
         "httpDelete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
             return hostHTTPDelete(ctx, urlStr, headers, "", config)
         },
-        "getEnv": func(name string) string { return os.Getenv(name) },
+        "getEnv": func(key string) (string, error) {
+            return hostGetEnv(key, config, pluginName), nil
+        },
         "config": pluginConfig,
     }
 }
 
-func hostReadFile(path string) (string, error) {
+func hostReadFile(path string, config Config, pluginName string) (string, error) {
+	allowed := false
+	for _, allowedPath := range config.AllowedReadFilePathsFor(pluginName) {
+		if strings.HasPrefix(path, allowedPath) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("access to file %q is not allowed", path)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -498,8 +637,34 @@ func hostReadFile(path string) (string, error) {
 	return string(data), nil
 }
 
-func hostRunCommand(ctx context.Context, command string) (string, error) {
+func hostWriteFile(path string, content string, config Config, pluginName string) error {
+	allowed := false
+	for _, allowedPath := range config.AllowedWriteFilePathsFor(pluginName) {
+		if strings.HasPrefix(path, allowedPath) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("writing to file %q is not allowed", path)
+	}
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func hostRunCommand(ctx context.Context, config Config, pluginName string, command string) (string, error) {
 	var cmd *exec.Cmd
+	
+	// check if allowed to run this command
+	allowed := false
+	for _, allowedCmd := range config.AllowedRunCommandsFor(pluginName) {
+		if strings.HasPrefix(command, allowedCmd) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "", fmt.Errorf("command %q is not allowed", command)
+	}
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
 	} else {
@@ -508,6 +673,11 @@ func hostRunCommand(ctx context.Context, command string) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 	return string(output), nil
 }
@@ -519,7 +689,7 @@ func hostHTTPGet(ctx context.Context, urlStr string, headers map[string]interfac
 		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomainsFor("http_request_get")) {
 		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -638,7 +808,7 @@ func hostHTTPPost(ctx context.Context, urlStr string, headers map[string]interfa
 		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomainsFor("http_request_get")) {
 		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -691,7 +861,7 @@ func hostHTTPPut(ctx context.Context, urlStr string, headers map[string]interfac
 		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomainsFor("http_request_get")) {
 		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -744,7 +914,7 @@ func hostHTTPDelete(ctx context.Context, urlStr string, headers map[string]inter
 		config.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomains) {
+	if !isAllowedDomain(parsedURL.Hostname(), config.AllowedDomainsFor("http_request_get")) {
 		config.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -788,4 +958,22 @@ func hostHTTPDelete(ctx context.Context, urlStr string, headers map[string]inter
 		"headers": respHeaders,
 		"body":    string(respBody),
 	}, nil
+}
+
+func hostGetEnv(name string, config Config, pluginName string) string {
+	allowedEnvs := config.AllowedENVsFor(pluginName)
+	if len(allowedEnvs) > 0 {
+		allowed := false
+		for _, env := range allowedEnvs {
+			if env == name {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			config.Logf(1, "Blocked access to environment variable %s for plugin %s - not in allowed envs", name, pluginName)
+			return ""
+		}
+	}
+	return os.Getenv(name)
 }

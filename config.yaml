@@ -22,5 +22,15 @@ plugins:
   google_search:
     google_api_key: "abc123"
     google_cx_id: "cx456"
-  some_other_plugin:
+  http_request_get:
+    allowed_domains:
+      - "crumpton.org"
+      - "reddit.com"
+      - "github.com"
+      - "stackoverflow.com"
+      - "medium.com"
+      - "dev.to"
+      - "news.ycombinator.com"
+      - "gitlab.com"
+    allowed_env_vars: []
     api_token: "xyz"
