@@ -334,7 +334,8 @@ func (c Config) Logf(level int, format string, args ...interface{}) {
 	}
 }
 
-// AllowedReadFilePathsFor returns the allowed_read_file_paths list for the named plugin, falling back to nil (allow-all) if not configured.
+// AllowedReadFilePathsFor returns the allowed_read_file_paths list for the named plugin.
+// Returns nil (empty) when not configured, which callers treat as deny-all.
 func (c Config) AllowedReadFilePathsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -360,7 +361,8 @@ func (c Config) AllowedReadFilePathsFor(pluginName string) []string {
 	}
 }
 
-// AllowedWriteFilePaths returns the allowed_write_file_paths list for the named plugin, falling back to nil (allow-all) if not configured.
+// AllowedWriteFilePathsFor returns the allowed_write_file_paths list for the named plugin.
+// Returns nil (empty) when not configured, which callers treat as deny-all.
 func (c Config) AllowedWriteFilePathsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -387,8 +389,8 @@ func (c Config) AllowedWriteFilePathsFor(pluginName string) []string {
 	}
 }
 
-// AllowedDomainsFor returns the allowed_domains list for the named plugin,
-// falling back to an empty slice (allow-all) if not configured.
+// AllowedDomainsFor returns the allowed_domains list for the named plugin.
+// Returns nil (empty) when not configured, which callers treat as deny-all.
 func (c Config) AllowedDomainsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -412,7 +414,8 @@ func (c Config) AllowedDomainsFor(pluginName string) []string {
 	}
 	return nil
 }
-// Allowed Run commands returns the allowed_commands list for the named plugin, falling back to nil (allow-all) if not configured.
+// AllowedRunCommandsFor returns the allowed_commands list for the named plugin.
+// Returns nil (empty) when not configured, which callers treat as deny-all.
 func (c Config) AllowedRunCommandsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -438,7 +441,8 @@ func (c Config) AllowedRunCommandsFor(pluginName string) []string {
 	}
 }
 
-// Allowed ENVs returns the allowed_env_vars list for the named plugin, falling back to nil (allow-all) if not configured.
+// AllowedENVsFor returns the allowed_env_vars list for the named plugin.
+// Returns nil (empty) when not configured, which callers treat as deny-all.
 func (c Config) AllowedENVsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -466,10 +470,10 @@ func (c Config) AllowedENVsFor(pluginName string) []string {
 
 func (c Config) IsToolEnabled(name string) bool {
 	if c.Tools == nil {
-		return true
+		return false
 	}
 	enabled, ok := c.Tools[name]
-	return !ok || enabled
+	return ok && enabled
 }
 
 func loadPlugins(config Config) (*PluginManager, error) {
@@ -739,7 +743,7 @@ func hostHTTPGet(ctx context.Context, urlStr string, headers map[string]interfac
 
 func isAllowedDomain(hostname string, allowed []string) bool {
 	if len(allowed) == 0 {
-		return true
+		return false
 	}
 	hostname = strings.TrimSuffix(hostname, ":")
 	for _, domain := range allowed {
@@ -962,18 +966,15 @@ func hostHTTPDelete(ctx context.Context, urlStr string, headers map[string]inter
 
 func hostGetEnv(name string, config Config, pluginName string) string {
 	allowedEnvs := config.AllowedENVsFor(pluginName)
-	if len(allowedEnvs) > 0 {
-		allowed := false
-		for _, env := range allowedEnvs {
-			if env == name {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			config.Logf(1, "Blocked access to environment variable %s for plugin %s - not in allowed envs", name, pluginName)
-			return ""
+	if len(allowedEnvs) == 0 {
+		config.Logf(1, "Blocked access to environment variable %s for plugin %s - no allowed envs configured", name, pluginName)
+		return ""
+	}
+	for _, env := range allowedEnvs {
+		if env == name {
+			return os.Getenv(name)
 		}
 	}
-	return os.Getenv(name)
+	config.Logf(1, "Blocked access to environment variable %s for plugin %s - not in allowed envs", name, pluginName)
+	return ""
 }
