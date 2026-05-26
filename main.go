@@ -39,6 +39,7 @@ type Config struct {
 	Tools          map[string]bool `yaml:"tools"`
 	AllowedDomains []string        `yaml:"allowed_domains"`
 	Verbosity      int             `yaml:"verbosity_level"`
+	Version        string          `yaml:"version"`
 }
 
 var defaultConfig = Config{
@@ -46,6 +47,7 @@ var defaultConfig = Config{
 	Host:      "127.0.0.1",
 	UseHTTPS:  false,
 	PluginDir: "plugins",
+	Version:   "internal-default",
 	Tools: map[string]bool{
 		"ping":             true,
 		"wikipedia_search": true,
@@ -117,7 +119,7 @@ func main() {
 	}
 
 	config := loadConfig(configPath)
-	config.Logf(1, "Using config %s, plugin dir=%s, verbosity=%d", configPath, config.PluginDir, config.Verbosity)
+	config.Logf(1, "Using config %s version %s, plugin dir=%s, verbosity=%d", configPath, config.Version, config.PluginDir, config.Verbosity)
 	pluginManager, err := loadPlugins(config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load plugins: %v\n", err)
@@ -582,12 +584,11 @@ func (pm *PluginManager) ListTools(config Config) []map[string]interface{} {
 		tools = append(tools, map[string]interface{}{
 			"name":        plugin.Name,
 			"description": plugin.Description,
-			"Version":     plugin.Version,
 			"Tags":        plugin.Tags,
 			"Commit":      plugin.Commit,
 			"inputSchema": plugin.InputSchema,
-			"version":     Version,
-			"commit":      Commit,
+			"Version":     plugin.Version,
+			"commit":      plugin.Commit,
 		})
 	}
 	return tools
