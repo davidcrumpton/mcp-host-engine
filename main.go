@@ -603,6 +603,11 @@ func makeHostObject(config Config, ctx context.Context, pluginName string) map[s
     return map[string]interface{}{
         "readFile":   func(path string) (string, error) { return hostReadFile(path, config, pluginName) },
         "writeFile":  func(path string, content string) error { return hostWriteFile(path, content, config, pluginName) },
+		"listFiles":  func(path string) ([]string, error) { return hostListFiles(path, config, pluginName) },
+        "deleteFile": func(path string) error { return hostDeleteFile(path, config, pluginName) },
+        "renameFile": func(oldPath, newPath string) error {	
+			return hostRenameFile(oldPath, newPath, config, pluginName)
+		},
         "runCommand": func(command string) (string, error) { return hostRunCommand(ctx, config, pluginName, command) },
         "httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
             return hostHTTPGet(ctx, urlStr, headers, config)
@@ -623,14 +628,30 @@ func makeHostObject(config Config, ctx context.Context, pluginName string) map[s
     }
 }
 
-func hostReadFile(path string, config Config, pluginName string) (string, error) {
-	allowed := false
-	for _, allowedPath := range config.AllowedReadFilePathsFor(pluginName) {
-		if strings.HasPrefix(path, allowedPath) {
-			allowed = true
-			break
+// We need to determine the absolute path and check that it starts with one of the allowed paths to prevent directory traversal attacks.
+
+func isPathAllowed(path string, allowedPaths []string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+
+	for _, allowed := range allowedPaths {
+		absAllowed, err := filepath.Abs(allowed)
+		if err != nil {
+			return false
+		}
+		if strings.HasPrefix(absPath, absAllowed) {
+			return true
 		}
 	}
+	return false
+}
+
+// hostReadFile reads a file from the filesystem, but only if it's within an allowed path specified in the config for this plugin.
+func hostReadFile(path string, config Config, pluginName string) (string, error) {
+	allowed := isPathAllowed(path, config.AllowedReadFilePathsFor(pluginName))
+	
 	if !allowed {
 		return "", fmt.Errorf("access to file %q is not allowed", path)
 	}
@@ -642,17 +663,45 @@ func hostReadFile(path string, config Config, pluginName string) (string, error)
 }
 
 func hostWriteFile(path string, content string, config Config, pluginName string) error {
-	allowed := false
-	for _, allowedPath := range config.AllowedWriteFilePathsFor(pluginName) {
-		if strings.HasPrefix(path, allowedPath) {
-			allowed = true
-			break
-		}
-	}
+	allowed := isPathAllowed(path, config.AllowedWriteFilePathsFor(pluginName))
+	
 	if !allowed {
 		return fmt.Errorf("writing to file %q is not allowed", path)
 	}
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func hostListFiles(path string, config Config, pluginName string) ([]string, error) {
+	allowed := isPathAllowed(path, config.AllowedReadFilePathsFor(pluginName))
+	if !allowed {
+		return nil, fmt.Errorf("access to directory %q is not allowed", path)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		files = append(files, entry.Name())
+	}
+	return files, nil
+}
+
+func hostDeleteFile(path string, config Config, pluginName string) error {
+	allowed := isPathAllowed(path, config.AllowedWriteFilePathsFor(pluginName))
+	if !allowed {
+		return fmt.Errorf("deleting file %q is not allowed", path)
+	}
+	return os.Remove(path)
+}
+
+func hostRenameFile(oldPath, newPath string, config Config, pluginName string) error {
+	allowedOld := isPathAllowed(oldPath, config.AllowedWriteFilePathsFor(pluginName))
+	allowedNew := isPathAllowed(newPath, config.AllowedWriteFilePathsFor(pluginName))
+	if !allowedOld || !allowedNew {
+		return fmt.Errorf("renaming file from %q to %q is not allowed", oldPath, newPath)
+	}
+	return os.Rename(oldPath, newPath)
 }
 
 func hostRunCommand(ctx context.Context, config Config, pluginName string, command string) (string, error) {
