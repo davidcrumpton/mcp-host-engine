@@ -1,8 +1,8 @@
 # Variables
-BINARY_NAME=mcp-server
+BINARY_NAME=mcphe
 VERSION ?= 0.0.10
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
-LDFLAGS := -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
+LDFLAGS := -X config.Version=$(VERSION) -X config.Commit=$(COMMIT)
 
 .PHONY: all build run clean test help
 
@@ -10,7 +10,7 @@ all: build
 
 ## build: Build the binary with version and commit info
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) main.go
+	go build -ldflags "$(LDFLAGS)"
 
 ## run: Build and run the server
 run: build
