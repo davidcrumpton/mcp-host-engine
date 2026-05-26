@@ -1,6 +1,9 @@
 module.exports = {
   name: "google_search",
   description: "Search Google using Programmable Search API.",
+  version: "0.0.1",
+  commit: "none",
+  Tags: ["search", "utility"],
   inputSchema: {
     type: "object",
     properties: {

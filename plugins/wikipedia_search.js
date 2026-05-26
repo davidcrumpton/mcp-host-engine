@@ -1,7 +1,9 @@
 module.exports = {
   name: "wikipedia_search",
   description: "Search Wikipedia for a query.",
-
+  version: "0.0.1",
+  commit: "none",
+  Tags: ["search", "utility"],
   inputSchema: {
     type: "object",
     properties: {

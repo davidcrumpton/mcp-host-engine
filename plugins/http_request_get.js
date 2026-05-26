@@ -1,6 +1,9 @@
 module.exports = {
   name: "http_request_get",
   description: "Fetch content from a URL and return extracted plain text.",
+  version: "0.0.1",
+  commit: "none",
+  Tags: ["utility"],
   inputSchema: {
     type: "object",
     properties: {

@@ -21,6 +21,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	Version = "development"
+	Commit  = "none"
+)
+
 type Config struct {
 	Port           string          `yaml:"port"`
 	Host           string          `yaml:"host"`
@@ -78,6 +83,9 @@ type ResponseWithErr struct {
 type Plugin struct {
 	Name        string
 	Description string
+	Version     string
+	Commit      string
+	Tags		[]string
 	InputSchema interface{}
 	Call        goja.Callable
 	VM          *goja.Runtime
@@ -133,10 +141,13 @@ func main() {
 			fmt.Fprintln(os.Stderr, "HTTPS enabled but cert_file or key_file is not configured")
 			os.Exit(1)
 		}
-		fmt.Printf("MCP Server listening on https://%s/rpc\n", addr)
+		fmt.Printf("MCP Server version %s starting...\n", Version)
+		fmt.Printf("MCP Server listening with HTTPS\n")
+		fmt.Printf("    on https://%s/rpc\n", addr)
 		err = http.ListenAndServeTLS(addr, config.CertFile, config.KeyFile, nil)
 	} else {
-		fmt.Printf("MCP Server listening on http://%s/rpc\n", addr)
+		fmt.Printf("MCP Server version %s starting...\n", Version)
+		fmt.Printf("    on http://%s/rpc\n", addr)
 		err = http.ListenAndServe(addr, nil)
 	}
 	if err != nil {
@@ -418,6 +429,25 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 	return &Plugin{
 		Name:        name,
 		Description: obj.Get("description").String(),
+		Version:     obj.Get("version").String(),
+		Tags:        func() []string {
+			tagsVal := obj.Get("tags")
+			if tagsVal == nil {
+				return nil
+			}
+			tagsArray, ok := tagsVal.Export().([]interface{})
+			if !ok {
+				return nil
+			}
+			tags := make([]string, 0, len(tagsArray))
+			for _, t := range tagsArray {
+				if str, ok := t.(string); ok {
+					tags = append(tags, str)
+				}
+			}
+			return tags
+		}(),
+		Commit:      obj.Get("commit").String(),
 		InputSchema: inputSchemaVal.Export(),
 		Call:        callFunc,
 		VM:          vm,
@@ -429,6 +459,8 @@ func makeHostObject(config Config, ctx context.Context) map[string]interface{} {
 		"google_api_key":  config.GoogleAPIKey,
 		"google_cx_id":    config.GoogleCXID,
 		"allowed_domains": config.AllowedDomains,
+		"mcp-version":     Version,
+		"mcp-commit":      Commit,
 	}
 	return map[string]interface{}{
 		"readFile":   func(path string) (string, error) { return hostReadFile(path) },
@@ -550,7 +582,12 @@ func (pm *PluginManager) ListTools(config Config) []map[string]interface{} {
 		tools = append(tools, map[string]interface{}{
 			"name":        plugin.Name,
 			"description": plugin.Description,
+			"Version":     plugin.Version,
+			"Tags":        plugin.Tags,
+			"Commit":      plugin.Commit,
 			"inputSchema": plugin.InputSchema,
+			"version":     Version,
+			"commit":      Commit,
 		})
 	}
 	return tools

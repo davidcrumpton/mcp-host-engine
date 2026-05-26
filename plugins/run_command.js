@@ -1,6 +1,9 @@
 module.exports = {
   name: "run_command",
   description: "Run a shell command on the host.",
+  version: "0.0.1",
+  commit: "none",
+  Tags: ["utility"],
   inputSchema: {
     type: "object",
     properties: {
