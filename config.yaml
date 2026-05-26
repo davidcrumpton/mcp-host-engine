@@ -18,3 +18,9 @@ allowed_domains:
   - "news.ycombinator.com"
   - "gitlab.com"
 verbosity_level: 4
+plugins:
+  google_search:
+    google_api_key: "abc123"
+    google_cx_id: "cx456"
+  some_other_plugin:
+    api_token: "xyz"

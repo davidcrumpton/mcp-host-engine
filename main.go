@@ -34,12 +34,11 @@ type Config struct {
 	KeyFile        string          `yaml:"key_file"`
 	BearerToken    string          `yaml:"bearer_token"`
 	PluginDir      string          `yaml:"plugin_dir"`
-	GoogleAPIKey   string          `yaml:"google_api_key"`
-	GoogleCXID     string          `yaml:"google_cx_id"`
 	Tools          map[string]bool `yaml:"tools"`
 	AllowedDomains []string        `yaml:"allowed_domains"`
 	Verbosity      int             `yaml:"verbosity_level"`
 	Version        string          `yaml:"version"`
+	Plugins        map[string]map[string]string `yaml:"plugins"` 
 }
 
 var defaultConfig = Config{
@@ -395,11 +394,7 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 	}
 
 	vm := goja.New()
-	hostValue := makeHostObject(config, context.Background())
-	if err := vm.Set("host", hostValue); err != nil {
-		config.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
-		return nil, err
-	}
+
 
 	script := fmt.Sprintf("var module = { exports: {} }; var exports = module.exports;\n%s\nmodule.exports", content)
 	value, err := vm.RunString(script)
@@ -410,6 +405,11 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 
 	obj := value.ToObject(vm)
 	nameVal := obj.Get("name")
+	hostValue := makeHostObject(config, context.Background(), nameVal.String())
+	if err := vm.Set("host", hostValue); err != nil {
+		config.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
+		return nil, err
+	}
 	callVal := obj.Get("call")
 	inputSchemaVal := obj.Get("inputSchema")
 
@@ -456,33 +456,38 @@ func loadPlugin(path string, config Config) (*Plugin, error) {
 	}, nil
 }
 
-func makeHostObject(config Config, ctx context.Context) map[string]interface{} {
-	hostConfig := map[string]interface{}{
-		"google_api_key":  config.GoogleAPIKey,
-		"google_cx_id":    config.GoogleCXID,
-		"allowed_domains": config.AllowedDomains,
-		"mcp-version":     Version,
-		"mcp-commit":      Commit,
-	}
-	return map[string]interface{}{
-		"readFile":   func(path string) (string, error) { return hostReadFile(path) },
-		"writeFile":  func(path string, content string) error { return os.WriteFile(path, []byte(content), 0644) },
-		"runCommand": func(command string) (string, error) { return hostRunCommand(ctx, command) },
-		"httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
-    		return hostHTTPGet(ctx, urlStr, headers, config)
-},
-		"httpPost": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
-			return hostHTTPPost(ctx, urlStr, headers, body, config)
-		},
-		"httpPut": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
-			return hostHTTPPut(ctx, urlStr, headers, body, config) // Reuse httpPost for PUT as well
-		},
-		"httpDelete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
-			return hostHTTPDelete(ctx, urlStr, headers, "", config) // Reuse httpPost for DELETE with empty body
-		},
-		"getEnv":     func(name string) string { return os.Getenv(name) },
-		"config":     hostConfig,
-	}
+func makeHostObject(config Config, ctx context.Context, pluginName string) map[string]interface{} {
+    // Build plugin-specific config — only keys for this plugin
+    pluginConfig := map[string]interface{}{
+        "allowed_domains": config.AllowedDomains,
+        "mcp-version":     Version,
+        "mcp-commit":      Commit,
+    }
+    if pCfg, ok := config.Plugins[pluginName]; ok {
+        for k, v := range pCfg {
+            pluginConfig[k] = v
+        }
+    }
+
+    return map[string]interface{}{
+        "readFile":   func(path string) (string, error) { return hostReadFile(path) },
+        "writeFile":  func(path string, content string) error { return os.WriteFile(path, []byte(content), 0644) },
+        "runCommand": func(command string) (string, error) { return hostRunCommand(ctx, command) },
+        "httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+            return hostHTTPGet(ctx, urlStr, headers, config)
+        },
+        "httpPost": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+            return hostHTTPPost(ctx, urlStr, headers, body, config)
+        },
+        "httpPut": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+            return hostHTTPPut(ctx, urlStr, headers, body, config)
+        },
+        "httpDelete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+            return hostHTTPDelete(ctx, urlStr, headers, "", config)
+        },
+        "getEnv": func(name string) string { return os.Getenv(name) },
+        "config": pluginConfig,
+    }
 }
 
 func hostReadFile(path string) (string, error) {
@@ -612,7 +617,7 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		args = map[string]interface{}{}
 	}
 
-	if err := plugin.VM.Set("host", makeHostObject(config, ctx)); err != nil {
+	if err := plugin.VM.Set("host", makeHostObject(config, ctx, plugin.Name)); err != nil {
 		config.Logf(1, "Failed to set host API for tool %s: %v", name, err)
 		return nil, fmt.Errorf("failed to set host API: %w", err)
 	}

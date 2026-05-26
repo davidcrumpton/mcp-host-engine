@@ -19,3 +19,9 @@ allowed_domains:
   - "dev.to"
   - "news.ycombinator.com"
   - "gitlab.com"
+plugins:
+  google_search:
+    google_api_key: "abc123"
+    google_cx_id: "cx456"
+  some_other_plugin:
+    api_token: "xyz"
