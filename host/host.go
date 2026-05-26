@@ -39,16 +39,16 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		},
 		"runCommand": func(command string) (string, error) { return RunCommand(ctx, cfg, pluginName, command) },
 		"httpGet": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
-			return HTTPGet(ctx, urlStr, headers, cfg)
+			return HTTPGet(ctx, urlStr, headers, cfg, pluginName)
 		},
 		"httpPost": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
-			return HTTPPost(ctx, urlStr, headers, body, cfg)
+			return HTTPPost(ctx, urlStr, headers, body, cfg, pluginName)
 		},
 		"httpPut": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
-			return HTTPPut(ctx, urlStr, headers, body, cfg)
+			return HTTPPut(ctx, urlStr, headers, body, cfg, pluginName)
 		},
 		"httpDelete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
-			return HTTPDelete(ctx, urlStr, headers, "", cfg)
+			return HTTPDelete(ctx, urlStr, headers, "", cfg, pluginName)
 		},
 		"getEnv": func(key string) (string, error) {
 			return GetEnv(key, cfg, pluginName), nil
@@ -155,14 +155,14 @@ func RunCommand(ctx context.Context, cfg config.Config, pluginName string, comma
 	return string(output), nil
 }
 
-func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config) (map[string]interface{}, error) {
+func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {
 	cfg.Logf(3, "HTTPGet %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor("http_request_get")) {
+	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -208,14 +208,14 @@ func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{},
 	}, nil
 }
 
-func HTTPPost(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config) (map[string]interface{}, error) {
+func HTTPPost(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
 	cfg.Logf(3, "HTTPPost %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor("http_request_get")) {
+	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -261,14 +261,14 @@ func HTTPPost(ctx context.Context, urlStr string, headers map[string]interface{}
 	}, nil
 }
 
-func HTTPPut(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config) (map[string]interface{}, error) {
+func HTTPPut(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
 	cfg.Logf(3, "HTTPPut called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor("http_request_get")) {
+	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -314,14 +314,14 @@ func HTTPPut(ctx context.Context, urlStr string, headers map[string]interface{},
 	}, nil
 }
 
-func HTTPDelete(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config) (map[string]interface{}, error) {
+func HTTPDelete(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
 	cfg.Logf(3, "HTTPDelete called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor("http_request_get")) {
+	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
