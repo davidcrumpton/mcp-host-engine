@@ -33,10 +33,16 @@ type ResponseWithErr struct {
 	ID      interface{}    `json:"id"`
 }
 
+type sseClient struct {
+	send chan []byte
+}
+
 var (
 	inflightMu sync.Mutex
 	inflight   = map[string]context.CancelFunc{}
-	writeMu    sync.Mutex
+
+	sseClientsMu sync.Mutex
+	sseClients   = map[*sseClient]struct{}{}
 )
 
 func ValidateBearerToken(next http.HandlerFunc, token string) http.HandlerFunc {
@@ -51,12 +57,95 @@ func ValidateBearerToken(next http.HandlerFunc, token string) http.HandlerFunc {
 }
 
 func HandleHTTPRequest(w http.ResponseWriter, r *http.Request, cfg config.Config, pm *plugin.PluginManager) {
-	cfg.Logf(3, "Incoming request %s %s", r.Method, r.URL.Path)
-	if r.Method != http.MethodPost {
+	setCORSHeaders(w)
+	switch r.Method {
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodGet:
+		handleSSE(w, r, cfg)
+	case http.MethodPost:
+		handlePost(w, r, cfg, pm)
+	default:
 		cfg.Logf(1, "Method not allowed: %s", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSSE holds GET connections open indefinitely.
+// n8n opens these on startup and keeps them alive as a persistent
+// server→client channel. Responses are broadcast here AND returned
+// on the POST so either transport style works.
+func handleSSE(w http.ResponseWriter, r *http.Request, cfg config.Config) {
+	cfg.Logf(3, "SSE client connected from %s", r.RemoteAddr)
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	client := &sseClient{send: make(chan []byte, 32)}
+
+	sseClientsMu.Lock()
+	sseClients[client] = struct{}{}
+	sseClientsMu.Unlock()
+
+	defer func() {
+		sseClientsMu.Lock()
+		delete(sseClients, client)
+		sseClientsMu.Unlock()
+		cfg.Logf(3, "SSE client disconnected from %s", r.RemoteAddr)
+	}()
+
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg := <-client.send:
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+func broadcastSSE(msg interface{}, cfg config.Config) {
+	b, err := json.Marshal(msg)
+	if err != nil {
+		cfg.Logf(1, "broadcastSSE marshal error: %v", err)
+		return
+	}
+	cfg.Logf(3, "Broadcasting SSE: %s", string(b))
+	sseClientsMu.Lock()
+	defer sseClientsMu.Unlock()
+	for client := range sseClients {
+		select {
+		case client.send <- b:
+		default:
+			cfg.Logf(2, "SSE client buffer full, dropping message")
+		}
+	}
+}
+
+// handlePost processes all JSON-RPC POST requests synchronously.
+// The response is written directly on the POST (works for LM Studio and
+// any plain HTTP client) AND broadcast over SSE (works for n8n which
+// may read from either channel).
+func handlePost(w http.ResponseWriter, r *http.Request, cfg config.Config, pm *plugin.PluginManager) {
+	cfg.Logf(3, "Incoming request POST %s", r.URL.Path)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -64,6 +153,7 @@ func HandleHTTPRequest(w http.ResponseWriter, r *http.Request, cfg config.Config
 		sendJSON(w, ResponseWithErr{JSONRPC: "2.0", Error: &ErrorResponse{Code: -32700, Message: "Parse error"}, ID: nil})
 		return
 	}
+	cfg.Logf(3, "Request body: %s", string(body))
 
 	var req Request
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -72,24 +162,9 @@ func HandleHTTPRequest(w http.ResponseWriter, r *http.Request, cfg config.Config
 		return
 	}
 
-	if req.Method == "notifications/cancelled" {
-		var p struct {
-			RequestID interface{} `json:"requestId"`
-		}
-		json.Unmarshal(req.Params, &p)
-		key := fmt.Sprintf("%v", p.RequestID)
-		inflightMu.Lock()
-		if cancel, ok := inflight[key]; ok {
-			cancel()
-			delete(inflight, key)
-		}
-		inflightMu.Unlock()
-		sendJSON(w, ResponseWithErr{JSONRPC: "2.0", Result: "Cancellation acknowledged", ID: nil})
-		return
-	}
-
-	if req.Method == "notifications/initialized" {
-		sendJSON(w, ResponseWithErr{JSONRPC: "2.0", Result: "Initialization acknowledged", ID: nil})
+	// Notifications: 202, no body.
+	if strings.HasPrefix(req.Method, "notifications/") {
+		handleNotification(w, req, cfg)
 		return
 	}
 
@@ -98,6 +173,7 @@ func HandleHTTPRequest(w http.ResponseWriter, r *http.Request, cfg config.Config
 
 	key := fmt.Sprintf("%v", req.ID)
 	cfg.Logf(3, "Handling request id=%v method=%s", req.ID, req.Method)
+
 	inflightMu.Lock()
 	inflight[key] = cancel
 	inflightMu.Unlock()
@@ -109,21 +185,62 @@ func HandleHTTPRequest(w http.ResponseWriter, r *http.Request, cfg config.Config
 
 	res := &ResponseWithErr{JSONRPC: "2.0", ID: req.ID}
 	handleRequest(ctx, req, res, cfg, pm)
+
+	// Respond on the POST — required for LM Studio and spec-compliant for all clients.
+	cfg.Logf(3, "Sending response id=%v", req.ID)
 	sendJSON(w, res)
+
+	// Broadcast over SSE for clients like n8n that listen on the GET channel.
+	// Skip initialize/ping — those are handshake responses that belong only on
+	// the POST; broadcasting them to persistent SSE listeners confuses clients.
+	if req.Method != "initialize" && req.Method != "ping" {
+		broadcastSSE(res, cfg)
+	}
+}
+
+func handleNotification(w http.ResponseWriter, req Request, cfg config.Config) {
+	switch req.Method {
+	case "notifications/cancelled":
+		var p struct {
+			RequestID interface{} `json:"requestId"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err == nil {
+			key := fmt.Sprintf("%v", p.RequestID)
+			inflightMu.Lock()
+			if cancel, ok := inflight[key]; ok {
+				cancel()
+				delete(inflight, key)
+			}
+			inflightMu.Unlock()
+			cfg.Logf(3, "Cancelled in-flight request id=%v", p.RequestID)
+		}
+	case "notifications/initialized":
+		cfg.Logf(3, "Client sent initialized notification")
+	default:
+		cfg.Logf(2, "Unknown notification: %s", req.Method)
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func handleRequest(ctx context.Context, req Request, res *ResponseWithErr, cfg config.Config, pm *plugin.PluginManager) {
 	switch req.Method {
 	case "initialize":
-		res.Result = map[string]interface{}{
-			"protocolVersion": "2024-11-05",
-			"capabilities": map[string]interface{}{
-				"tools": map[string]interface{}{},
-			},
-			"serverInfo": map[string]interface{}{"name": "mcp-server-go", "version": "1.0.0"},
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
 		}
+		if err := json.Unmarshal(req.Params, &initParams); err != nil || initParams.ProtocolVersion == "" {
+			initParams.ProtocolVersion = "2025-03-26"
+		}
+		cfg.Logf(2, "Client requested protocolVersion=%s", initParams.ProtocolVersion)
+		res.Result = map[string]interface{}{
+			"protocolVersion": initParams.ProtocolVersion,
+			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
+			"serverInfo":      map[string]interface{}{"name": "mcp-server-go", "version": "1.0.0"},
+		}
+
 	case "tools/list":
-		res.Result = map[string]interface{}{"tools": pm.ListTools(cfg)}
+		res.Result = map[string]interface{}{"tools": normalizeTools(pm.ListTools(cfg))}
+
 	case "tools/call":
 		var params struct {
 			Name      string          `json:"name"`
@@ -134,24 +251,57 @@ func handleRequest(ctx context.Context, req Request, res *ResponseWithErr, cfg c
 			res.Error = &ErrorResponse{Code: -32602, Message: "Invalid params"}
 			return
 		}
-		toolResult, err := pm.CallTool(ctx, params.Name, params.Arguments, cfg)
-		cfg.Logf(3, "Tool %s returned result: %v", params.Name, toolResult)
+		result, err := pm.CallTool(ctx, params.Name, params.Arguments, cfg)
+		cfg.Logf(3, "Tool %s returned result: %v", params.Name, result)
 		if err != nil {
 			res.Error = &ErrorResponse{Code: -32000, Message: err.Error()}
 			return
 		}
-		res.Result = normalizeToolResult(toolResult)
+		res.Result = normalizeToolResult(result)
+
+	case "ping":
+		res.Result = map[string]interface{}{}
+
 	default:
+		cfg.Logf(2, "Unknown method: %s", req.Method)
 		res.Error = &ErrorResponse{Code: -32601, Message: "Method " + req.Method + " not found"}
 	}
 }
 
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cache-Control")
+}
+
 func sendJSON(w http.ResponseWriter, res interface{}) {
-	writeMu.Lock()
-	defer writeMu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	b, _ := json.Marshal(res)
+	b, err := json.Marshal(res)
+	if err != nil {
+		http.Error(w, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null}`, http.StatusInternalServerError)
+		return
+	}
 	w.Write(b)
+}
+
+func normalizeTools(raw interface{}) []map[string]interface{} {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return []map[string]interface{}{}
+	}
+	var tools []map[string]interface{}
+	if err := json.Unmarshal(b, &tools); err != nil {
+		return []map[string]interface{}{}
+	}
+	out := make([]map[string]interface{}, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, map[string]interface{}{
+			"name":        t["name"],
+			"description": t["description"],
+			"inputSchema": t["inputSchema"],
+		})
+	}
+	return out
 }
 
 func toolResult(text string) map[string]interface{} {
