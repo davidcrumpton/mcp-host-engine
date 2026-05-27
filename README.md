@@ -1,4 +1,4 @@
-# MCP Server Hosting Engine (Go + JavaScript Plugins)
+# MCP Host Engine (Go + JavaScript Plugins) Server
 
 This repository contains a Go-based MCP server that runs tools as JavaScript plugins.
 
