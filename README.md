@@ -1,4 +1,4 @@
-# MCP Server (Go + JavaScript Plugins)
+# MCP Server Hosting Engine (Go + JavaScript Plugins)
 
 This repository contains a Go-based MCP server that runs tools as JavaScript plugins.
 
@@ -15,13 +15,13 @@ This repository contains a Go-based MCP server that runs tools as JavaScript plu
 
 ```bash
 go mod tidy
-go build -o mcp-server ./
+make build
 ```
 
 1. Start the server:
 
 ```bash
-./mcp-server config.yaml
+./mcphe config.yaml
 ```
 
 1. Call the server via POST to `http://127.0.0.1:8000/rpc`.

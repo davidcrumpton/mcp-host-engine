@@ -235,7 +235,7 @@ func handleRequest(ctx context.Context, req Request, res *ResponseWithErr, cfg c
 		res.Result = map[string]interface{}{
 			"protocolVersion": initParams.ProtocolVersion,
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-			"serverInfo":      map[string]interface{}{"name": "mcp-server-go", "version": "1.0.0"},
+			"serverInfo":      map[string]interface{}{"name": "mcphe", "version": cfg.Version},
 		}
 
 	case "tools/list":
