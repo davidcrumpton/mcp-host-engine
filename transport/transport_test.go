@@ -131,18 +131,18 @@ func TestValidateBearerToken_NotBearerScheme(t *testing.T) {
 // HandleHTTPRequest – method guard
 // ---------------------------------------------------------------------------
 
-func TestHandleHTTPRequest_RejectsGET(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleHTTPRequest(w, r, defaultCfg(), nil)
-	})
-	req := httptest.NewRequest(http.MethodGet, "/rpc", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
+func TestHandleHTTPRequest_RejectsUnsupportedMethod(t *testing.T) {
+ 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		HandleHTTPRequest(w, r, defaultCfg(), nil)
+ 	})
+ 	req := httptest.NewRequest(http.MethodPut, "/rpc", nil)
+ 	w := httptest.NewRecorder()
+ 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("got %d, want 405", w.Code)
-	}
-}
+ 	if w.Code != http.StatusMethodNotAllowed {
+ 		t.Errorf("got %d, want 405", w.Code)
+ 	}
+ }
 
 // ---------------------------------------------------------------------------
 // HandleHTTPRequest – bad JSON body
@@ -183,9 +183,9 @@ func TestHandleRequest_Initialize(t *testing.T) {
 	if !ok {
 		t.Fatalf("result should be a map, got %T", resp.Result)
 	}
-	if result["protocolVersion"] != "2024-11-05" {
-		t.Errorf("unexpected protocolVersion: %v", result["protocolVersion"])
-	}
+	if result["protocolVersion"] != "2025-03-26" {
+ 		t.Errorf("unexpected protocolVersion: %v", result["protocolVersion"])
+ 	}
 }
 
 // ---------------------------------------------------------------------------
@@ -201,10 +201,13 @@ func TestHandleRequest_NotificationsInitialized(t *testing.T) {
 		"id":      nil,
 		"method":  "notifications/initialized",
 	})
-	resp := decodeResp(t, w)
-	if resp.Error != nil {
-		t.Fatalf("unexpected error: %v", resp.Error)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("got %d want 202", w.Code)
 	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("expected empty notification body, got %q", w.Body.String())
+ 	}
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +310,7 @@ func TestToolError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleRequest_CancelNonExistentID(t *testing.T) {
-	// Should not panic and should return a 2.0 response.
+	// Should not panic and should return 202 with no body.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		HandleHTTPRequest(w, r, defaultCfg(), nil)
 	})
@@ -316,9 +319,13 @@ func TestHandleRequest_CancelNonExistentID(t *testing.T) {
 		"id":      nil,
 		"method":  "notifications/cancelled",
 		"params":  map[string]interface{}{"requestId": "xyz"},
-	})
-	resp := decodeResp(t, w)
-	if resp.Error != nil {
-		t.Fatalf("unexpected error: %v", resp.Error)
-	}
-}
+ 	})
+
+ 	if w.Code != http.StatusAccepted {
+ 		t.Fatalf("got %d want 202", w.Code)
+ 	}
+
+ 	if w.Body.Len() != 0 {
+ 		t.Fatalf("expected empty body, got %q", w.Body.String())
+ 	}
+ }
