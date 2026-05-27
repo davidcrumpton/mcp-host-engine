@@ -47,23 +47,23 @@ var DefaultConfig = Config{
 	Verbosity: 0,
 }
 
-func LoadConfig(path string) Config {
+
+func LoadConfig(path string) (Config, error) {
 	cfg := DefaultConfig
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+		if os.IsNotExist(err) {
+			return cfg, fmt.Errorf("config file not found: %s", path)
 		}
-		return cfg
+		return cfg, fmt.Errorf("error reading config: %w", err)
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing config: %v\n", err)
-		return DefaultConfig
+		return DefaultConfig, fmt.Errorf("error parsing config: %w", err)
 	}
 	if cfg.PluginDir == "" {
 		cfg.PluginDir = DefaultConfig.PluginDir
 	}
-	return cfg
+	return cfg, nil
 }
 
 func (c Config) Verbose(level int) bool {

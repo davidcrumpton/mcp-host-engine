@@ -51,7 +51,7 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			return HTTPDelete(ctx, urlStr, headers, "", cfg, pluginName)
 		},
 		"getEnv": func(key string) (string, error) {
-			return GetEnv(key, cfg, pluginName), nil
+			return GetEnv(key, cfg, pluginName)
 		},
 		"config": pluginConfig,
 	}
@@ -367,19 +367,19 @@ func HTTPDelete(ctx context.Context, urlStr string, headers map[string]interface
 	}, nil
 }
 
-func GetEnv(name string, cfg config.Config, pluginName string) string {
+func GetEnv(name string, cfg config.Config, pluginName string) (string, error) {
 	allowedEnvs := cfg.AllowedENVsFor(pluginName)
 	if len(allowedEnvs) == 0 {
 		cfg.Logf(1, "Blocked access to environment variable %s for plugin %s - no allowed envs configured", name, pluginName)
-		return ""
+		return "", fmt.Errorf("access to environment variable %s for plugin %s is not allowed", name, pluginName)
 	}
 	for _, env := range allowedEnvs {
 		if env == name {
-			return os.Getenv(name)
+			return os.Getenv(name), nil
 		}
 	}
 	cfg.Logf(1, "Blocked access to environment variable %s for plugin %s - not in allowed envs", name, pluginName)
-	return ""
+	return "", fmt.Errorf("access to environment variable %s for plugin %s is not allowed", name, pluginName)
 }
 
 func isAllowedDomain(hostname string, allowed []string) bool {

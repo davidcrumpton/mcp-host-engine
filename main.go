@@ -23,7 +23,12 @@ func main() {
 		configPath = flag.Arg(0)
 	}
 
-	cfg := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
 	cfg.Logf(1, "Using config %s version %s, plugin dir=%s, verbosity=%d", configPath, cfg.Version, cfg.PluginDir, cfg.Verbosity)
 	
 	pluginManager, err := plugin.LoadPlugins(cfg)

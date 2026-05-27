@@ -24,7 +24,7 @@ module.exports = {
       const response = host.httpGet(url, {
         headers: {
           "User-Agent":
-            "llmctrlx-wikipedia-plugin/1.0 (https://github.com/davidcrumpton/mcphe/plugins/wikipedia_search.js; David Crumpton <david.crumpton>; mcphe <mcphe>)",
+            "mcphe-wikipedia-plugin/1.0 (https://github.com/davidcrumpton/mcphe/plugins/wikipedia_search.js; David Crumpton <david.crumpton>; mcphe <mcphe>)",
           "Accept": "application/json"
         }
       });
@@ -43,8 +43,6 @@ module.exports = {
         result: `${payload.title}: ${payload.extract}`
       };
     } catch (err) {
-      debugInfo += `Error: ${err.message}\n`;
-
       return {
         success: false,
         result: err.message

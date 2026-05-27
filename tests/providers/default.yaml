@@ -1,0 +1,57 @@
+---
+version: "1.0"
+port: "7999"
+host: "127.0.0.1"
+use_https: false
+bearer_token: "test_token_dont_use_in_production_6847730246031040213"
+tools:
+  "ping": false
+  "google_search": false
+  "http_request_get": true
+  "write_file": true
+  "read_file": true
+  "get_ip": true
+  "wikipedia_search": true
+  "run_command": true
+  "get_env_var": true
+verbosity_level: 4
+plugins:
+  google_search:
+    google_api_key: "abc123"
+    google_cx_id: "cx456"
+  http_request_get:
+    allowed_domains:
+      - "crumpton.org"
+      - "example.com"
+      - "reddit.com"
+      - "github.com"
+    api_token: "xyz"
+  get_env_var:
+    allowed_env_vars:
+      - "PATH"
+      - "USER"
+      - "HOME"
+  run_command:
+    allowed_commands:
+      - "ls"
+      - "pwd"
+      - "whoami"
+      - "env"
+    allowed_env_vars:
+      - "PATH"
+      - "USER"
+      - "HOME"
+  write_file:
+    allowed_write_file_paths:
+      - "/tmp"
+      - "/var/log"
+  read_file:
+    allowed_read_file_paths:
+      - "/tmp"
+      - "/var/log"
+  get_ip:
+    allowed_domains:
+      - "ifconfig.io"
+  wikipedia_search:
+    allowed_domains:
+      - en.wikipedia.org

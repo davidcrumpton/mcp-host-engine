@@ -347,7 +347,7 @@ func TestHTTPGet_Success(t *testing.T) {
 	parsed, _ := url.Parse(srv.URL)
 	cfg := cfgWithDomains([]string{parsed.Hostname()})
 
-	res, err := HTTPGet(context.Background(), srv.URL, nil, cfg)
+	res, err := HTTPGet(context.Background(), srv.URL, nil, cfg, "http_request_get")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestHTTPGet_Success(t *testing.T) {
 
 func TestHTTPGet_BlockedDomain(t *testing.T) {
 	cfg := cfgWithDomains([]string{"allowed.example.com"}) // blocked.example.com not listed
-	_, err := HTTPGet(context.Background(), "http://blocked.example.com/", nil, cfg)
+	_, err := HTTPGet(context.Background(), "http://blocked.example.com/", nil, cfg, "http_request_get")
 	if err == nil {
 		t.Fatal("expected blocked-domain error")
 	}
@@ -366,7 +366,7 @@ func TestHTTPGet_BlockedDomain(t *testing.T) {
 
 func TestHTTPGet_InvalidURL(t *testing.T) {
 	cfg := config.Config{}
-	_, err := HTTPGet(context.Background(), "://bad-url", nil, cfg)
+	_, err := HTTPGet(context.Background(), "://bad-url", nil, cfg, "http_request_get")
 	if err == nil {
 		t.Fatal("expected invalid-URL error")
 	}
@@ -384,7 +384,7 @@ func TestHTTPPost_Success(t *testing.T) {
 	parsed, _ := url.Parse(srv.URL)
 	cfg := cfgWithDomains([]string{parsed.Hostname()})
 
-	res, err := HTTPPost(context.Background(), srv.URL, nil, "payload", cfg)
+	res, err := HTTPPost(context.Background(), srv.URL, nil, "payload", cfg, "http_request_get")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestHTTPPost_Success(t *testing.T) {
 
 func TestHTTPPost_BlockedDomain(t *testing.T) {
 	cfg := cfgWithDomains([]string{"other.example.com"})
-	_, err := HTTPPost(context.Background(), "http://blocked.com/", nil, "", cfg)
+	_, err := HTTPPost(context.Background(), "http://blocked.com/", nil, "", cfg, "http_request_get")
 	if err == nil {
 		t.Fatal("expected blocked-domain error")
 	}
@@ -415,7 +415,7 @@ func TestHTTPPut_Success(t *testing.T) {
 	parsed, _ := url.Parse(srv.URL)
 	cfg := cfgWithDomains([]string{parsed.Hostname()})
 
-	res, err := HTTPPut(context.Background(), srv.URL, nil, "data", cfg)
+	res, err := HTTPPut(context.Background(), srv.URL, nil, "data", cfg, "http_request_get")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestHTTPDelete_Success(t *testing.T) {
 	parsed, _ := url.Parse(srv.URL)
 	cfg := cfgWithDomains([]string{parsed.Hostname()})
 
-	res, err := HTTPDelete(context.Background(), srv.URL, nil, "", cfg)
+	res, err := HTTPDelete(context.Background(), srv.URL, nil, "", cfg, "http_request_get")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
