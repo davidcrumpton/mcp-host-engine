@@ -1,6 +1,6 @@
 # MCP Host Engine (Go + JavaScript Plugins) Server
 
-This repository contains a Go-based MCP server that runs tools as JavaScript plugins.
+This repository contains a Go-based MCP server that runs tools as JavaScript plugins.  This allows versitility for the MCP server as many servers are product specific requiring one for GitHub, one for Google Docs, etc.  This allows you to plugin only what you need to create your own custom server  as a service  to be used by LLMs, AI agents, etc.  You can run the server on your local machine or on a remote server, and you can also run it as a Docker container.
 
 ## Features
 
