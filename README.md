@@ -28,6 +28,8 @@ make build
 
 ## Plugin development
 
+The `mcphe` server provides custom calls for the JavaScript plugin to use.  These custom calls are documented in the documentation for the `mcphe` server.  The documentation is available at `docs/index.html`.
+
 Create a JavaScript plugin in `plugins/` with `module.exports = { name, description, inputSchema, call }`.
 The `call` function receives the JSON arguments object and may return a string, object, array, or primitive.
 
