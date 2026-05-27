@@ -58,14 +58,29 @@ func main() {
 		fmt.Printf("MCP Server version %s starting...\n", config.Version)
 		fmt.Printf("MCP Server listening with HTTPS\n")
 		fmt.Printf("    on https://%s/rpc\n", addr)
+		storePidFile(cfg)
 		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, nil)
 	} else {
 		fmt.Printf("MCP Server version %s starting...\n", config.Version)
 		fmt.Printf("    on http://%s/rpc\n", addr)
+		storePidFile(cfg)
 		err = http.ListenAndServe(addr, nil)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
 		os.Exit(1)
+	}
+
+}
+
+func storePidFile(cfg config.Config) {
+	cfg.Logf(4, "Checking pid file %s", cfg.PidFile)
+	pid := cfg.GetProcessPID()
+	if pid != -1 {
+		cfg.Logf(4, "Server process ID: %d\n", pid)
+	}
+	err := cfg.WritePidFile()
+	if err != nil {
+		cfg.Logf(4, "Error writing pid file %s", err)
 	}
 }

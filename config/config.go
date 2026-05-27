@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -24,6 +25,7 @@ type Config struct {
 	Tools       map[string]bool `yaml:"tools"`
 	Verbosity   int             `yaml:"verbosity_level"`
 	Version     string          `yaml:"version"`
+	PidFile     string          `yaml:"pid_file"`
 	Plugins     map[string]map[string]interface{} `yaml:"plugins"`
 }
 
@@ -214,4 +216,62 @@ func (c Config) IsToolEnabled(name string) bool {
 	}
 	enabled, ok := c.Tools[name]
 	return ok && enabled
+}
+
+func (c Config) GetProcessPID() int {
+	if c.PidFile == "" {
+		return os.Getpid()
+	}
+	data, err := os.ReadFile(c.PidFile)
+	if err != nil {
+		return -1
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return -1
+	}
+	return pid
+}
+
+func (c Config) GetProcessUID() int {
+	if c.PidFile == "" {
+		return os.Getuid()
+	}
+	data, err := os.ReadFile(c.PidFile)
+	if err != nil {
+		return -1
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return -1
+	}
+	return pid
+}
+
+func (c Config) GetProcessGID() int {
+	if c.PidFile == "" {
+		return os.Getgid()
+	}
+	data, err := os.ReadFile(c.PidFile)
+	if err != nil {
+		return -1
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return -1
+	}
+	return pid
+}
+
+func (c Config) WritePidFile() error {
+	if c.PidFile == "" {
+		fmt.Printf("PidFile is not set %s", c.PidFile)
+		return fmt.Errorf("PidFile is not set %s", c.PidFile)
+	}
+	err := os.WriteFile(c.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
+	if err != nil {
+		fmt.Printf("Error writing pid file %s: %s", c.PidFile, err)
+		return err
+	}
+	return nil
 }
