@@ -29,7 +29,7 @@ func writeYAML(t *testing.T, content string) string {
 
 func TestLoadConfig_Defaults(t *testing.T) {
 	// Non-existent path → returns DefaultConfig unchanged.
-	cfg := LoadConfig(filepath.Join(t.TempDir(), "does_not_exist.yaml"))
+	cfg, _ := LoadConfig(filepath.Join(t.TempDir(), "does_not_exist.yaml"))
 	if cfg.Port != DefaultConfig.Port {
 		t.Errorf("port: got %q, want %q", cfg.Port, DefaultConfig.Port)
 	}
@@ -49,7 +49,7 @@ plugin_dir: "myplugins"
 verbosity_level: 3
 `
 	path := writeYAML(t, yaml)
-	cfg := LoadConfig(path)
+	cfg, _ := LoadConfig(path)
 
 	if cfg.Port != "9090" {
 		t.Errorf("port: got %q, want 9090", cfg.Port)
@@ -68,7 +68,7 @@ verbosity_level: 3
 func TestLoadConfig_EmptyPluginDirFallsBackToDefault(t *testing.T) {
 	yaml := `plugin_dir: ""`
 	path := writeYAML(t, yaml)
-	cfg := LoadConfig(path)
+	cfg, _ := LoadConfig(path)
 	if cfg.PluginDir != DefaultConfig.PluginDir {
 		t.Errorf("plugin_dir: got %q, want %q", cfg.PluginDir, DefaultConfig.PluginDir)
 	}
@@ -77,7 +77,7 @@ func TestLoadConfig_EmptyPluginDirFallsBackToDefault(t *testing.T) {
 func TestLoadConfig_InvalidYAML(t *testing.T) {
 	path := writeYAML(t, "{ bad yaml: [")
 	// Should not panic; returns DefaultConfig.
-	cfg := LoadConfig(path)
+	cfg, _ := LoadConfig(path)
 	if cfg.Port != DefaultConfig.Port {
 		t.Errorf("port: got %q, want %q", cfg.Port, DefaultConfig.Port)
 	}

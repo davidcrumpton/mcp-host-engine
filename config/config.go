@@ -41,10 +41,18 @@ var DefaultConfig = Config{
 		"read_file":        false,
 		"write_file":       false,
 		"run_command":      false,
-		"date_time":        true,
-		"http_request_get": true,
+		"date_time":        true,	
+		"http_request_get": false,
 	},
 	Verbosity: 0,
+	Plugins: map[string]map[string]interface{}{
+		"wikipedia_search": {
+			"allowed_domains": []string{"en.wikipedia.org"},
+		},
+		"google_search": {
+			"allowed_domains": []string{"google.com"},
+		},
+	},
 }
 
 
