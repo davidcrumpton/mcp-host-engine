@@ -26,7 +26,7 @@ make build
 ./mcphe config.yaml
 ```
 
-1. Call the server via POST to `http://127.0.0.1:8000/rpc`.
+1. Call the server via POST to `http://127.0.0.1:8001/rpc`.
 
 ## Configuration File Reference (`config.yaml`)
 
@@ -38,7 +38,7 @@ This section details the available settings for the MCP Host Engine. These value
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `port` | `string` | `"8000"` | The network port the MCP Host Engine will listen on. |
+| `port` | `string` | `"8001"` | The network port the MCP Host Engine will listen on. |
 | `host` | `string` | `"127.0.0.1"` | The network interface to bind the server to. Use `"0.0.0.0"` to listen on all interfaces. |
 | `use_https` | `bool` | `false` | If set to `true`, the server will enforce HTTPS communication. |
 | `cert_file` | `string` | *(none)* | Path to the SSL certificate file required when `use_https` is `true`. |

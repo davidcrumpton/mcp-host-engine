@@ -30,7 +30,7 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	Port:      "8000",
+	Port:      "8001",
 	Host:      "127.0.0.1",
 	UseHTTPS:  false,
 	PluginDir: "plugins",

@@ -47,6 +47,9 @@ func main() {
 
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
 
+	http.HandleFunc("/rpc/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		transport.HandleHTTPRequest(w, r, cfg, pluginManager)
+	})
 	http.Handle("/rpc", handler)
 
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
