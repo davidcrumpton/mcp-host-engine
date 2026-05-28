@@ -48,7 +48,7 @@ This section details the available settings for the MCP Host Engine. These value
 
 ### Plugin and Tool Management
 
-These settings control which plugins are available and what level of access they have.
+These settings control which plugins are available and what level of access they have.  Note that plugins are loaded at startup and are not dynamically reloadable.  If you change the plugins directory, you will need to restart the server.  If you change any of the other plugin settings, you will need to restart the server for the changes to take effect.  I
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -196,7 +196,7 @@ module.exports = {
 
 ## Caveats
 
-This was designed and tested only on LMStudio at this time with gemma4:31B and gemma4:26B. Smaller gemma models had a hard time following instructions and with following security constraints.  Other larger models have had a hard time following instructions as well.  Please report your findings.
+This was designed and tested only on LMStudio at this time with `gemma-4-31b` and `gemma-4-26b-a4b-it`. Smaller gemma models had a hard time following instructions and with following security constraints.  Other larger models have had a hard time following instructions as well.  Please report your findings.
 
 ## Development
 
