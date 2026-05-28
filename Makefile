@@ -1,6 +1,6 @@
 # Variables
 BINARY_NAME=mcphe
-VERSION ?= 0.0.10
+VERSION ?= 0.3.10
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 LDFLAGS := -X config.Version=$(VERSION) -X config.Commit=$(COMMIT)
 
