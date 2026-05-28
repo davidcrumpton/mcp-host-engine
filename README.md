@@ -193,3 +193,11 @@ module.exports = {
   }
 };
 ```
+
+## Caveats
+
+This was designed and tested only on LMStudio at this time with gemma4:31B and gemma4:26B. Smaller gemma models had a hard time following instructions and with following security constraints.  Other larger models have had a hard time following instructions as well.  Please report your findings.
+
+## Development
+
+To build and deploy a Docker container, see `Dockerfile`.  To run the server locally, see `tests/README.md` for instructions on building and running the server locally.

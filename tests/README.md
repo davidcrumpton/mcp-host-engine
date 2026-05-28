@@ -32,7 +32,3 @@ Three new things it provides:
 ### Provider-specific test scripts
 
 The providers folder contains `default.yaml` and it is the default.  Add other mcp server configurations and use the --provider argument to select the provider.  The provider name must match the filename of the provider configuration file.
-
-## Caveats
-
-This was designed and tested only on LMStudio at this time.

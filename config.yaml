@@ -1,30 +1,22 @@
 ---
 Version: "1.0"
 port: "8000"
-host: "0.0.0.0"
+host: "127.0.0.1"
 use_https: false
 bearer_token: ""
 tools:
   "ping": false
-  "google_search": false
+  "google_search": true
   "http_request_get": true
-allowed_domains:
-  - "crumpton.org"
-  - "reddit.com"
-  - "github.com"
-  - "stackoverflow.com"
-  - "medium.com"
-  - "dev.to"
-  - "news.ycombinator.com"
-  - "gitlab.com"
-verbosity_level: 4
+  "wikipedia_search": true
+verbosity_level: 1
 plugins:
   google_search:
     google_api_key: "abc123"
     google_cx_id: "cx456"
+    allowed_domains: ["google.com"]
   http_request_get:
     allowed_domains:
-      - "crumpton.org"
       - "reddit.com"
       - "github.com"
       - "stackoverflow.com"
@@ -34,3 +26,6 @@ plugins:
       - "gitlab.com"
     allowed_env_vars: []
     api_token: "xyz"
+  wikipedia_search:
+    allowed_domains: ["en.wikipedia.org"]
+
