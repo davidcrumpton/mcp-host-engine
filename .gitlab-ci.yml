@@ -1,0 +1,18 @@
+image: golang:1.22
+
+stages:
+  - build
+  - test
+
+build:
+  stage: build
+  script:
+    - make build
+  artifacts:
+    paths:
+      - mcphe
+
+test:
+  stage: test
+  script:
+    - make test
