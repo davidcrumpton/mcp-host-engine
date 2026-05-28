@@ -7,6 +7,6 @@ SESSION_BASE="test-wikipedia_search-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut
 echo -e "\n${CYAN}=== wikipedia_search+ : positive tests ===${NC}"
 
 assert_output_contains "wikipedia_search with topic OpenBSD" OpenBSD\
-  mcp_request_json "tools/call" "{\"name\":\"wikipedia_search\",\"arguments\":{\"query\":\"OpenBSD\"}}"
+  mcp_session_call "tools/call" "{\"name\":\"wikipedia_search\",\"arguments\":{\"query\":\"OpenBSD\"}}"
 
 print_assert_summary

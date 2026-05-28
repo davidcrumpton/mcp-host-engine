@@ -6,7 +6,7 @@ SESSION_BASE="test-wikipedia_search-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut
 
 echo -e "\n${CYAN}=== wikipedia_search- : negative tests ===${NC}"
 
-assert_output_contains "wikipedia_search wrong input" "Undefined: Undefined may refer to:" \
-  mcp_request_json "tools/call" "{\"name\":\"wikipedia_search\",\"arguments\":{\"quer\":\"OpenBSD\"}}"
+assert_output_contains "wikipedia_search wrong input" "missing properties" \
+  mcp_session_call "tools/call" "{\"name\":\"wikipedia_search\",\"arguments\":{\"quer\":\"OpenBSD\"}}"
 
 print_assert_summary

@@ -101,11 +101,11 @@ port_available() {
     fi
 }
 
-# mcp_request_json
+# mcp_session_call
 # Constructs and sends a JSON-RPC request to the MCPHE endpoint.
-# Usage: mcp_request_json <method> [params...]
+# Usage: mcp_session_call <method> [params...]
 # Returns the JSON response body.
-mcp_request_json() {
+mcp_session_call() {
     local method="$1"
     shift
 
@@ -140,6 +140,73 @@ mcp_request_json() {
     local exit_val=$?
     echo "$response"
     return $exit_val
+}
+
+# mcp_session_call
+# Performs a full MCP session: initialize → initialized → your method → returns your method's response JSON
+# Usage: mcp_session_call <method> [params]
+mcp_session_call() {
+    local method="$1"
+    shift
+    local params="{}"
+    if [[ "$#" -gt 0 ]]; then
+        params="$*"
+    fi
+
+    local rpc_url="${PROTOCOL}://${HOST}:${PORT}/rpc"
+    local auth_header=()
+    if [[ -n "$BEARER" ]]; then
+        auth_header=(-H "Authorization: $BEARER")
+    fi
+
+    # --- 1. initialize (get session ID) ---
+    local init_payload='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test-client","version":"0.1"}}}'
+
+    local init_raw
+    init_raw=$(curl -s -D - -X POST "$rpc_url" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json, text/event-stream" \
+        "${auth_header[@]}" \
+        -d "$init_payload")
+
+    # Extract session ID from response headers
+    local session_id
+    session_id=$(echo "$init_raw" | grep -i '^mcp-session-id:' | tr -d '\r' | awk '{print $2}')
+
+    if [[ -z "$session_id" ]]; then
+        echo '{"error":"no session ID returned from initialize"}' >&2
+        return 1
+    fi
+
+    # --- 2. initialized notification (no response expected) ---
+    local notif_payload='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+    curl -s -X POST "$rpc_url" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json, text/event-stream" \
+        -H "Mcp-Session-Id: $session_id" \
+        "${auth_header[@]}" \
+        -d "$notif_payload" > /dev/null
+
+    # --- 3. Actual call ---
+    local payload
+    payload="{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"$method\",\"params\":$params}"
+
+    local raw
+    raw=$(curl -s -X POST "$rpc_url" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json, text/event-stream" \
+        -H "Mcp-Session-Id: $session_id" \
+        "${auth_header[@]}" \
+        -d "$payload")
+
+    # Strip SSE envelope → extract data: line
+    local response
+    response=$(echo "$raw" | grep '^data:' | sed 's/^data: //')
+    if [[ -z "$response" ]]; then
+        response="$raw"
+    fi
+
+    echo "$response"
 }
 
 # -------------------------------------------------------------------------------------
@@ -302,6 +369,45 @@ assert_contains_ip_address() {
         echo -e "${RED}  ✗ FAIL${NC}  ${label}  (no IPv4 or IPv6 address found)"
         echo "       CMD: $*"
         echo "       OUT: ${output}"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+    fi
+}
+
+# assert_file_contains
+# Asserts that a file contains a specific literal pattern.
+# Usage: assert_file_contains <label> <pattern> <file_path> <command>
+# File is created after command runs
+#
+assert_file_contains() {
+    local label="$1"; local pattern="$2"; local file_path="$3"
+    shift 3
+    local output exit_code
+    output=$("$@" 2>&1)
+    exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        # Fail if the command itself failed
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (command failed, exit ${exit_code})"
+        echo "       CMD: $*"
+        echo "       OUT: ${output}"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+        return 1
+    fi
+    
+    if [[ ! -f "$file_path" ]]; then
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (file '${file_path}' does not exist)"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+        return 1
+    fi
+    if grep -q "${pattern}" "$file_path"; then
+        echo -e "${GREEN}  ✓ PASS${NC}  ${label}"
+        _ASSERT_PASS=$((_ASSERT_PASS + 1))
+    else
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (pattern '${pattern}' not found in file)"
+        echo "       FILE: ${file_path}"
         print_safe_env
         _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
     fi

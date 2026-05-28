@@ -11,7 +11,7 @@ TEST_FILE="$(mktemp /tmp/mcphe_test_XXXXXX)"
 echo "Hello from read_file" > "${TEST_FILE}"
 
 assert_output_contains "read_file with file in /tmp" "Hello from read_file" \
-  mcp_request_json "tools/call" "{\"name\":\"read_file\",\"arguments\":{ \"path\":\"${TEST_FILE}\",\"content\":\"hello world\"}}"
+  mcp_session_call "tools/call" "{\"name\":\"read_file\",\"arguments\":{ \"path\":\"${TEST_FILE}\",\"content\":\"hello world\"}}"
 
 # Clean up
 rm "${TEST_FILE}"

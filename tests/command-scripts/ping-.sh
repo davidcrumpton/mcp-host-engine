@@ -7,7 +7,7 @@ SESSION_BASE="test-ping-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
 echo -e "\n${CYAN}=== ping- : negative tests ===${NC}"
 
 assert_output_contains "ping with wrong target name" \
-  "not found" \
-  mcp_request_json "tools/call" "{\"name\":\"ping\",\"arguments\":{\"target\":\"[IP_ADDRESS]\"}}"
+  "unknown tool" \
+  mcp_session_call "tools/call" "{\"name\":\"ping\",\"arguments\":{\"target\":\"[IP_ADDRESS]\"}}"
 
 print_assert_summary
