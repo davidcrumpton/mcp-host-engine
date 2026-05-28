@@ -1,7 +1,5 @@
 # mcphe test suite
 
-![mcphe robot](./images/mcphe-192x192.png)
-
 ## What's new
 
 ### `mcptest` — the new central runner
