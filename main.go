@@ -67,11 +67,7 @@ func main() {
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
 
 	// Keep the openapi.json handler as-is
-	http.HandleFunc("/rpc/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		// This would normally serve the OpenAPI spec, but we're not changing that part
-		// The original code just called the transport handler
-		http.StripPrefix("/rpc", http.FileServer(http.Dir("./"))).ServeHTTP(w, r)
-	})
+	http.HandleFunc("/rpc/openapi.json", transport.OpenapiHandler().ServeHTTP)
 
 	http.Handle("/rpc", finalHandler)
 
