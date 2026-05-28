@@ -13,7 +13,7 @@ ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOARCH=amd64
 
-ENV VERSION ?= 0.3.10
+ENV VERSION = $(shell cat VERSION)
 
 RUN go build -ldflags "-X config.Version=${VERSION}" -o mcphe main.go
 

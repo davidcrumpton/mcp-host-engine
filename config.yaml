@@ -1,6 +1,6 @@
 ---
 Version: "1.0"
-port: "8000"
+port: "8001"
 host: "127.0.0.1"
 use_https: false
 bearer_token: ""
