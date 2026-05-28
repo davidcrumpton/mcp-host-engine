@@ -230,7 +230,7 @@ func handlePost(w http.ResponseWriter, r *http.Request, cfg config.Config, pm *p
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		cfg.Logf(1, "Failed to read request body: %v", err)
-		sendRPCError(w, jsonrpc.Request{}, -32700, "Parse error")
+		sendRPCError(w, jsonrpc.Request{})
 		return
 	} 
 
@@ -240,7 +240,7 @@ func handlePost(w http.ResponseWriter, r *http.Request, cfg config.Config, pm *p
 
 	if err := json.Unmarshal(body, &raw); err != nil {
 		cfg.Logf(1, "Failed to parse request body: %v", err)
-		sendRPCError(w, jsonrpc.Request{}, -32700, "Parse error")
+		sendRPCError(w, jsonrpc.Request{})
 		return
 	}
 
@@ -506,7 +506,7 @@ func normalizeToolResult(value interface{}) interface{} {
 	return toolResult(fmt.Sprintf("%v", value))
 }
 
-func sendRPCError(w http.ResponseWriter, req jsonrpc.Request, code int, message string) {
+func sendRPCError(w http.ResponseWriter, req jsonrpc.Request) {
 	errRes := jsonrpc.Response{
 		ID: req.ID,
 	}
