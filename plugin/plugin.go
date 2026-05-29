@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -191,3 +192,38 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	}
 	return result.Export(), nil
 }
+
+
+func (pm *PluginManager) GetAllTools(cfg config.Config) []map[string]interface{} {
+	tools := make([]map[string]interface{}, 0, len(pm.plugins))
+	for _, plugin := range pm.plugins {
+	// ListTools is always enabled, but we still want to filter out disabled tools from the openapi.json response
+		if !cfg.IsToolEnabled(plugin.Name) {
+			continue
+		}
+		tools = append(tools, map[string]interface{}{
+			"name":        plugin.Name,
+			"description": plugin.Description,
+			"Tags":        plugin.Tags,
+			"Commit":      plugin.Commit,
+			"inputSchema": plugin.InputSchema,
+			"Version":     plugin.Version,
+			"commit":      plugin.Commit,
+		})
+	}
+	return tools
+}
+
+func OpenapiHandler(cfg config.Config, pm *PluginManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tools := pm.GetAllTools(cfg)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tools)
+	}
+}
+
+func (pm *PluginManager) GetToolByName(name string) (*Plugin, bool) {
+	plugin, ok := pm.byName[name]
+	return plugin, ok
+}
+

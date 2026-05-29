@@ -67,7 +67,7 @@ func main() {
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
 
 	// Keep the openapi.json handler as-is
-	http.HandleFunc("/rpc/openapi.json", transport.OpenapiHandler().ServeHTTP)
+	http.HandleFunc("/rpc/openapi.json", plugin.OpenapiHandler(cfg, pluginManager))
 
 	http.Handle("/rpc", finalHandler)
 
