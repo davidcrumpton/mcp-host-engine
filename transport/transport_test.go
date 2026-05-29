@@ -285,49 +285,6 @@ func TestHandleRequest_UnknownMethod(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// normalizeToolResult
-// ---------------------------------------------------------------------------
-
-func TestNormalizeToolResult_Nil(t *testing.T) {
-	// This function is not in the transport.go file, so we'll skip this test
-	t.Skip("normalizeToolResult not in transport.go")
-}
-
-func TestNormalizeToolResult_String(t *testing.T) {
-	// This function is not in the transport.go file, so we'll skip this test
-	t.Skip("normalizeToolResult not in transport.go")
-}
-
-func TestNormalizeToolResult_Bytes(t *testing.T) {
-	// This function is not in the transport.go file, so we'll skip this test
-	t.Skip("normalizeToolResult not in transport.go")
-}
-
-func TestNormalizeToolResult_Map_WithContent(t *testing.T) {
-	// This function is not in the transport.go file, so we'll skip this test
-	t.Skip("normalizeToolResult not in transport.go")
-}
-
-func TestNormalizeToolResult_ArbitraryType(t *testing.T) {
-	// This function is not in the transport.go file, so we'll skip this test
-	t.Skip("normalizeToolResult not in transport.go")
-}
-
-// ---------------------------------------------------------------------------
-// toolResult / toolError helpers
-// ---------------------------------------------------------------------------
-
-func TestToolResult(t *testing.T) {
-	// These functions are not in the transport.go file, so we'll skip this test
-	t.Skip("toolResult and toolError not in transport.go")
-}
-
-func TestToolError(t *testing.T) {
-	// These functions are not in the transport.go file, so we'll skip this test
-	t.Skip("toolResult and toolError not in transport.go")
-}
-
-// ---------------------------------------------------------------------------
 // notifications/cancelled
 // ---------------------------------------------------------------------------
 
