@@ -48,10 +48,25 @@ func main() {
 
 	server.RegisterPlugins(mcpServer, pluginManager, cfg)
 
-	// Create the HTTP handler with a function that returns the server
-	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	// Create the HTTP handlers with a function that returns the server
+	serverFunc := func(r *http.Request) *mcp.Server {
 		return mcpServer
-	}, nil)
+	}
+	streamableHandler := mcp.NewStreamableHTTPHandler(serverFunc, nil)
+	sseHandler := mcp.NewSSEHandler(serverFunc, nil)
+
+	// Route based on transport type
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("sessionid") != "" {
+			sseHandler.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodGet && r.Header.Get("Mcp-Session-Id") == "" {
+			sseHandler.ServeHTTP(w, r)
+			return
+		}
+		streamableHandler.ServeHTTP(w, r)
+	})
 
 	// Wrap with middleware using standard HTTP middleware approach
 	var finalHandler http.Handler = handler

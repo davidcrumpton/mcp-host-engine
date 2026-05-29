@@ -196,7 +196,7 @@ module.exports = {
 
 ## Caveats
 
-This was designed and tested only on LMStudio at this time with `gemma-4-31b` and `gemma-4-26b-a4b-it`. Smaller gemma models had a hard time following instructions and with following security constraints.  Other larger models have had a hard time following instructions as well.  Please report your findings.
+This was designed and tested only on LMStudio at this time with `gemma-4-31b` , `gemma-4-26b-a4b-it` gemm-4-e4b   The smallest model tested, `gemma4:e2b` worked fine in OpenWebUI 0.9.X editions. The n8n platform does not work at this time.  It can login and see tools but fails to call them, for unknown reasons.
 
 ## Development
 

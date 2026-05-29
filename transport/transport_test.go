@@ -130,8 +130,8 @@ func TestCORSMiddleware(t *testing.T) {
 	}
 
 	headers := w.Header().Get("Access-Control-Allow-Headers")
-	if headers != "Content-Type, Authorization, Cache-Control" {
-		t.Errorf("got Access-Control-Allow-Headers %q, want 'Content-Type, Authorization, Cache-Control'", headers)
+	if headers != "Content-Type, Authorization, Cache-Control, Mcp-Session-Id" {
+		t.Errorf("got Access-Control-Allow-Headers %q, want 'Content-Type, Authorization, Cache-Control, Mcp-Session-Id'", headers)
 	}
 }
 
