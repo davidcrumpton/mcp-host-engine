@@ -14,6 +14,7 @@ tools:
   "wikipedia_search": true
   "run_command": true
   "get_env_var": true
+  "wikipedia_search_test": true
 verbosity_level: 4
 plugins:
   google_search:
@@ -55,3 +56,6 @@ plugins:
   wikipedia_search:
     allowed_domains:
       - en.wikipedia.org
+  wikiquote_search_test:
+    allowed_domains:
+      - en.wikiquote.org

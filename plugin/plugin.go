@@ -24,6 +24,7 @@ type Plugin struct {
 	InputSchema interface{}
 	Call        goja.Callable
 	VM          *goja.Runtime
+	Meta        interface{}
 }
 
 type PluginManager struct {
@@ -73,6 +74,35 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 	return &PluginManager{plugins: plugins, byName: byName}, nil
 }
 
+// valueToString safely converts a goja value to a string, handling undefined/nil cases
+func valueToString(val goja.Value) string {
+	if val == nil {
+		return ""
+	}
+	exported := val.Export()
+	if exported == nil {
+		return ""
+	}
+	if str, ok := exported.(string); ok {
+		return str
+	}
+	return val.String()
+}
+
+// safeExport safely exports a goja value, returning nil for undefined/null values
+func safeExport(val goja.Value) interface{} {
+	if val == nil {
+		return nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			// Handle any panic from Export()
+		}
+	}()
+	exported := val.Export()
+	return exported
+}
+
 func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -116,14 +146,16 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 
 	return &Plugin{
 		Name:        name,
-		Description: obj.Get("description").String(),
-		Version:     obj.Get("version").String(),
+		Description: valueToString(obj.Get("description")),
+		Version:     valueToString(obj.Get("version")),
+		Meta:        safeExport(obj.Get("_meta")),
 		Tags: func() []string {
-			tagsVal := obj.Get("tags")
-			if tagsVal == nil {
+			tagsVal := obj.Get("Tags")
+			exported := tagsVal.Export()
+			if exported == nil {
 				return nil
 			}
-			tagsArray, ok := tagsVal.Export().([]interface{})
+			tagsArray, ok := exported.([]interface{})
 			if !ok {
 				return nil
 			}
@@ -135,7 +167,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 			}
 			return tags
 		}(),
-		Commit:      obj.Get("commit").String(),
+		Commit:      valueToString(obj.Get("commit")),
 		InputSchema: inputSchemaVal.Export(),
 		Call:        callFunc,
 		VM:          vm,
@@ -156,6 +188,7 @@ func (pm *PluginManager) ListTools(cfg config.Config) []map[string]interface{} {
 			"inputSchema": plugin.InputSchema,
 			"Version":     plugin.Version,
 			"commit":      plugin.Commit,
+			"_meta":       plugin.Meta,
 		})
 	}
 	return tools
@@ -208,6 +241,7 @@ func (pm *PluginManager) GetAllTools(cfg config.Config) []map[string]interface{}
 			"Commit":      plugin.Commit,
 			"inputSchema": plugin.InputSchema,
 			"Version":     plugin.Version,
+			"_meta":       plugin.Meta,
 			"commit":      plugin.Commit,
 		})
 	}

@@ -27,6 +27,7 @@ type Config struct {
 	Version     string          `yaml:"version"`
 	PidFile     string          `yaml:"pid_file"`
 	Plugins     map[string]map[string]interface{} `yaml:"plugins"`
+	Meta       	map[string]interface{}            `yaml:"meta"`
 }
 
 var DefaultConfig = Config{

@@ -1,5 +1,5 @@
 ---
-Version: "1.0"
+Version: "1.0.0"
 port: "8001"
 host: "127.0.0.1"
 use_https: false
@@ -28,4 +28,3 @@ plugins:
     api_token: "xyz"
   wikipedia_search:
     allowed_domains: ["en.wikipedia.org"]
-
