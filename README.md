@@ -203,3 +203,5 @@ MCP Application support is currently in early stages and may not work with all a
 ## Development
 
 To build and deploy a Docker container, see `Dockerfile`.  To run the server locally, see `tests/README.md` for instructions on building and running the server locally.
+
+![MCP Inspector](./images/MCP_Inspector.png)
