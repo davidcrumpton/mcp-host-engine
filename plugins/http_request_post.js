@@ -1,7 +1,7 @@
 module.exports = {
   name: "http_request_post",
   description: "Make an HTTP POST request from the host.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["http", "utility"],
   inputSchema: {

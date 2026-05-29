@@ -1,7 +1,7 @@
 module.exports = {
   name: "wikipedia_search_test",
   description: "A simple Wikipedia search tool for testing MCP Apps.",
-  version: "0.0.1",
+  version: "1.0.0",
   Tags: ["search", "test", "utility"],
 
   // Add _meta.ui to make it an MCP App

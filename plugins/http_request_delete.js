@@ -1,7 +1,7 @@
 module.exports = {
   name: "http_request_delete",
   description: "Make an HTTP DELETE request to a specified URL with optional headers.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["http", "utility"],
   inputSchema: {

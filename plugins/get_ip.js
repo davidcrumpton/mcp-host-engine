@@ -1,7 +1,7 @@
 module.exports = {
   name: "get_ip",
   description: "Get the public IP address of the host.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
   inputSchema: { type: "object", properties: {}, required: [] },

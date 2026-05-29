@@ -1,7 +1,7 @@
 module.exports = {
   name: "write_file",
   description: "Write content to a file.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
   inputSchema: {

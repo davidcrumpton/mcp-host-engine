@@ -1,13 +1,20 @@
 module.exports = {
   name: "http_request_get",
   description: "Fetch content from a URL and return extracted plain text.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
   inputSchema: {
     type: "object",
     properties: {
       url: { type: "string", description: "URL to fetch." },
+      // mode: text or html, default to text
+      mode: {
+        type: "string",
+        enum: ["text", "html"],
+        default: "text",
+        description: "Whether to return plain text or raw HTML.",
+      },
     },
     required: ["url"],
   },
@@ -18,6 +25,9 @@ module.exports = {
     }
 
     const body = response.body || "";
+    if (params.mode === "html") {
+      return `HTTP ${response.status}\n\n${body}`;
+    }
     const text = extractText(body);
     return `HTTP ${response.status}\n\n${text}`;
   },

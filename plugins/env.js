@@ -4,7 +4,7 @@
 module.exports = {
   name: "get_env_var",
   description: "Get an environment variable passed into it.  USE THIS FOR TESTING. IT'S A HARDCODED VERSION OF THE env.sh SCRIPT. NOT A REAL PLUGIN... YET.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
   inputSchema: { type: "object", properties: { env_var: { type: "string" } }, required: ["env_var"] },

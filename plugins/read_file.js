@@ -1,7 +1,7 @@
 module.exports = {
   name: "read_file",
   description: "Read a file from the host filesystem.",
-  version: "0.0.1",
+  version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
   inputSchema: {
