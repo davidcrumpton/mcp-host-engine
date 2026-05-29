@@ -1,3 +1,4 @@
+// host/host.go
 package host
 
 import (
@@ -52,6 +53,12 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		},
 		"getEnv": func(key string) (string, error) {
 			return GetEnv(key, cfg, pluginName)
+		},
+		"readStream": func(path string, options map[string]interface{}, callback func(chunk string) error) error {
+			return ReadStream(path, cfg, pluginName, options, callback)
+		},
+		"writeStream": func(path string, options map[string]interface{}, callback func() (string, error)) error {
+			return WriteStream(path, cfg, pluginName, options, callback)
 		},
 		"config": pluginConfig,
 	}
@@ -153,6 +160,81 @@ func RunCommand(ctx context.Context, cfg config.Config, pluginName string, comma
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
+}
+
+// ReadStream reads a file in chunks and passes each chunk to the callback
+func ReadStream(path string, cfg config.Config, pluginName string, options map[string]interface{}, callback func(chunk string) error) error {
+	allowed := isPathAllowed(path, cfg.AllowedReadFilePathsFor(pluginName))
+	
+	if !allowed {
+		return fmt.Errorf("access to file %q is not allowed", path)
+	}
+	
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Default chunk size is 4KB
+	chunkSize := 4096
+	if options != nil {
+		if size, ok := options["chunkSize"].(float64); ok {
+			chunkSize = int(size)
+		}
+	}
+
+	buffer := make([]byte, chunkSize)
+	for {
+		n, err := file.Read(buffer)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		
+		if err := callback(string(buffer[:n])); err != nil {
+			return err
+		}
+		
+		if err == io.EOF {
+			break
+		}
+	}
+	
+	return nil
+}
+
+// WriteStream writes data to a file in chunks by calling the callback function
+func WriteStream(path string, cfg config.Config, pluginName string, options map[string]interface{}, callback func() (string, error)) error {
+	allowed := isPathAllowed(path, cfg.AllowedWriteFilePathsFor(pluginName))
+	if !allowed {
+		return fmt.Errorf("writing to file %q is not allowed", path)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	
+	for {
+		chunk, err := callback()
+		if err != nil {
+			return err
+		}
+		if chunk == "" {
+			// End of stream
+			break
+		}
+		
+		// Write the chunk to file
+		if _, err := file.WriteString(chunk); err != nil {
+			return err
+		}
+	}
+	
+	return nil
 }
 
 func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {
