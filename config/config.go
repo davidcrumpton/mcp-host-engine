@@ -24,7 +24,7 @@ type Config struct {
 	PluginDir   string          `yaml:"plugin_dir"`
 	Tools       map[string]bool `yaml:"tools"`
 	Verbosity   int             `yaml:"verbosity_level"`
-	Version     string          `yaml:"version"`
+	PluginVersion string          `yaml:"version"`
 	PidFile     string          `yaml:"pid_file"`
 	Plugins     map[string]map[string]interface{} `yaml:"plugins"`
 	Meta       	map[string]interface{}            `yaml:"meta"`
@@ -35,7 +35,7 @@ var DefaultConfig = Config{
 	Host:      "127.0.0.1",
 	UseHTTPS:  false,
 	PluginDir: "plugins",
-	Version:   "internal-default",
+	PluginVersion:   "internal-default",
 	Tools: map[string]bool{
 		"ping":             true,
 		"wikipedia_search": true,

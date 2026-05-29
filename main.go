@@ -33,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg.Logf(1, "Using config %s version %s, plugin dir=%s, verbosity=%d", configPath, cfg.Version, cfg.PluginDir, cfg.Verbosity)
+	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d", configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity)
 
 	pluginManager, err := plugin.LoadPlugins(cfg)
 	if err != nil {
@@ -43,7 +43,7 @@ func main() {
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "mcphe",
-		Version: cfg.Version,
+		Version: config.Version,
 	}, nil)
 
 	server.RegisterPlugins(mcpServer, pluginManager, cfg)
