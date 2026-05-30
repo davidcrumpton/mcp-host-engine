@@ -196,9 +196,9 @@ module.exports = {
 
 ## Caveats
 
-This was designed and tested only on LMStudio at this time with `gemma-4-31b` , `gemma-4-26b-a4b-it` gemm-4-e4b   The smallest model tested, `gemma4:e2b` worked fine in OpenWebUI 0.9.X editions. The n8n platform does not work at this time.  It can login and see tools but fails to call them, for unknown reasons.
+This was designed and tested with `gemma-4-31b` , `gemma-4-26b-a4b-it` gemm-4-e4b   The smallest model tested, `gemma4:e2b` worked fine in OpenWebUI 0.9.X editions. The n8n platform does not work at this time.  It can login and see tools but fails to call them, for unknown reasons.
 
-MCP Application support is currently in early stages and may not work with all applications.  It doesn't work in MCP Inspector.
+MCP Application support is currently in early stages and may not work with all applications.  It functions well in MCP Inspector as pictured below.
 
 ## Development
 
