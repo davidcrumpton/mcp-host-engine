@@ -244,7 +244,7 @@ func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{},
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
+	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -297,7 +297,7 @@ func HTTPPost(ctx context.Context, urlStr string, headers map[string]interface{}
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
+	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -350,7 +350,7 @@ func HTTPPut(ctx context.Context, urlStr string, headers map[string]interface{},
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
+	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -403,7 +403,7 @@ func HTTPDelete(ctx context.Context, urlStr string, headers map[string]interface
 		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if !isAllowedDomain(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
+	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
@@ -464,7 +464,7 @@ func GetEnv(name string, cfg config.Config, pluginName string) (string, error) {
 	return "", fmt.Errorf("access to environment variable %s for plugin %s is not allowed", name, pluginName)
 }
 
-func isAllowedDomain(hostname string, allowed []string) bool {
+func isDomainAllowed(hostname string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return false
 	}

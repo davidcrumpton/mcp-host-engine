@@ -297,36 +297,36 @@ func TestGetEnv_NoAllowedEnvs(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// isAllowedDomain
+// isDomainAllowed
 // ---------------------------------------------------------------------------
 
 func TestIsAllowedDomain_Exact(t *testing.T) {
-	if !isAllowedDomain("example.com", []string{"example.com"}) {
+	if !isDomainAllowed("example.com", []string{"example.com"}) {
 		t.Error("exact match should be allowed")
 	}
 }
 
 func TestIsAllowedDomain_Subdomain(t *testing.T) {
-	if !isAllowedDomain("api.example.com", []string{"example.com"}) {
+	if !isDomainAllowed("api.example.com", []string{"example.com"}) {
 		t.Error("subdomain should be allowed")
 	}
 }
 
 func TestIsAllowedDomain_NoMatch(t *testing.T) {
-	if isAllowedDomain("evil.com", []string{"example.com"}) {
+	if isDomainAllowed("evil.com", []string{"example.com"}) {
 		t.Error("non-matching domain should be denied")
 	}
 }
 
 func TestIsAllowedDomain_EmptyList(t *testing.T) {
-	if isAllowedDomain("example.com", nil) {
+	if isDomainAllowed("example.com", nil) {
 		t.Error("empty allowed list should deny everything")
 	}
 }
 
 func TestIsAllowedDomain_TrailingColon(t *testing.T) {
 	// url.Parse may produce "hostname:" for bare IPs without ports.
-	if !isAllowedDomain("example.com:", []string{"example.com"}) {
+	if !isDomainAllowed("example.com:", []string{"example.com"}) {
 		t.Error("trailing colon should be stripped")
 	}
 }
