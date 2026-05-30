@@ -7,6 +7,12 @@ module.exports = {
   version: "1.0.0",
   commit: "none",
   Tags: ["utility"],
+  annotations: {
+    readOnlyHint:    true,
+    destructiveHint: false,
+    idempotentHint:  true,
+    openWorldHint:   false,
+  },
   inputSchema: { type: "object", properties: { env_var: { type: "string" } }, required: ["env_var"] },
   call(params) {
     // USE THIS FOR TESTING. IT'S A HARDCODED VERSION OF THE env.sh SCRIPT. NOT A REAL PLUGIN... YET.

@@ -28,6 +28,7 @@ func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Co
 			Name:        name,
 			Description: plugin["description"].(string),
 			InputSchema: inputSchema,
+			Annotations: pluginAnnotationsToMCP(plugin["annotations"]),
 		}
 
 		// Use AddTool with generic types - we'll use "any" for both input and output
@@ -62,6 +63,48 @@ func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Co
 			return sdkResult, nil, nil
 		})
 	}
+}
+
+// boolPtr returns a pointer to the given bool value.
+func boolPtr(b bool) *bool { return &b }
+
+// pluginAnnotationsToMCP converts a PluginAnnotations value (passed as interface{}
+// from ListTools) into mcp.ToolAnnotations. When the plugin declares no annotations
+// the MCP spec defaults apply (destructiveHint=true, openWorldHint=true,
+// readOnlyHint=false), which can be misleading for read-only tools. We therefore
+// fall back to the most conservative explicit set: not destructive, open-world.
+func pluginAnnotationsToMCP(raw interface{}) *mcp.ToolAnnotations {
+	ann, _ := raw.(*plugin.PluginAnnotations)
+
+	out := &mcp.ToolAnnotations{}
+	hasAny := false
+
+	if ann != nil && ann.ReadOnlyHint != nil {
+		out.ReadOnlyHint = *ann.ReadOnlyHint
+		hasAny = true
+	}
+	if ann != nil && ann.DestructiveHint != nil {
+		out.DestructiveHint = ann.DestructiveHint
+		hasAny = true
+	} else {
+		// Override the spec default of true — omit a hint that says "destructive"
+		// unless the plugin explicitly opted in.
+		out.DestructiveHint = boolPtr(false)
+		hasAny = true
+	}
+	if ann != nil && ann.IdempotentHint != nil {
+		out.IdempotentHint = *ann.IdempotentHint
+		hasAny = true
+	}
+	if ann != nil && ann.OpenWorldHint != nil {
+		out.OpenWorldHint = ann.OpenWorldHint
+		hasAny = true
+	}
+
+	if !hasAny {
+		return nil
+	}
+	return out
 }
 
 func ResultToSDK(value interface{}) *mcp.CallToolResult {

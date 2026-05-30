@@ -15,6 +15,14 @@ import (
 	"mcphe/host"
 )
 
+// PluginAnnotations mirrors the MCP ToolAnnotations hints, settable per plugin.
+type PluginAnnotations struct {
+	ReadOnlyHint    *bool
+	DestructiveHint *bool
+	IdempotentHint  *bool
+	OpenWorldHint   *bool
+}
+
 type Plugin struct {
 	Name        string
 	Description string
@@ -25,6 +33,7 @@ type Plugin struct {
 	Call        goja.Callable
 	VM          *goja.Runtime
 	Meta        interface{}
+	Annotations *PluginAnnotations
 }
 
 type PluginManager struct {
@@ -103,6 +112,46 @@ func safeExport(val goja.Value) interface{} {
 	return exported
 }
 
+// parseBoolPtr extracts a named bool field from a JS object, returning a *bool
+// or nil if the field is absent or not a bool.
+func parseBoolPtr(obj *goja.Object, key string) *bool {
+	val := obj.Get(key)
+	if val == nil {
+		return nil
+	}
+	exported := val.Export()
+	if exported == nil {
+		return nil
+	}
+	if b, ok := exported.(bool); ok {
+		return &b
+	}
+	return nil
+}
+
+// parseAnnotations reads the optional `annotations` property from a plugin export.
+func parseAnnotations(obj *goja.Object) *PluginAnnotations {
+	annVal := obj.Get("annotations")
+	if annVal == nil {
+		return nil
+	}
+	annObj, ok := annVal.(*goja.Object)
+	if !ok {
+		return nil
+	}
+	ann := &PluginAnnotations{
+		ReadOnlyHint:    parseBoolPtr(annObj, "readOnlyHint"),
+		DestructiveHint: parseBoolPtr(annObj, "destructiveHint"),
+		IdempotentHint:  parseBoolPtr(annObj, "idempotentHint"),
+		OpenWorldHint:   parseBoolPtr(annObj, "openWorldHint"),
+	}
+	// Return nil if no hints were actually set
+	if ann.ReadOnlyHint == nil && ann.DestructiveHint == nil && ann.IdempotentHint == nil && ann.OpenWorldHint == nil {
+		return nil
+	}
+	return ann
+}
+
 func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -149,6 +198,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		Description: valueToString(obj.Get("description")),
 		Version:     valueToString(obj.Get("version")),
 		Meta:        safeExport(obj.Get("_meta")),
+		Annotations: parseAnnotations(obj),
 		Tags: func() []string {
 			tagsVal := obj.Get("Tags")
 			exported := tagsVal.Export()
@@ -189,6 +239,7 @@ func (pm *PluginManager) ListTools(cfg config.Config) []map[string]interface{} {
 			"Version":     plugin.Version,
 			"commit":      plugin.Commit,
 			"_meta":       plugin.Meta,
+			"annotations": plugin.Annotations,
 		})
 	}
 	return tools

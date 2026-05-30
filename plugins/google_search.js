@@ -4,6 +4,12 @@ module.exports = {
   version: "1.0.0",
   commit: "none",
   Tags: ["search", "utility"],
+  annotations: {
+    readOnlyHint:    true,
+    destructiveHint: false,
+    idempotentHint:  false,
+    openWorldHint:   true,
+  },
   inputSchema: {
     type: "object",
     properties: {
