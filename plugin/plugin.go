@@ -170,19 +170,27 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 
 	obj := value.ToObject(vm)
 	nameVal := obj.Get("name")
-	hostValue := host.MakeHostObject(cfg, context.Background(), nameVal.String())
+
+	// Guard against nil/undefined name before using it.
+	name, ok := func() (string, bool) {
+		if nameVal == nil {
+			return "", false
+		}
+		s, ok := nameVal.Export().(string)
+		return s, ok
+	}()
+	if !ok || name == "" {
+		cfg.Logf(1, "Plugin %q missing name", path)
+		return nil, fmt.Errorf("plugin %q missing name", path)
+	}
+
+	hostValue := host.MakeHostObject(cfg, context.Background(), name)
 	if err := vm.Set("host", hostValue); err != nil {
 		cfg.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
 		return nil, err
 	}
 	callVal := obj.Get("call")
 	inputSchemaVal := obj.Get("inputSchema")
-
-	name, ok := nameVal.Export().(string)
-	if !ok || name == "" {
-		cfg.Logf(1, "Plugin %q missing name", path)
-		return nil, fmt.Errorf("plugin %q missing name", path)
-	}
 	if callVal == nil {
 		cfg.Logf(1, "Plugin %q missing call function", name)
 		return nil, fmt.Errorf("plugin %q missing call function", name)
@@ -201,6 +209,9 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		Annotations: parseAnnotations(obj),
 		Tags: func() []string {
 			tagsVal := obj.Get("Tags")
+			if tagsVal == nil {
+				return nil
+			}
 			exported := tagsVal.Export()
 			if exported == nil {
 				return nil
@@ -218,7 +229,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 			return tags
 		}(),
 		Commit:      valueToString(obj.Get("commit")),
-		InputSchema: inputSchemaVal.Export(),
+		InputSchema: safeExport(inputSchemaVal),
 		Call:        callFunc,
 		VM:          vm,
 	}, nil
