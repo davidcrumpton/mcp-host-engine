@@ -234,7 +234,6 @@ func (pm *PluginManager) ListTools(cfg config.Config) []map[string]interface{} {
 			"name":        plugin.Name,
 			"description": plugin.Description,
 			"Tags":        plugin.Tags,
-			"Commit":      plugin.Commit,
 			"inputSchema": plugin.InputSchema,
 			"Version":     plugin.Version,
 			"commit":      plugin.Commit,
@@ -289,11 +288,10 @@ func (pm *PluginManager) GetAllTools(cfg config.Config) []map[string]interface{}
 			"name":        plugin.Name,
 			"description": plugin.Description,
 			"Tags":        plugin.Tags,
-			"Commit":      plugin.Commit,
 			"inputSchema": plugin.InputSchema,
 			"Version":     plugin.Version,
-			"_meta":       plugin.Meta,
 			"commit":      plugin.Commit,
+			"_meta":       plugin.Meta,
 		})
 	}
 	return tools
