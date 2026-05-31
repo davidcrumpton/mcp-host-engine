@@ -29,6 +29,7 @@ type Config struct {
 	PidFile       string                            `yaml:"pid_file"`
 	Plugins       map[string]map[string]interface{} `yaml:"plugins"`
 	Meta          map[string]interface{}            `yaml:"meta"`
+	RunAsRoot     bool                              `yaml:"run_as_root"`
 }
 
 var DefaultConfig = Config{
@@ -38,6 +39,7 @@ var DefaultConfig = Config{
 	CORSOrigin:   "", // Empty disables CORS header by default; set explicitly in config.
 	PluginDir:    "plugins",
 	PluginVersion: "internal-default",
+	RunAsRoot:    false,
 	Tools: map[string]bool{
 		"ping":             true,
 		"wikipedia_search": true,

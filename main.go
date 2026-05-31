@@ -34,6 +34,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if running as root is allowed in config and log a warning if so
+	if(cfg.RunAsRoot) {
+		cfg.Logf(1, "WARN: Running as root is enabled in config. Please ensure you understand the security implications.")
+	}
+
+	// Check if running as root but not explicitly allowed
+	if isRoot() && !cfg.RunAsRoot {
+		fmt.Fprintf(os.Stderr, "ERROR: This program is not designed to run as root.\n")
+		fmt.Fprintf(os.Stderr, "If you really want to run as root, add 'run_as_root: true' to your config file.\n")
+		os.Exit(1)
+	}
+
 	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d", configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity)
 
 	// Warn if the server is exposed on a non-loopback address without a bearer token.
@@ -101,13 +113,13 @@ func main() {
 			fmt.Fprintln(os.Stderr, "HTTPS enabled but cert_file or key_file is not configured")
 			os.Exit(1)
 		}
-		fmt.Printf("MCP Server version %s starting...\n", config.Version)
-		fmt.Printf("MCP Server listening with HTTPS\n")
+		fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
+		fmt.Printf("MCP Host Engine listening with HTTPS\n")
 		fmt.Printf("    on https://%s/rpc\n", addr)
 		storePidFile(cfg)
 		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, mux)
 	} else {
-		fmt.Printf("MCP Server version %s starting...\n", config.Version)
+		fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
 		fmt.Printf("    on http://%s/rpc\n", addr)
 		storePidFile(cfg)
 		err = http.ListenAndServe(addr, mux)
@@ -133,4 +145,9 @@ func storePidFile(cfg config.Config) {
 // isLoopback reports whether host is a loopback address (127.x.x.x or ::1).
 func isLoopback(host string) bool {
 	return host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.")
+}
+
+// isRoot reports whether the current process is running as root.
+func isRoot() bool {
+	return os.Getuid() == 0
 }
