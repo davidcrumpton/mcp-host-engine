@@ -98,18 +98,20 @@ func valueToString(val goja.Value) string {
 	return val.String()
 }
 
-// safeExport safely exports a goja value, returning nil for undefined/null values
-func safeExport(val goja.Value) interface{} {
+// safeExport safely exports a goja value, returning nil for undefined/null values.
+// Any panic from Export() is recovered and logged rather than silently swallowed.
+func safeExport(val goja.Value) (result interface{}) {
 	if val == nil {
 		return nil
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			// Handle any panic from Export()
+			// Log the panic so it is visible during debugging.
+			fmt.Fprintf(os.Stderr, "safeExport: recovered panic: %v\n", r)
+			result = nil
 		}
 	}()
-	exported := val.Export()
-	return exported
+	return val.Export()
 }
 
 // parseBoolPtr extracts a named bool field from a JS object, returning a *bool
@@ -161,6 +163,21 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 
 	vm := goja.New()
 
+	// Inject the host API into the VM *before* running the plugin script so
+	// that plugins which call host functions at module-load time (outside of
+	// the call() function) see a properly initialised host object rather than
+	// undefined.
+	//
+	// We use a temporary plugin name derived from the file path here; the real
+	// name is extracted from the plugin's exports below and the host object is
+	// refreshed again on every CallTool invocation with the correct context.
+	tempName := filepath.Base(path)
+	tempHost := host.MakeHostObject(cfg, context.Background(), tempName)
+	if err := vm.Set("host", tempHost); err != nil {
+		cfg.Logf(1, "Failed to set initial host API for plugin %s: %v", path, err)
+		return nil, err
+	}
+
 	script := fmt.Sprintf("var module = { exports: {} }; var exports = module.exports;\n%s\nmodule.exports", content)
 	value, err := vm.RunString(script)
 	if err != nil {
@@ -184,11 +201,14 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		return nil, fmt.Errorf("plugin %q missing name", path)
 	}
 
-	hostValue := host.MakeHostObject(cfg, context.Background(), name)
-	if err := vm.Set("host", hostValue); err != nil {
+	// Now that we know the real plugin name, refresh the host object so that
+	// plugin-specific config (allowed paths, domains, etc.) is applied correctly.
+	realHost := host.MakeHostObject(cfg, context.Background(), name)
+	if err := vm.Set("host", realHost); err != nil {
 		cfg.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
 		return nil, err
 	}
+
 	callVal := obj.Get("call")
 	inputSchemaVal := obj.Get("inputSchema")
 	if callVal == nil {
@@ -208,7 +228,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		Meta:        safeExport(obj.Get("_meta")),
 		Annotations: parseAnnotations(obj),
 		Tags: func() []string {
-			tagsVal := obj.Get("Tags")
+			tagsVal := obj.Get("tags")
 			if tagsVal == nil {
 				return nil
 			}
@@ -244,9 +264,9 @@ func (pm *PluginManager) ListTools(cfg config.Config) []map[string]interface{} {
 		tools = append(tools, map[string]interface{}{
 			"name":        plugin.Name,
 			"description": plugin.Description,
-			"Tags":        plugin.Tags,
+			"tags":        plugin.Tags,
 			"inputSchema": plugin.InputSchema,
-			"Version":     plugin.Version,
+			"version":     plugin.Version,
 			"commit":      plugin.Commit,
 			"_meta":       plugin.Meta,
 			"annotations": plugin.Annotations,
@@ -287,20 +307,19 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	return result.Export(), nil
 }
 
-
 func (pm *PluginManager) GetAllTools(cfg config.Config) []map[string]interface{} {
 	tools := make([]map[string]interface{}, 0, len(pm.plugins))
 	for _, plugin := range pm.plugins {
-	// ListTools is always enabled, but we still want to filter out disabled tools from the openapi.json response
+		// Filter out disabled tools from the openapi.json response
 		if !cfg.IsToolEnabled(plugin.Name) {
 			continue
 		}
 		tools = append(tools, map[string]interface{}{
 			"name":        plugin.Name,
 			"description": plugin.Description,
-			"Tags":        plugin.Tags,
+			"tags":        plugin.Tags,
 			"inputSchema": plugin.InputSchema,
-			"Version":     plugin.Version,
+			"version":     plugin.Version,
 			"commit":      plugin.Commit,
 			"_meta":       plugin.Meta,
 		})
@@ -320,4 +339,3 @@ func (pm *PluginManager) GetToolByName(name string) (*Plugin, bool) {
 	plugin, ok := pm.byName[name]
 	return plugin, ok
 }
-

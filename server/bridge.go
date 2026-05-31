@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"mcphe/config"
 	"mcphe/plugin"
@@ -19,9 +20,16 @@ func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Co
 		}
 
 		// Convert inputSchema to map[string]interface{} for the SDK
-		inputSchemaBytes, _ := json.Marshal(plugin["inputSchema"])
+		inputSchemaBytes, err := json.Marshal(plugin["inputSchema"])
+		if err != nil {
+			cfg.Logf(1, "Failed to marshal inputSchema for plugin %s: %v", name, err)
+			continue
+		}
 		var inputSchema map[string]interface{}
-		json.Unmarshal(inputSchemaBytes, &inputSchema)
+		if err := json.Unmarshal(inputSchemaBytes, &inputSchema); err != nil {
+			cfg.Logf(1, "Failed to unmarshal inputSchema for plugin %s: %v", name, err)
+			continue
+		}
 
 		// Create tool with the correct API
 		tool := &mcp.Tool{
@@ -37,8 +45,12 @@ func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Co
 			// Convert the raw parameters to a map
 			var params map[string]interface{}
 			if request.Params.Arguments != nil {
-				// Convert raw JSON to map
-				json.Unmarshal(request.Params.Arguments, &params)
+				if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+					cfg.Logf(1, "Failed to unmarshal arguments for tool %s: %v", name, err)
+					result := &mcp.CallToolResult{}
+					result.SetError(fmt.Errorf("invalid arguments: %w", err))
+					return result, nil, nil
+				}
 			} else {
 				params = make(map[string]interface{})
 			}
@@ -109,7 +121,7 @@ func pluginAnnotationsToMCP(raw interface{}) *mcp.ToolAnnotations {
 
 func ResultToSDK(value interface{}) *mcp.CallToolResult {
 	result := &mcp.CallToolResult{}
-	
+
 	if value == nil {
 		result.Content = []mcp.Content{
 			&mcp.TextContent{Text: ""},

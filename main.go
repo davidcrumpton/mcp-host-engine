@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"mcphe/config"
 	"mcphe/plugin"
@@ -34,6 +35,11 @@ func main() {
 	}
 
 	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d", configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity)
+
+	// Warn if the server is exposed on a non-loopback address without a bearer token.
+	if cfg.BearerToken == "" && !isLoopback(cfg.Host) {
+		fmt.Fprintf(os.Stderr, "WARNING: bearer_token is not configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
+	}
 
 	pluginManager, err := plugin.LoadPlugins(cfg)
 	if err != nil {
@@ -71,8 +77,10 @@ func main() {
 	// Wrap with middleware using standard HTTP middleware approach
 	var finalHandler http.Handler = handler
 
-	// Apply CORS middleware
-	finalHandler = transport.CORSMiddleware(finalHandler)
+	// Apply CORS middleware. Use the configured origin (empty string disables
+	// the header; "*" opts into wide-open CORS; any other value restricts to
+	// that origin).
+	finalHandler = transport.CORSMiddleware(finalHandler, cfg.CORSOrigin)
 
 	// Apply bearer token middleware if configured
 	if cfg.BearerToken != "" {
@@ -81,10 +89,11 @@ func main() {
 
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
 
-	// Keep the openapi.json handler as-is
-	http.HandleFunc("/rpc/openapi.json", plugin.OpenapiHandler(cfg, pluginManager))
-
-	http.Handle("/rpc", finalHandler)
+	// Build a dedicated ServeMux so we can pass it to ListenAndServe/TLS and
+	// have the middleware chain (CORS, bearer token) apply to all routes.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/rpc/openapi.json", plugin.OpenapiHandler(cfg, pluginManager))
+	mux.Handle("/rpc", finalHandler)
 
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
 	if cfg.UseHTTPS {
@@ -96,12 +105,12 @@ func main() {
 		fmt.Printf("MCP Server listening with HTTPS\n")
 		fmt.Printf("    on https://%s/rpc\n", addr)
 		storePidFile(cfg)
-		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, nil)
+		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, mux)
 	} else {
 		fmt.Printf("MCP Server version %s starting...\n", config.Version)
 		fmt.Printf("    on http://%s/rpc\n", addr)
 		storePidFile(cfg)
-		err = http.ListenAndServe(addr, nil)
+		err = http.ListenAndServe(addr, mux)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
@@ -119,4 +128,9 @@ func storePidFile(cfg config.Config) {
 	if err != nil {
 		cfg.Logf(4, "Error writing pid file %s", err)
 	}
+}
+
+// isLoopback reports whether host is a loopback address (127.x.x.x or ::1).
+func isLoopback(host string) bool {
+	return host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.")
 }

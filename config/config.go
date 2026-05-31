@@ -15,27 +15,29 @@ var (
 )
 
 type Config struct {
-	Port        string          `yaml:"port"`
-	Host        string          `yaml:"host"`
-	UseHTTPS    bool            `yaml:"use_https"`
-	CertFile    string          `yaml:"cert_file"`
-	KeyFile     string          `yaml:"key_file"`
-	BearerToken string          `yaml:"bearer_token"`
-	PluginDir   string          `yaml:"plugin_dir"`
-	Tools       map[string]bool `yaml:"tools"`
-	Verbosity   int             `yaml:"verbosity_level"`
-	PluginVersion string          `yaml:"version"`
-	PidFile     string          `yaml:"pid_file"`
-	Plugins     map[string]map[string]interface{} `yaml:"plugins"`
-	Meta       	map[string]interface{}            `yaml:"meta"`
+	Port          string                            `yaml:"port"`
+	Host          string                            `yaml:"host"`
+	UseHTTPS      bool                              `yaml:"use_https"`
+	CertFile      string                            `yaml:"cert_file"`
+	KeyFile       string                            `yaml:"key_file"`
+	BearerToken   string                            `yaml:"bearer_token"`
+	CORSOrigin    string                            `yaml:"cors_origin"`
+	PluginDir     string                            `yaml:"plugin_dir"`
+	Tools         map[string]bool                   `yaml:"tools"`
+	Verbosity     int                               `yaml:"verbosity_level"`
+	PluginVersion string                            `yaml:"version"`
+	PidFile       string                            `yaml:"pid_file"`
+	Plugins       map[string]map[string]interface{} `yaml:"plugins"`
+	Meta          map[string]interface{}            `yaml:"meta"`
 }
 
 var DefaultConfig = Config{
-	Port:      "8001",
-	Host:      "127.0.0.1",
-	UseHTTPS:  false,
-	PluginDir: "plugins",
-	PluginVersion:   "internal-default",
+	Port:         "8001",
+	Host:         "127.0.0.1",
+	UseHTTPS:     false,
+	CORSOrigin:   "", // Empty disables CORS header by default; set explicitly in config.
+	PluginDir:    "plugins",
+	PluginVersion: "internal-default",
 	Tools: map[string]bool{
 		"ping":             true,
 		"wikipedia_search": true,
@@ -44,7 +46,7 @@ var DefaultConfig = Config{
 		"read_file":        false,
 		"write_file":       false,
 		"run_command":      false,
-		"date_time":        true,	
+		"date_time":        true,
 		"http_request_get": false,
 	},
 	Verbosity: 0,
@@ -57,7 +59,6 @@ var DefaultConfig = Config{
 		},
 	},
 }
-
 
 func LoadConfig(path string) (Config, error) {
 	cfg := DefaultConfig
@@ -219,6 +220,8 @@ func (c Config) IsToolEnabled(name string) bool {
 	return ok && enabled
 }
 
+// GetProcessPID returns the PID stored in the pid file, or the current process
+// PID if no pid file is configured, or -1 if the file cannot be read/parsed.
 func (c Config) GetProcessPID() int {
 	if c.PidFile == "" {
 		return os.Getpid()
@@ -234,44 +237,24 @@ func (c Config) GetProcessPID() int {
 	return pid
 }
 
+// GetProcessUID returns the UID of the current process.
 func (c Config) GetProcessUID() int {
-	if c.PidFile == "" {
-		return os.Getuid()
-	}
-	data, err := os.ReadFile(c.PidFile)
-	if err != nil {
-		return -1
-	}
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		return -1
-	}
-	return pid
+	return os.Getuid()
 }
 
+// GetProcessGID returns the GID of the current process.
 func (c Config) GetProcessGID() int {
-	if c.PidFile == "" {
-		return os.Getgid()
-	}
-	data, err := os.ReadFile(c.PidFile)
-	if err != nil {
-		return -1
-	}
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		return -1
-	}
-	return pid
+	return os.Getgid()
 }
 
 func (c Config) WritePidFile() error {
 	if c.PidFile == "" {
-		fmt.Printf("PidFile is not set %s", c.PidFile)
-		return fmt.Errorf("PidFile is not set %s", c.PidFile)
+		c.Logf(1, "PidFile is not set, skipping pid file write")
+		return fmt.Errorf("PidFile is not set")
 	}
 	err := os.WriteFile(c.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
 	if err != nil {
-		fmt.Printf("Error writing pid file %s: %s", c.PidFile, err)
+		c.Logf(1, "Error writing pid file %s: %v", c.PidFile, err)
 		return err
 	}
 	return nil
