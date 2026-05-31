@@ -112,7 +112,7 @@ func TestCORSMiddleware(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := CORSMiddleware(inner)
+	handler := CORSMiddleware(inner, "*")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
