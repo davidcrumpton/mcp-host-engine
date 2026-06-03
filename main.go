@@ -24,7 +24,7 @@ func main() {
 	}
 	flag.Parse()
 
-	var configPath string
+	configPath := "./config.yaml"
 	cfg := config.DefaultConfig
 	if flag.NArg() > 0 {
 		configPath = flag.Arg(0)
@@ -35,7 +35,6 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		configPath = "./config.yaml"
 		if _, err := os.Stat(configPath); err == nil {
 			cfg, err = config.LoadConfig(configPath)
 			if err != nil {
