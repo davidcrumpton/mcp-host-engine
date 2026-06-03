@@ -35,9 +35,9 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		// check for config.yaml in path
-		if _, err := os.Stat("./config.yaml"); err == nil {
-			cfg, err = config.LoadConfig("./config.yaml")
+		configPath = "./config.yaml"
+		if _, err := os.Stat(configPath); err == nil {
+			cfg, err = config.LoadConfig(configPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 				os.Exit(1)
