@@ -28,16 +28,19 @@ func writeYAML(t *testing.T, content string) string {
 // ---------------------------------------------------------------------------
 
 func TestLoadConfig_Defaults(t *testing.T) {
-	// Non-existent path → returns DefaultConfig unchanged.
-	cfg, _ := LoadConfig(filepath.Join(t.TempDir(), "does_not_exist.yaml"))
-	if cfg.Port != DefaultConfig.Port {
-		t.Errorf("port: got %q, want %q", cfg.Port, DefaultConfig.Port)
+	// Non-existent path → returns empty values
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "does_not_exist.yaml"))
+	if err == nil {
+		t.Errorf("error loading config: %v", err)
 	}
-	if cfg.Host != DefaultConfig.Host {
-		t.Errorf("host: got %q, want %q", cfg.Host, DefaultConfig.Host)
+	if cfg.Port != "" {
+		t.Errorf("port: got %q, want %q", cfg.Port, "")
 	}
-	if cfg.PluginDir != DefaultConfig.PluginDir {
-		t.Errorf("plugin_dir: got %q, want %q", cfg.PluginDir, DefaultConfig.PluginDir)
+	if cfg.Host != "" {
+		t.Errorf("host: got %q, want %q", cfg.Host, "")
+	}
+	if cfg.PluginDir != "" {
+		t.Errorf("plugin_dir: got %q, want %q", cfg.PluginDir, "")
 	}
 }
 
@@ -76,10 +79,10 @@ func TestLoadConfig_EmptyPluginDirFallsBackToDefault(t *testing.T) {
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {
 	path := writeYAML(t, "{ bad yaml: [")
-	// Should not panic; returns DefaultConfig.
+	// Should not panic; returns empty config.
 	cfg, _ := LoadConfig(path)
-	if cfg.Port != DefaultConfig.Port {
-		t.Errorf("port: got %q, want %q", cfg.Port, DefaultConfig.Port)
+	if cfg.Port != "" {
+		t.Errorf("port: got %q, want empty", cfg.Port)
 	}
 }
 

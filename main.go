@@ -24,15 +24,16 @@ func main() {
 	}
 	flag.Parse()
 
-	configPath := "config.yaml"
+	var configPath string
+	cfg := config.DefaultConfig
 	if flag.NArg() > 0 {
 		configPath = flag.Arg(0)
-	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-		os.Exit(1)
+		var err error
+		cfg, err = config.LoadConfig(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Check if running as root is allowed in config and log a warning if so

@@ -64,8 +64,9 @@ var DefaultConfig = Config{
 	},
 }
 
+// LoadConfig doesn't set defaults.  Main now does only if no argument is provided.
 func LoadConfig(path string) (Config, error) {
-	cfg := DefaultConfig
+	cfg := Config{}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -74,7 +75,7 @@ func LoadConfig(path string) (Config, error) {
 		return cfg, fmt.Errorf("error reading config: %w", err)
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return DefaultConfig, fmt.Errorf("error parsing config: %w", err)
+		return cfg, fmt.Errorf("error parsing config: %w", err)
 	}
 	if cfg.PluginDir == "" {
 		cfg.PluginDir = DefaultConfig.PluginDir
@@ -83,7 +84,7 @@ func LoadConfig(path string) (Config, error) {
 		cfg.Transport = DefaultConfig.Transport
 	}
 	if cfg.Transport != TransportHTTP && cfg.Transport != TransportStdio {
-		return DefaultConfig, fmt.Errorf("invalid transport %q: must be %q or %q", cfg.Transport, TransportHTTP, TransportStdio)
+		return cfg, fmt.Errorf("invalid transport %q: must be %q or %q", cfg.Transport, TransportHTTP, TransportStdio)
 	}
 	return cfg, nil
 }
