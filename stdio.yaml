@@ -4,12 +4,6 @@ run_as_root: false
 transport: stdio
 logs_as_json: true
 plugin_dir: /Users/bear/Workspace/mcp/mcphe/plugins
-tools:
-  "get_ip": false
-  "ping": false
-  "google_search": true
-  "http_request_get": true
-  "wikipedia_search": true
 verbosity_level: 1
 plugins:
   google_search:

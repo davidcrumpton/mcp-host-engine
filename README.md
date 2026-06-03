@@ -54,7 +54,6 @@ These settings control which plugins are available and what level of access they
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `plugin_dir` | `string` | `"plugins"` | The local directory where the engine expects to find all JavaScript plugin files. |
-| `tools` | `map[string]bool` | `{"ping": true, "wikipedia_search": true, ...}` | A boolean map controlling the activation state of core tools. Set a tool name to `false` to disable it, even if the plugin is present. |
 | `plugins` | `map[string]map[string]interface{}` | *See Example* | Provides fine-grained, plugin-specific security and domain restrictions. The top-level key is the plugin name. |
 
 ### Security and Logging
@@ -75,6 +74,7 @@ The `plugins` map allows administrators to restrict the capabilities of individu
 plugins:
   <plugin_name>:
     # Restrictions for this specific plugin
+    enabled: true  # defaults true if defined at all. false if explicitly set to false. Remove it or false to disable
     allowed_domains: [...]
     allowed_write_file_paths: [...]
     allowed_read_file_paths: [...]
@@ -84,7 +84,18 @@ plugins:
 
 #### Detailed Restrictions
 
-1. **`allowed_domains`**:
+1. **`enabled`**:
+   * **Type:** `boolean`
+   * **Default:** `true` if the plugin is defined in the `plugins` map, `false` otherwise.
+   * **Purpose:** Explicitly enables or disables a plugin. If `false`, the plugin will not be loaded or available to the MCP server.
+   * **Example:**
+     ```yaml
+     plugins:
+       my_plugin:
+         enabled: false
+     ```
+
+2. **`allowed_domains`**:
     * **Type:** `list<string>`
     * **Purpose:** Restricts which domains a plugin (like `wikipedia_search` or `google_search`) is allowed to connect to via HTTP requests.
     * **Example:**
@@ -95,7 +106,7 @@ plugins:
             allowed_domains: ["en.wikipedia.org"]
         ```
 
-2. **`allowed_write_file_paths`**:
+3. **`allowed_write_file_paths`**:
     * **Type:** `list<string>`
     * **Purpose:** A list of absolute paths where the plugin is *permitted* to write files. If a path is not listed, writing to it will fail.
     * **Example:**
@@ -106,7 +117,7 @@ plugins:
             allowed_write_file_paths: ["/tmp/output/"]
         ```
 
-3. **`allowed_read_file_paths`**:
+4. **`allowed_read_file_paths`**:
     * **Type:** `list<string>`
     * **Purpose:** A list of absolute paths where the plugin is *permitted* to read files.
     * **Example:**
@@ -117,7 +128,7 @@ plugins:
             allowed_read_file_paths: ["/mnt/data/input.csv"]
         ```
 
-4. **`allowed_commands`**:
+5. **`allowed_commands`**:
     * **Type:** `list<string>`
     * **Purpose:** Limits the commands that a plugin can execute via the `runCommand` method. Each item in the list should be a full command string (e.g., `"ls -l /tmp"`).
     * **Example:**
@@ -128,7 +139,7 @@ plugins:
             allowed_commands: ["ls -l", "pwd"]
         ```
 
-5. **`allowed_env_vars`**:
+6. **`allowed_env_vars`**:
     * **Type:** `list<string>`
     * **Purpose:** Specifies which environment variables the plugin is allowed to access via `getEnv`.
     * **Example:**

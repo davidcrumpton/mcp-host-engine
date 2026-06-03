@@ -51,24 +51,15 @@ var DefaultConfig = Config{
 	RunAsRoot:     false,
 	Transport:     TransportHTTP,
 	LogsAsJSON:    false,
-	Tools: map[string]bool{
-		"ping":             true,
-		"wikipedia_search": true,
-		"google_search":    true,
-		"get_ip":           true,
-		"read_file":        false,
-		"write_file":       false,
-		"run_command":      false,
-		"date_time":        true,
-		"http_request_get": false,
-	},
+
 	Verbosity: 0,
 	Plugins: map[string]map[string]interface{}{
 		"wikipedia_search": {
+			"enabled": true,
 			"allowed_domains": []string{"en.wikipedia.org"},
 		},
-		"google_search": {
-			"allowed_domains": []string{"google.com"},
+		"ping": {
+			"enabled": true,
 		},
 	},
 }
@@ -242,11 +233,27 @@ func (c Config) AllowedENVsFor(pluginName string) []string {
 }
 
 func (c Config) IsToolEnabled(name string) bool {
-	if c.Tools == nil {
-		return false
+	// New-style: presence in the plugins map enables a tool.
+	// An explicit  enabled: false  inside the plugin block disables it.
+	if pCfg, ok := c.Plugins[name]; ok {
+		if v, exists := pCfg["enabled"]; exists {
+			if b, ok := v.(bool); ok {
+				return b
+			}
+		}
+		// Present in plugins but no "enabled" key → enabled by default.
+		return true
 	}
-	enabled, ok := c.Tools[name]
-	return ok && enabled
+
+	// Legacy fall-back: honour the top-level tools map when the plugin has no
+	// entry in the plugins map (old config files / built-in defaults).
+	// WILL BE REMOVED IN FUTURE RELEASE.
+	if c.Tools != nil {
+		enabled, ok := c.Tools[name]
+		return ok && enabled
+	}
+
+	return false
 }
 
 // GetProcessPID returns the PID stored in the pid file, or the current process

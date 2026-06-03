@@ -5,11 +5,6 @@ host: "127.0.0.1"
 use_https: false
 bearer_token: ""
 run_as_root: false
-tools:
-  "ping": false
-  "google_search": true
-  "http_request_get": true
-  "wikipedia_search": true
 verbosity_level: 1
 plugins:
   google_search:

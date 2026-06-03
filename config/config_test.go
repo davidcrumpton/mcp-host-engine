@@ -169,6 +169,71 @@ func TestIsToolEnabled_NilTools(t *testing.T) {
 	}
 }
 
+func TestIsToolEnabled_PluginPresent(t *testing.T) {
+	cfg := Config{
+		Plugins: map[string]map[string]interface{}{
+			"wikipedia_search": {"allowed_domains": []string{"en.wikipedia.org"}},
+		},
+	}
+	if !cfg.IsToolEnabled("wikipedia_search") {
+		t.Error("plugin present in plugins map without 'enabled' key should be enabled")
+	}
+}
+
+func TestIsToolEnabled_PluginExplicitTrue(t *testing.T) {
+	cfg := Config{
+		Plugins: map[string]map[string]interface{}{
+			"get_ip": {"enabled": true, "allowed_domains": []string{"ifconfig.io"}},
+		},
+	}
+	if !cfg.IsToolEnabled("get_ip") {
+		t.Error("plugin with enabled: true should be enabled")
+	}
+}
+
+func TestIsToolEnabled_PluginExplicitFalse(t *testing.T) {
+	cfg := Config{
+		Plugins: map[string]map[string]interface{}{
+			"run_command": {"enabled": false, "allowed_commands": []string{"ls"}},
+		},
+	}
+	if cfg.IsToolEnabled("run_command") {
+		t.Error("plugin with enabled: false should be disabled")
+	}
+}
+
+func TestIsToolEnabled_PluginAbsentAndNoToolsMap(t *testing.T) {
+	cfg := Config{}
+	if cfg.IsToolEnabled("nonexistent") {
+		t.Error("plugin absent from both maps should be disabled")
+	}
+}
+
+func TestIsToolEnabled_LegacyToolsMapStillWorks(t *testing.T) {
+	cfg := Config{
+		Tools: map[string]bool{"ping": true, "old_tool": false},
+	}
+	if !cfg.IsToolEnabled("ping") {
+		t.Error("legacy tools map: ping should be enabled")
+	}
+	if cfg.IsToolEnabled("old_tool") {
+		t.Error("legacy tools map: old_tool should be disabled")
+	}
+}
+
+func TestIsToolEnabled_PluginMapTakesPrecedenceOverToolsMap(t *testing.T) {
+	// plugins map wins even if tools map says otherwise
+	cfg := Config{
+		Tools: map[string]bool{"wikipedia_search": false},
+		Plugins: map[string]map[string]interface{}{
+			"wikipedia_search": {"allowed_domains": []string{"en.wikipedia.org"}},
+		},
+	}
+	if !cfg.IsToolEnabled("wikipedia_search") {
+		t.Error("plugins map presence should take precedence over tools map")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Verbose / Logf
 // ---------------------------------------------------------------------------
