@@ -104,7 +104,7 @@ func (c Config) Logf(level int, format string, args ...interface{}) {
 			logJSON, _ := json.Marshal(logEntry)
 			fmt.Fprintln(os.Stderr, string(logJSON))
 		} else {
-			fmt.Fprintf(os.Stderr, time.Now().Format("2006-JAN-02 15:04:05")+" "+format+"\n", args...)
+			fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05")+" "+format+"\n", args...)
 		}
 	}
 }
