@@ -34,6 +34,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 			os.Exit(1)
 		}
+	} else {
+		// check for config.yaml in path
+		if _, err := os.Stat("./config.yaml"); err == nil {
+			cfg, err = config.LoadConfig("./config.yaml")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+				os.Exit(1)
+			}
+		} 
+		// else run with default config
 	}
 
 	// Check if running as root is allowed in config and log a warning if so
