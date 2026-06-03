@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -35,7 +36,7 @@ func main() {
 	}
 
 	// Check if running as root is allowed in config and log a warning if so
-	if(cfg.RunAsRoot) {
+	if cfg.RunAsRoot {
 		cfg.Logf(1, "WARN: Running as root is enabled in config. Please ensure you understand the security implications.")
 	}
 
@@ -46,12 +47,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d", configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity)
-
-	// Warn if the server is exposed on a non-loopback address without a bearer token.
-	if cfg.BearerToken == "" && !isLoopback(cfg.Host) {
-		fmt.Fprintf(os.Stderr, "WARNING: bearer_token is not configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
-	}
+	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d, transport=%s",
+		configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity, cfg.Transport)
 
 	pluginManager, err := plugin.LoadPlugins(cfg)
 	if err != nil {
@@ -65,6 +62,35 @@ func main() {
 	}, nil)
 
 	server.RegisterPlugins(mcpServer, pluginManager, cfg)
+
+	switch cfg.Transport {
+	case config.TransportStdio:
+		runStdio(mcpServer, cfg)
+	default:
+		runHTTP(mcpServer, pluginManager, cfg)
+	}
+}
+
+// runStdio serves MCP over stdin/stdout. Bearer token and CORS are HTTP-only
+// concerns and are intentionally omitted here. The process exits when the
+// client disconnects (server.Run returns).
+func runStdio(mcpServer *mcp.Server, cfg config.Config) {
+	cfg.Logf(1, "MCP Host Engine version %s starting on stdio transport", config.Version)
+	if err := mcpServer.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		fmt.Fprintf(os.Stderr, "Stdio server error: %v\n", err)
+		removePidFile(cfg)
+		os.Exit(1)
+	}
+	removePidFile(cfg)
+}
+
+// runHTTP serves MCP over HTTP (streamable + SSE). This is the original
+// transport and supports bearer-token auth and CORS middleware.
+func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg config.Config) {
+	// Warn if the server is exposed on a non-loopback address without a bearer token.
+	if cfg.BearerToken == "" && !isLoopback(cfg.Host) {
+		fmt.Fprintf(os.Stderr, "WARNING: bearer_token is not configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
+	}
 
 	// Create the HTTP handlers with a function that returns the server
 	serverFunc := func(r *http.Request) *mcp.Server {
@@ -108,6 +134,7 @@ func main() {
 	mux.Handle("/rpc", finalHandler)
 
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
+	var err error
 	if cfg.UseHTTPS {
 		if cfg.CertFile == "" || cfg.KeyFile == "" {
 			fmt.Fprintln(os.Stderr, "HTTPS enabled but cert_file or key_file is not configured")
@@ -118,15 +145,30 @@ func main() {
 		fmt.Printf("    on https://%s/rpc\n", addr)
 		storePidFile(cfg)
 		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, mux)
+		if err != nil {
+			removePidFile(cfg)
+		}
 	} else {
 		fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
 		fmt.Printf("    on http://%s/rpc\n", addr)
 		storePidFile(cfg)
 		err = http.ListenAndServe(addr, mux)
+		if err != nil {
+			removePidFile(cfg)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func removePidFile(cfg config.Config) {
+	if cfg.PidFile != "" {
+		err := os.Remove(cfg.PidFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing pid file: %v\n", err)
+		}
 	}
 }
 

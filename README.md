@@ -38,6 +38,7 @@ This section details the available settings for the MCP Host Engine. These value
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
+| `transport` | `string` | `"http"` | The transport to use for the MCP Host Engine.  Must be `"http"` or `"stdio"`. |
 | `port` | `string` | `"8001"` | The network port the MCP Host Engine will listen on. |
 | `host` | `string` | `"127.0.0.1"` | The network interface to bind the server to. Use `"0.0.0.0"` to listen on all interfaces. |
 | `use_https` | `bool` | `false` | If set to `true`, the server will enforce HTTPS communication. |

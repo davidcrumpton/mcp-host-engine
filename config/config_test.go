@@ -84,6 +84,63 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+
+func TestLoadConfig_TransportDefaultsToHTTP(t *testing.T) {
+	// A config with no transport field should default to "http".
+	path := writeYAML(t, `port: "9090"`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != TransportHTTP {
+		t.Errorf("transport: got %q, want %q", cfg.Transport, TransportHTTP)
+	}
+}
+
+func TestLoadConfig_TransportEmptyFallsBackToHTTP(t *testing.T) {
+	path := writeYAML(t, `transport: ""`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != TransportHTTP {
+		t.Errorf("transport: got %q, want %q", cfg.Transport, TransportHTTP)
+	}
+}
+
+func TestLoadConfig_TransportStdio(t *testing.T) {
+	path := writeYAML(t, `transport: "stdio"`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != TransportStdio {
+		t.Errorf("transport: got %q, want %q", cfg.Transport, TransportStdio)
+	}
+}
+
+func TestLoadConfig_TransportHTTPExplicit(t *testing.T) {
+	path := writeYAML(t, `transport: "http"`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Transport != TransportHTTP {
+		t.Errorf("transport: got %q, want %q", cfg.Transport, TransportHTTP)
+	}
+}
+
+func TestLoadConfig_TransportInvalidReturnsError(t *testing.T) {
+	path := writeYAML(t, `transport: "websocket"`)
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for invalid transport value")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // IsToolEnabled
 // ---------------------------------------------------------------------------
 

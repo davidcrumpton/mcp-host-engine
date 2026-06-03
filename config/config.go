@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,12 @@ import (
 var (
 	Version = "development"
 	Commit  = "none"
+)
+
+// Transport mode constants.
+const (
+	TransportHTTP  = "http"
+	TransportStdio = "stdio"
 )
 
 type Config struct {
@@ -30,16 +37,20 @@ type Config struct {
 	Plugins       map[string]map[string]interface{} `yaml:"plugins"`
 	Meta          map[string]interface{}            `yaml:"meta"`
 	RunAsRoot     bool                              `yaml:"run_as_root"`
+	Transport     string                            `yaml:"transport"`
+	LogsAsJSON    bool                              `yaml:"logs_as_json"`
 }
 
 var DefaultConfig = Config{
-	Port:         "8001",
-	Host:         "127.0.0.1",
-	UseHTTPS:     false,
-	CORSOrigin:   "", // Empty disables CORS header by default; set explicitly in config.
-	PluginDir:    "plugins",
+	Port:          "8001",
+	Host:          "127.0.0.1",
+	UseHTTPS:      false,
+	CORSOrigin:    "", // Empty disables CORS header by default; set explicitly in config.
+	PluginDir:     "plugins",
 	PluginVersion: "internal-default",
-	RunAsRoot:    false,
+	RunAsRoot:     false,
+	Transport:     TransportHTTP,
+	LogsAsJSON:    false,
 	Tools: map[string]bool{
 		"ping":             true,
 		"wikipedia_search": true,
@@ -77,6 +88,12 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.PluginDir == "" {
 		cfg.PluginDir = DefaultConfig.PluginDir
 	}
+	if cfg.Transport == "" {
+		cfg.Transport = DefaultConfig.Transport
+	}
+	if cfg.Transport != TransportHTTP && cfg.Transport != TransportStdio {
+		return DefaultConfig, fmt.Errorf("invalid transport %q: must be %q or %q", cfg.Transport, TransportHTTP, TransportStdio)
+	}
 	return cfg, nil
 }
 
@@ -86,7 +103,17 @@ func (c Config) Verbose(level int) bool {
 
 func (c Config) Logf(level int, format string, args ...interface{}) {
 	if c.Verbose(level) {
-		fmt.Fprintf(os.Stderr, time.Now().Format("2006-01-02 15:04:05")+" "+format+"\n", args...)
+		if c.LogsAsJSON {
+			logEntry := map[string]interface{}{
+				"level":     level,
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"message":   fmt.Sprintf(format, args...),
+			}
+			logJSON, _ := json.Marshal(logEntry)
+			fmt.Fprintln(os.Stderr, string(logJSON))
+		} else {
+			fmt.Fprintf(os.Stderr, time.Now().Format("2006-JAN-02 15:04:05")+" "+format+"\n", args...)
+		}
 	}
 }
 

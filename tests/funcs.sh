@@ -101,6 +101,108 @@ port_available() {
     fi
 }
 
+# mcp_stdio_call
+# Executes an MCPHE instance as a child process and sends it an MCP-JSON-RPC method call.
+# 
+# Usage:
+#   mcp_stdio_call <command> [args...] -- <method> [params...]
+#
+# Arguments:
+#   <command> [args...]  - the executable and arguments for mcphe (e.g. "./mcphe mcphe.yaml")
+#   --                   - separator
+#   <method> [params...] - the MCP method to call (e.g. "mcp://session/list")
+#
+# Returns:
+#   The JSON-RPC response body on success
+#   Prints errors to stderr and exits 1 on failure
+#
+mcp_stdio_call() {
+    local -a command_args
+    local method
+    local params="{}"
+    local payload
+
+    # 1) Parse command arguments up to "--"
+    local i=1
+    while [[ $i -le $# ]]; do
+        case "${!i}" in
+            --)
+                i=$((i + 1))
+                break
+                ;;
+            *)
+                command_args+=("${!i}")
+                i=$((i + 1))
+                ;;
+        esac
+    done
+
+    # 2) Parse method
+    if [[ $i -gt $# ]]; then
+        echo "Error: method argument is missing after --" >&2
+        return 1
+    fi
+    method="${!i}"
+    i=$((i + 1))
+
+    # 3) Collect remaining args as params
+    if [[ $i -le $# ]]; then
+        local -a remaining=()
+        while [[ $i -le $# ]]; do
+            remaining+=("${!i}")
+            i=$((i + 1))
+        done
+        params="${remaining[*]}"
+    fi
+
+    # 4) Build messages
+    local init='{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"0.0.1"}}}'
+    local initialized='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+    payload="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}"
+
+    # 5) Use a fifo so we control exactly when stdin closes.
+    #    Write init, wait briefly, write the call, then close the write end
+    #    only after we've received a response line with id:1.
+    local fifo
+    fifo=$(mktemp -t mcp_stdio_XXXXXX)
+    rm "$fifo"
+    mkfifo "$fifo"
+
+    # Writer subprocess: drip-feed messages with small delays
+    (
+        printf '%s\n' "$init"
+        sleep 0.1
+        printf '%s\n' "$initialized"
+        sleep 0.1
+        printf '%s\n' "$payload"
+        # Hold the pipe open until the reader signals done (or timeout)
+        sleep 5
+    ) > "$fifo" &
+    local writer_pid=$!
+
+    # 6) Run server, capture stdout, stop as soon as we see the response to id:1
+    local output
+    output=$(
+        "${command_args[@]}" < "$fifo" | \
+        while IFS= read -r line; do
+            echo "$line"
+            # Stop once we see a result/error for our request (id:1)
+            if echo "$line" | grep -q '"id":1'; then
+                break
+            fi
+        done
+    )
+
+    # Clean up: kill the writer (closes the fifo) which lets the server exit
+    kill "$writer_pid" 2>/dev/null
+    wait "$writer_pid" 2>/dev/null
+    rm -f "$fifo"
+
+    echo "$output"
+}
+
+
+
 # mcp_session_call
 # Constructs and sends a JSON-RPC request to the MCPHE endpoint.
 # Usage: mcp_session_call <method> [params...]
