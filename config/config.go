@@ -39,6 +39,7 @@ type Config struct {
 	RunAsRoot     bool                              `yaml:"run_as_root"`
 	Transport     string                            `yaml:"transport"`
 	LogsAsJSON    bool                              `yaml:"logs_as_json"`
+	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
 }
 
 var DefaultConfig = Config{

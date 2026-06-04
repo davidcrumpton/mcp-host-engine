@@ -5,7 +5,7 @@ host: "127.0.0.1"
 use_https: false
 bearer_token: ""
 run_as_root: false
-verbosity_level: 1
+verbosity_level: 4
 plugins:
   google_search:
     google_api_key: "abc123"
@@ -24,3 +24,15 @@ plugins:
     api_token: "xyz"
   wikipedia_search:
     allowed_domains: ["en.wikipedia.org"]
+  memory:
+    enabled: true
+    allowed_write_file_paths: ["/tmp/mcphe/"]
+    allowed_read_file_paths: ["/tmp/mcphe/"]
+    allowed_http_headers:
+      - "mcp-request-id"
+      - "mcp-session-id"
+    options:
+      data_dir: "/tmp/mcphe"
+
+  
+

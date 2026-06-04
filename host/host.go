@@ -20,6 +20,17 @@ import (
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) map[string]interface{} {
+	httpHeaders := make(map[string]string)
+	if h, ok := ctx.Value("http_headers").(http.Header); ok {
+		for k, vs := range h {
+			if len(vs) > 0 {
+				if IsHTTPHeaderAllowed(k, cfg) {
+					httpHeaders[k] = vs[0]
+				}
+			}
+		}
+	}
+
 	pluginConfig := map[string]interface{}{
 		"mcp-version": config.Version,
 		"mcp-commit":  config.Commit,
@@ -29,6 +40,8 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			pluginConfig[k] = v
 		}
 	}
+
+	pid := fmt.Sprintf("%d", os.Getpid())
 
 	return map[string]interface{}{
 		"readFile":   func(path string) (string, error) { return ReadFile(path, cfg, pluginName) },
@@ -60,8 +73,32 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		"writeStream": func(path string, options map[string]interface{}, callback func() (string, error)) error {
 			return WriteStream(path, cfg, pluginName, options, callback)
 		},
-		"config": pluginConfig,
+		"makeDir": func(path string) error {
+			return Mkdir(path, cfg, pluginName)
+		},
+		"rmDir": func(path string) error {
+			return rmDir(path, cfg, pluginName)
+		},
+		"isdir": func(path string) (bool, error) {
+			return IsDir(path, cfg, pluginName)
+		},
+		"isexisted": func(path string) (bool, error) {
+			return isPathExisted(path, cfg, pluginName)
+		},
+		"config":      pluginConfig,
+		"pid":         pid,
+		"httpHeaders": httpHeaders,
 	}
+}
+
+func IsHTTPHeaderAllowed(header string, cfg config.Config) bool {
+	for _, allowedHeader := range cfg.AllowedHTTPHeaders {
+		if header == allowedHeader {
+			return true
+		}
+	}
+	cfg.Logf(4, "header: %s not in allowed headers", header)
+	return false
 }
 
 // isPathAllowed checks whether path falls under one of allowedPaths.
@@ -284,6 +321,46 @@ func WriteStream(path string, cfg config.Config, pluginName string, options map[
 	}
 
 	return nil
+}
+
+func rmDir(path string, cfg config.Config, pluginName string) error {
+	allowed := isPathAllowed(path, cfg.AllowedWriteFilePathsFor(pluginName))
+	if !allowed {
+		return fmt.Errorf("removing directory %q is not allowed", path)
+	}
+	return os.RemoveAll(path)
+}
+
+func Mkdir(path string, cfg config.Config, pluginName string) error {
+	allowed := isPathAllowed(path, cfg.AllowedWriteFilePathsFor(pluginName))
+	if !allowed {
+		return fmt.Errorf("writing to directory %q is not allowed", path)
+	}
+	return os.MkdirAll(path, 0755)
+}
+
+func IsDir(path string, cfg config.Config, pluginName string) (bool, error) {
+	allowed := isPathAllowed(path, cfg.AllowedReadFilePathsFor(pluginName))
+	if !allowed {
+		return false, fmt.Errorf("access to directory %q is not allowed", path)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return info.IsDir(), nil
+}
+
+func isPathExisted(path string, cfg config.Config, pluginName string) (bool, error) {
+	allowed := isPathAllowed(path, cfg.AllowedReadFilePathsFor(pluginName))
+	if !allowed {
+		return false, fmt.Errorf("access to file %q is not allowed", path)
+	}
+	_, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func HTTPGet(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {

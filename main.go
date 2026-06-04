@@ -58,8 +58,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg.Logf(1, "Using config %s plugin version %s, MCP version %s, plugin dir=%s, verbosity=%d, transport=%s",
-		configPath, cfg.PluginVersion, config.Version, cfg.PluginDir, cfg.Verbosity, cfg.Transport)
+	cfg.Logf(2, "Using config %s plugin dir=%s, verbosity=%d, transport=%s",
+		configPath, cfg.PluginDir, cfg.Verbosity, cfg.Transport)
 
 	pluginManager, err := plugin.LoadPlugins(cfg)
 	if err != nil {
@@ -112,11 +112,27 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 
 	// Route based on transport type
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("sessionid") != "" {
+		// Inject request headers into context so plugins can access them via host.httpHeaders
+		r = r.WithContext(context.WithValue(r.Context(), "http_headers", r.Header))
+
+		// Derive session ID for routing decisions (SSE vs StreamableHTTP)
+		sessionID := r.Header.Get("Mcp-Session-Id")
+		if sessionID == "" {
+			sessionID = r.URL.Query().Get("sessionId")
+		}
+		if sessionID == "" {
+			sessionID = r.URL.Query().Get("sessionid")
+		}
+
+		cfg.Logf(4, "Incoming %s %s sessionID=%s", r.Method, r.URL.Path, sessionID)
+
+		if sessionID != "" && r.Header.Get("Mcp-Session-Id") == "" {
+			// SSE POST: sessionid comes from query param
 			sseHandler.ServeHTTP(w, r)
 			return
 		}
-		if r.Method == http.MethodGet && r.Header.Get("Mcp-Session-Id") == "" {
+		if r.Method == http.MethodGet && sessionID == "" {
+			// SSE GET: initial connection
 			sseHandler.ServeHTTP(w, r)
 			return
 		}
