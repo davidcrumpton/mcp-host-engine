@@ -41,9 +41,9 @@ module.exports = {
   commit: "none",
   Tags: ["memory"],
   annotations: {
-    readOnlyHint:    true,
-    destructiveHint: false,
-    idempotentHint:  true,
+    readOnlyHint:    false,
+    destructiveHint: true,
+    idempotentHint:  false,
     openWorldHint:   false,
   },
   inputSchema: { 
