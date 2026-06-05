@@ -79,26 +79,44 @@ module.exports = {
           return 'Error: "value" is required for action "set"'
         ns[key] = String(value)
         saveAll(ns, memoryFile, tempFile)
-        return `Memory set: ${key} = ${value} (Session: ${currentSession})`
+        return {
+          success: true,
+          result: `Memory set: ${key} = ${value} (Session: ${currentSession})`
+        }
       }
       case 'get': {
         if (!key) return 'Error: "key" is required for action "get"'
-        return String(ns[key])
+        return {
+          success: true,
+          result: String(ns[key])
+        }
       }
       case 'delete': {
         if (!key) return 'Error: "key" is required for action "delete"'
         if (!(key in ns)) return `No memory found for key: ${key}`
         delete ns[key]
         saveAll(ns, memoryFile, tempFile)
-        return `Memory deleted: ${key} (Session: ${currentSession})`
+        return {
+          success: true,
+          result: `Memory deleted: ${key} (Session: ${currentSession})`
+        }
       }
       case 'list': {
         const entries = Object.entries(ns)
-        if (entries.length === 0) return `Memory is empty for session: ${currentSession}`
-        return entries.map(([k, v]) => `${k}: ${v}`).join('\n')
+        if (entries.length === 0) return {
+          success: true,
+          result: `Memory is empty for session: ${currentSession}`
+        }
+        return {
+          success: true,
+          result: entries.map(([k, v]) => `${k}: ${v}`).join('\n')
+        }
       }
       default:
-        return `Unknown action: ${action}. Valid actions: set | get | delete | list`
+        return {
+          success: false,
+          error: `Unknown action: ${action}. Valid actions: set | get | delete | list`
+        }
     }
   },
 };

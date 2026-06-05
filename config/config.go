@@ -110,6 +110,24 @@ func (c Config) Logf(level int, format string, args ...interface{}) {
 	}
 }
 
+func (c Config) LogfForPlugin(pluginName string) func(level int, format string, args ...interface{}) {
+	return func(level int, format string, args ...interface{}) {
+		if c.Verbose(level) {
+			if c.LogsAsJSON {
+				logEntry := map[string]interface{}{
+					"level":     level,
+					"timestamp": time.Now().Format(time.RFC3339Nano),
+					"message":   fmt.Sprintf(format, args...),
+				}
+				logJSON, _ := json.Marshal(logEntry)
+				fmt.Fprintln(os.Stderr, string(logJSON))
+			} else {
+				fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05 ")+ " "+pluginName+": "+format+"\n", args...)
+			}
+		}
+	}
+}
+
 func (c Config) AllowedReadFilePathsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {

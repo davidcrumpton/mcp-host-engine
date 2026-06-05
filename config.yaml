@@ -7,6 +7,7 @@ bearer_token: ""
 run_as_root: false
 verbosity_level: 4
 plugins:
+  get_datetime:
   google_search:
     google_api_key: "abc123"
     google_cx_id: "cx456"
@@ -33,6 +34,13 @@ plugins:
       - "mcp-session-id"
     options:
       data_dir: "/tmp/mcphe"
-
-  
-
+  gitlab:
+    options:
+      # gitlabApiKey: "glpat-using environment variable is more secure than hardcoding the API key in the config file. But you can."
+      # prioritis ENV var over config file value if both are present
+      gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
+      gitlabBaseUrl: "https://gitlab.crumpton.org"
+      # HTTP Troubleshooting host and port live on ollma for now, but should be moved to a separate plugin
+      # gitlabBaseUrl: "http://ollama.crumpton.org:9999"
+    allowed_domains: ["gitlab.com", "gitlab.crumpton.org"]
+    allowed_env_vars: ["GITLAB_API_KEY"]

@@ -304,6 +304,7 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		cfg.Logf(1, "Error executing tool %s: %v", name, err)
 		return nil, fmt.Errorf("tool error: %w", err)
 	}
+	cfg.Logf(2, "Tool returned result for %s with raw args %s", name, string(rawArgs))
 	return result.Export(), nil
 }
 
