@@ -1,6 +1,6 @@
 module.exports = {
-  name: "gitlab",
-  description: "GitLab search tools for projects, issues, and merge requests.",
+  name: "gitlab_search",
+  description: "GitLab search tools for projects, issues, and merge requests.  Returns ID numbers to be used with the gitlab_extended plugin for more detailed operations.",
   version: "1.0.0",
   commit: "none",
   Tags: ["development", "utility"],

@@ -34,10 +34,18 @@ plugins:
       - "mcp-session-id"
     options:
       data_dir: "/tmp/mcphe"
-  gitlab:
+  gitlab_search:
     options:
       # gitlabApiKey: "glpat-using environment variable is more secure than hardcoding the API key in the config file. But you can."
-      # prioritis ENV var over config file value if both are present
+      # prioritize ENV var over config file value if both are present
+      gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
+      gitlabBaseUrl: "https://gitlab.crumpton.org"
+    allowed_domains: ["gitlab.com", "gitlab.crumpton.org"]
+    allowed_env_vars: ["GITLAB_API_KEY"]
+  gitlab_extended:
+    options:
+      # gitlabApiKey: "glpat-using environment variable is more secure than hardcoding the API key in the config file. But you can."
+      # prioritize ENV var over config file value if both are present
       gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
       gitlabBaseUrl: "https://gitlab.crumpton.org"
     allowed_domains: ["gitlab.com", "gitlab.crumpton.org"]
