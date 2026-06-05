@@ -26,7 +26,10 @@ module.exports = {
           "create_issue",
           "create_merge_request",
           "fork_repository",
-          "create_branch"
+          "create_branch",
+          "search_projects",
+          "search_issues",
+          "search_merge_requests"
         ]
       },
       project_id: {
@@ -71,7 +74,7 @@ module.exports = {
       },
       page: {
         type: "integer",
-        description: "Page number for pagination",
+        description: "Page number for pagination (REQUIRED for search APIs, defaults to 1)",
         minimum: 1,
         default: 1
       },
@@ -211,6 +214,15 @@ module.exports = {
         return self.forkRepository(params, token, baseUrl);
       case "create_branch":
         return self.createBranch(params, token, baseUrl);
+      case "search_projects":
+        return self.searchProjects(params, token, baseUrl);
+      case "search_issues":
+        return self.searchIssues(params, token, baseUrl);
+      case "search_merge_requests":
+        return self.searchMergeRequests(params, token, baseUrl);
+      case "update_file":
+        // For backward compatibility, treat "update_file" as "create_or_update_file"
+        return self.createOrUpdateFile(params, token, baseUrl);
       default:
         const errorMsg = `Unknown CommandEvent: ${CommandEvent}`;
         host.logger(1, errorMsg);
@@ -673,6 +685,151 @@ module.exports = {
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
         }
       }, JSON.stringify(body));
+      
+      const status = response.status ?? response.statusCode;
+      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+
+      if (status >= 200 && status < 300) {
+        const payload = JSON.parse(bodyText);
+        return {
+          success: true,
+          result: payload
+        };
+      } else {
+        return {
+          success: false,
+          error: `GitLab API request failed with status ${status}: ${bodyText}`
+        };
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: `GitLab API request error: ${err.message}`
+      };
+    }
+  },
+  searchProjects(params, token, baseUrl) {
+    const {
+      search = '',
+      page = 1,
+      per_page = 20
+    } = params;
+
+    if (!search || search.trim() === '') {
+     return { success: false, error: "Search query cannot be empty" };
+    }
+    // Proper URL: https://gitlab.crumpton.org/api/v4/search?scope=projects&search=mcp&page=1&per_page=20
+    const encodedQuery = encodeURIComponent(search);
+    const url =
+      `${baseUrl}/api/v4/search` +
+      `?scope=projects` +
+      `&search=${encodedQuery}` +
+      `&page=${encodeURIComponent(page)}` +
+      `&per_page=${encodeURIComponent(per_page)}`;
+    
+    try {
+      const response = host.httpGet(url, {
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
+      });
+      
+      const status = response.status ?? response.statusCode;
+      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+
+      if (status >= 200 && status < 300) {
+        const payload = JSON.parse(bodyText);
+        return {
+          success: true,
+          result: payload
+        };
+      } else {
+        return {
+          success: false,
+          error: `GitLab API request failed with status ${status}: ${bodyText}`
+        };
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: `GitLab API request error: ${err.message}`
+      };
+    }
+  },
+  searchIssues(params, token, baseUrl) {
+    const {
+      search = '',
+      page = 1,
+      per_page = 20
+    } = params;
+
+    if (!search || search.trim() === '') {
+      return { success: false, error: "Search query cannot be empty" };
+    }
+    const encodedQuery = encodeURIComponent(search);
+    const url =
+      `${baseUrl}/api/v4/search` +
+      `?scope=issues` +
+      `&search=${encodedQuery}` +
+      `&page=${encodeURIComponent(page)}` +
+      `&per_page=${encodeURIComponent(per_page)}`;
+    
+    try {
+      const response = host.httpGet(url, {
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
+      });
+      
+      const status = response.status ?? response.statusCode;
+      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+
+      if (status >= 200 && status < 300) {
+        const payload = JSON.parse(bodyText);
+        return {
+          success: true,
+          result: payload
+        };
+      } else {
+        return {
+          success: false,
+          error: `GitLab API request failed with status ${status}: ${bodyText}`
+        };
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: `GitLab API request error: ${err.message}`
+      };
+    }
+  },
+  searchMergeRequests(params, token, baseUrl) {
+    const {
+      search = '',
+      page = 1,
+      per_page = 20
+    } = params;
+
+    if (!search || search.trim() === '') {
+      return { success: false, error: "Search query cannot be empty" };
+    }
+    const encodedQuery = encodeURIComponent(search);
+    const url =
+      `${baseUrl}/api/v4/search` +
+      `?scope=merge_requests` +
+      `&search=${encodedQuery}` +
+      `&page=${encodeURIComponent(page)}` +
+      `&per_page=${encodeURIComponent(per_page)}`;
+    
+    try {
+      const response = host.httpGet(url, {
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
+      });
       
       const status = response.status ?? response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
