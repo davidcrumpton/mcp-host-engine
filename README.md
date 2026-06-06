@@ -176,15 +176,7 @@ plugins:
     allowed_read_file_paths: ["/app/data/metrics.csv"]
     allowed_commands: ["date"] # Only allow the 'date' command
     allowed_env_vars: ["REPORTING_ENV"]
-    
-tools:
-  ping: true
-  wikipedia_search: true
-  google_search: true
-  read_file: true # Explicitly enabling this tool
-  run_command: true 
-  date_time: true
-  
+
 
 ## Plugin development
 

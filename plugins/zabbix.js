@@ -1,0 +1,279 @@
+module.exports = {
+  name: "zabbix",
+  description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
+  version: "1.0.0",
+  Tags: ["monitoring", "zabbix", "infrastructure"],
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true
+  },
+
+  inputSchema: {
+    type: "object",
+    properties: {
+      CommandEvent: {
+        type: "string",
+        description: "Zabbix API command to execute.",
+        enum: [
+          "login",
+          "get_hosts",
+          "get_items",
+          "get_triggers",
+          "get_events",
+          "create_host",
+          "update_host",
+          "delete_host",
+          "create_item",
+          "update_item",
+          "create_trigger",
+          "update_trigger"
+        ]
+      },
+      // Generic params bag for specific calls (hostids, filters, etc.)
+      params: {
+        type: "object",
+        description: "Additional Zabbix API parameters for the selected CommandEvent."
+      }
+    },
+    required: ["CommandEvent"]
+  },
+
+  call(params) {
+    const self = module.exports;
+    const { CommandEvent } = params;
+
+    let apiUrl;
+    let username;
+    let password;
+    let authToken;
+
+    // Load config exactly like the GitLab plugin does
+    try {
+      apiUrl =
+        host.getEnv("ZABBIX_API_URL") ||
+        host.config.options.zabbixApiUrl ||
+        undefined;
+
+      username =
+        host.getEnv("ZABBIX_USER") ||
+        host.config.options.zabbixUser ||
+        undefined;
+
+      password =
+        host.getEnv("ZABBIX_PASSWORD") ||
+        host.config.options.zabbixPassword ||
+        undefined;
+
+      authToken =
+        host.getEnv("ZABBIX_AUTH_TOKEN") ||
+        host.config.options.zabbixAuthToken ||
+        undefined;
+
+      host.logger(
+        1,
+        `Zabbix plugin called with CommandEvent=${CommandEvent}`
+      );
+      host.logger(
+        1,
+        `Zabbix plugin config: apiUrl=${apiUrl}, user=${username}, authToken=${authToken ? "***" : "MISSING"}`
+      );
+    } catch (err) {
+      host.logger(1, `Zabbix plugin configuration error: ${err.message}`);
+      return {
+        success: false,
+        error: `Zabbix plugin configuration error: ${err.message}`
+      };
+    }
+
+    if (!apiUrl) {
+      const errorMsg = "Missing Zabbix API URL in host.config.options.zabbixApiUrl or ZABBIX_API_URL";
+      host.logger(1, errorMsg);
+      return { success: false, error: errorMsg };
+    }
+
+    // Core JSON-RPC helper
+    function rpc(method, rpcParams = {}, useAuth = true) {
+      const body = {
+        jsonrpc: "2.0",
+        method,
+        params: rpcParams,
+        id: Date.now()
+      };
+
+      if (useAuth && authToken) {
+        body.auth = authToken;
+      } else if (useAuth && !authToken) {
+        body.auth = null;
+      }
+
+      const payload = JSON.stringify(body);
+
+      try {
+        const response = host.httpPost(
+          apiUrl,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "mcphe-zabbix-plugin/1.0 (goja)"
+            }
+          },
+          payload
+        );
+
+        const status = response.status ?? response.statusCode;
+        const bodyText =
+          typeof response.body === "string"
+            ? response.body
+            : response.text?.() ?? "";
+
+        if (status >= 200 && status < 300) {
+          let parsed;
+          try {
+            parsed = JSON.parse(bodyText);
+          } catch (e) {
+            return {
+              success: false,
+              error: `Failed to parse Zabbix response JSON: ${e.message}, raw=${bodyText}`
+            };
+          }
+
+          if (parsed.error) {
+            return {
+              success: false,
+              error: parsed.error
+            };
+          }
+
+          return {
+            success: true,
+            result: parsed.result
+          };
+        } else {
+          return {
+            success: false,
+            error: `Zabbix API HTTP error ${status}: ${bodyText}`
+          };
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: `Zabbix API request error: ${err.message}`
+        };
+      }
+    }
+
+    // Optional helper: perform login using configured username/password
+    function doLogin() {
+      if (!username || !password) {
+        return {
+          success: false,
+          error:
+            "Missing Zabbix credentials (zabbixUser/zabbixPassword or env ZABBIX_USER/ZABBIX_PASSWORD)"
+        };
+      }
+
+      const res = rpc(
+        "user.login",
+        {
+          username: username,
+          password: password
+        },
+        false // login itself does not use auth
+      );
+
+      if (res.success && res.result) {
+        authToken = res.result;
+      }
+
+      return res;
+    }
+
+    // Dispatcher
+    switch (CommandEvent) {
+      case "login": {
+        return doLogin();
+      }
+
+      case "get_hosts": {
+        const p = params.params || {};
+        // Provide a sane default if none given
+        const rpcParams = Object.assign({ output: "extend" }, p);
+        return rpc("host.get", rpcParams, true);
+      }
+
+      case "get_items": {
+        const p = params.params || {};
+        const rpcParams = Object.assign({ output: "extend" }, p);
+        return rpc("item.get", rpcParams, true);
+      }
+
+      case "get_triggers": {
+        const p = params.params || {};
+        const rpcParams = Object.assign({ output: "extend" }, p);
+        return rpc("trigger.get", rpcParams, true);
+      }
+
+      case "get_events": {
+        const p = params.params || {};
+        const rpcParams = Object.assign({ output: "extend" }, p);
+        return rpc("event.get", rpcParams, true);
+      }
+
+      case "create_host": {
+        const p = params.params || {};
+        // Expect caller to provide host, groups, interfaces, etc. in params
+        return rpc("host.create", p, true);
+      }
+
+      case "update_host": {
+        const p = params.params || {};
+        // Must include hostid in params
+        return rpc("host.update", p, true);
+      }
+
+      case "delete_host": {
+        const p = params.params || {};
+        // Zabbix expects an array of hostids
+        const hostids = p.hostids || p.hostid ? [p.hostid || p.hostids].flat() : [];
+        if (!hostids.length) {
+          return {
+            success: false,
+            error: "delete_host requires params.hostid or params.hostids"
+          };
+        }
+        return rpc("host.delete", hostids, true);
+      }
+
+      case "create_item": {
+        const p = params.params || {};
+        return rpc("item.create", p, true);
+      }
+
+      case "update_item": {
+        const p = params.params || {};
+        return rpc("item.update", p, true);
+      }
+
+      case "create_trigger": {
+        const p = params.params || {};
+        return rpc("trigger.create", p, true);
+      }
+
+      case "update_trigger": {
+        const p = params.params || {};
+        return rpc("trigger.update", p, true);
+      }
+
+      default: {
+        const errorMsg = `Unknown CommandEvent: ${CommandEvent}`;
+        host.logger(1, errorMsg);
+        return {
+          success: false,
+          error: errorMsg
+        };
+      }
+    }
+  }
+};
