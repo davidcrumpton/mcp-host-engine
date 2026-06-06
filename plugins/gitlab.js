@@ -163,13 +163,13 @@ module.exports = {
 
     let apiKey;
     try {
-      apiKey = host.getEnv("GITLAB_API_KEY") || host.config.options.gitlabApiKey || undefined;
+      apiKey = host.process.env("GITLAB_API_KEY") || host.config.options.gitlabApiKey || undefined;
       const baseUrl = host.config.options.gitlabBaseUrl || "https://gitlab.com";
       
-      host.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
-      host.logger(1, `GitLab plugin config: apiKey=${apiKey ? '***' : 'MISSING'}, baseUrl=${baseUrl}`);
+      host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
+      host.server.logger(1, `GitLab plugin config: apiKey=${apiKey ? '***' : 'MISSING'}, baseUrl=${baseUrl}`);
     } catch (err) {
-      host.logger(1, `GitLab plugin configuration error: ${err.message}`);
+      host.server.logger(1, `GitLab plugin configuration error: ${err.message}`);
       return {
         success: false,
         error: `GitLab plugin configuration error: ${err.message}`
@@ -178,13 +178,13 @@ module.exports = {
 
     const baseUrl = host.config.options.gitlabBaseUrl || "https://gitlab.com";
 
-    host.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
-    host.logger(1, `GitLab plugin config: apiKey=${apiKey}, baseUrl=${baseUrl}`);
+    host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
+    host.server.logger(1, `GitLab plugin config: apiKey=${apiKey}, baseUrl=${baseUrl}`);
 
     // Check for API key first
     if (!apiKey) {
       const errorMsg = "Missing GitLab API key in host.config.options.gitlabApiKey";
-      host.logger(1, errorMsg);
+      host.server.logger(1, errorMsg);
       return {
         success: false,
         result: errorMsg
@@ -225,7 +225,7 @@ module.exports = {
         return self.createOrUpdateFile(params, token, baseUrl);
       default:
         const errorMsg = `Unknown CommandEvent: ${CommandEvent}`;
-        host.logger(1, errorMsg);
+        host.server.logger(1, errorMsg);
         return {
           success: false,
           error: errorMsg
@@ -349,7 +349,7 @@ module.exports = {
     const url = `${baseUrl}/api/v4/projects/search?search=${encodeURIComponent(search)}&page=${page}&per_page=${per_page}`;
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -442,7 +442,7 @@ module.exports = {
     }
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -485,7 +485,7 @@ module.exports = {
     }
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -728,7 +728,7 @@ module.exports = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -776,7 +776,7 @@ module.exports = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -824,7 +824,7 @@ module.exports = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"

@@ -38,6 +38,7 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 	pid := fmt.Sprintf("%d", os.Getpid())
 
 	return map[string]interface{}{
+		// Legacy names will be deprecated in the future
 		"readFile":   func(path string) (string, error) { return fs.ReadFile(path, cfg, pluginName) },
 		"writeFile":  func(path string, content string) error { return fs.WriteFile(path, content, cfg, pluginName) },
 		"listFiles":  func(path string) ([]string, error) { return fs.ListFiles(path, cfg, pluginName) },
@@ -79,10 +80,83 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		"isexisted": func(path string) (bool, error) {
 			return fs.IsPathExisted(path, cfg, pluginName)
 		},
+
+		// Informational
 		"logger":      cfg.LogfForPlugin(pluginName),
 		"pluginConfig": pluginConfig,
 		"config":      pluginConfig,
 		"pid":         pid,
 		"httpHeaders": httpHeaders,
+
+		// JavaScript style functions and objects, will become the future format
+		// making above functions and objects obsolete and providing porters
+		// an easier pathway to port their plugin to GoJa JavsScript plugin.
+		"fs": map[string]interface{}{
+			"readFile": func(path string) (string, error) { return fs.ReadFile(path, cfg, pluginName) },
+			"writeFile": func(path string, content string) error { return fs.WriteFile(path, content, cfg, pluginName) },
+			"listFiles": func(path string) ([]string, error) { return fs.ListFiles(path, cfg, pluginName) },
+			"deleteFile": func(path string) error { return fs.DeleteFile(path, cfg, pluginName) },
+			"renameFile": func(oldPath, newPath string) error {
+				return fs.RenameFile(oldPath, newPath, cfg, pluginName)
+			},
+			"readStream": func(path string, options map[string]interface{}, callback func(chunk string) error) error {
+				return fs.ReadStream(path, cfg, pluginName, options, callback)
+			},
+			"writeStream": func(path string, options map[string]interface{}, callback func() (string, error)) error {
+				return fs.WriteStream(path, cfg, pluginName, options, callback)
+			},
+			"makeDir": func(path string) error {
+				return fs.Mkdir(path, cfg, pluginName)
+			},
+			"rmDir": func(path string) error {
+				return fs.RmDir(path, cfg, pluginName)
+			},
+			"isdir": func(path string) (bool, error) {
+				return fs.IsDir(path, cfg, pluginName)
+			},
+			"isexisted": func(path string) (bool, error) {
+				return fs.IsPathExisted(path, cfg, pluginName)
+			},
+		},
+		"http": map[string]interface{}{
+			"get": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Get(ctx, urlStr, headers, cfg, pluginName) },
+			"post": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Post(ctx, urlStr, headers, body, cfg, pluginName) },
+			"put": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Put(ctx, urlStr, headers, body, cfg, pluginName) },
+			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName) },
+		},
+		"exec": map[string]interface{}{
+			"runCommand": func(command string) (string, error) { return exec.RunCommand(ctx, cfg, pluginName, command) },
+		},
+		"process": map[string]interface{}{
+			"config": func() map[string]interface{} { return pluginConfig },
+			"env":    func(key string) (string, error) { return env.GetEnv(key, cfg, pluginName) },
+		},
+		"mcp": map[string]interface{}{
+			"version": func() string { return config.Version },
+			"commit":  func() string { return config.Commit },
+			"logger":  cfg.LogfForPlugin(pluginName),
+			"config":  func() map[string]interface{} { return pluginConfig },
+		},
+		"server": map[string]interface{}{
+			"version": func() string { return config.Version },
+			"commit": func() string { return config.Commit },
+			"logger": cfg.LogfForPlugin(pluginName),
+			"config": func(name string) map[string]interface{} {
+				if len(name) == 0 {
+					name = pluginName
+				}
+				pluginConfig := map[string]interface{}{
+					"mcp-version": config.Version,
+					"mcp-commit":  config.Commit,
+				}
+				if pCfg, ok := cfg.Plugins[name]; ok {
+					for k, v := range pCfg {
+						pluginConfig[k] = v
+					}
+				}
+				return pluginConfig
+			},
+			"httpHeaders": httpHeaders,
+		},
 	}
 }

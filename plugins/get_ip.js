@@ -12,7 +12,7 @@ module.exports = {
   },
   inputSchema: { type: "object", properties: {}, required: [] },
   call(params) {
-    const response = host.httpGet("https://ifconfig.io/all.json");
+    const response = host.http.get("https://ifconfig.io/all.json");
     const payload = JSON.parse(response.body);
     return `${payload.country_code || "unknown"}: ${payload.ip || "unknown"}`;
   },

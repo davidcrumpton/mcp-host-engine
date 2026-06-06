@@ -52,35 +52,35 @@ module.exports = {
     // Load config exactly like the GitLab plugin does
     try {
       apiUrl =
-        host.getEnv("ZABBIX_API_URL") ||
+        host.process.env("ZABBIX_API_URL") ||
         host.config.options.zabbixApiUrl ||
         undefined;
 
       username =
-        host.getEnv("ZABBIX_USER") ||
+        host.process.env("ZABBIX_USER") ||
         host.config.options.zabbixUser ||
         undefined;
 
       password =
-        host.getEnv("ZABBIX_PASSWORD") ||
+        host.process.env("ZABBIX_PASSWORD") ||
         host.config.options.zabbixPassword ||
         undefined;
 
       authToken =
-        host.getEnv("ZABBIX_AUTH_TOKEN") ||
+        host.process.env("ZABBIX_AUTH_TOKEN") ||
         host.config.options.zabbixAuthToken ||
         undefined;
 
-      host.logger(
+      host.server.logger(
         1,
         `Zabbix plugin called with CommandEvent=${CommandEvent}`
       );
-      host.logger(
+      host.server.logger(
         1,
         `Zabbix plugin config: apiUrl=${apiUrl}, user=${username}, authToken=${authToken ? "***" : "MISSING"}`
       );
     } catch (err) {
-      host.logger(1, `Zabbix plugin configuration error: ${err.message}`);
+      host.server.logger(1, `Zabbix plugin configuration error: ${err.message}`);
       return {
         success: false,
         error: `Zabbix plugin configuration error: ${err.message}`
@@ -89,7 +89,7 @@ module.exports = {
 
     if (!apiUrl) {
       const errorMsg = "Missing Zabbix API URL in host.config.options.zabbixApiUrl or ZABBIX_API_URL";
-      host.logger(1, errorMsg);
+      host.server.logger(1, errorMsg);
       return { success: false, error: errorMsg };
     }
 
@@ -268,7 +268,7 @@ module.exports = {
 
       default: {
         const errorMsg = `Unknown CommandEvent: ${CommandEvent}`;
-        host.logger(1, errorMsg);
+        host.server.logger(1, errorMsg);
         return {
           success: false,
           error: errorMsg

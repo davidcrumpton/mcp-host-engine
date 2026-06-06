@@ -12,7 +12,7 @@
 
 function loadAll(memoryFile) {
   try {
-    const content = host.readFile(memoryFile)
+    const content = host.fs.readFile(memoryFile)
     return content ? JSON.parse(content) : {}
   } catch (err) {
     return {}
@@ -27,10 +27,10 @@ function loadAll(memoryFile) {
 function saveAll(data, memoryFile, tempFile) {
   try {
     const json = JSON.stringify(data, null, 2)
-    host.writeFile(tempFile, json)
-    host.renameFile(tempFile, memoryFile)
+    host.fs.writeFile(tempFile, json)
+    host.fs.renameFile(tempFile, memoryFile)
   } catch (err) {
-    try { host.deleteFile(tempFile) } catch(e) {}
+    try { host.fs.deleteFile(tempFile) } catch(e) {}
   }
 }
 
@@ -63,7 +63,7 @@ module.exports = {
     
     // Session priority: explicit param → MCP session header → config fallback → 'default'
     const currentSession = session_id
-      || (host.httpHeaders && host.httpHeaders['Mcp-Session-Id'])
+      || (host.server.httpHeaders && host.server.httpHeaders['Mcp-Session-Id'])
       || host.config.options.session_key
       || 'default';
     

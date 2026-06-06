@@ -27,7 +27,7 @@ module.exports = {
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
 
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "User-Agent":
             "mcphe-wikipedia-plugin/1.0 (https://github.com/davidcrumpton/mcp-host-engine/plugins/wikipedia_search.js; David Crumpton <david.crumpton>; mcphe <mcphe>)",

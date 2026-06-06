@@ -18,6 +18,6 @@ module.exports = {
     required: ["path"],
   },
   call(params) {
-    return host.readFile(params.path);
+    return host.fs.readFile(params.path);
   },
 };

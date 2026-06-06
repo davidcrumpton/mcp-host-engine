@@ -25,7 +25,7 @@ module.exports = {
     required: ["url"],
   },
   call(params) {
-    const response = host.httpGet(params.url);
+    const response = host.http.get(params.url);
     if (typeof response !== "object" || response === null) {
       return response;
     }

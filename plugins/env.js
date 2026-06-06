@@ -16,6 +16,6 @@ module.exports = {
   inputSchema: { type: "object", properties: { env_var: { type: "string" } }, required: ["env_var"] },
   call(params) {
     // USE THIS FOR TESTING. IT'S A HARDCODED VERSION OF THE env.sh SCRIPT. NOT A REAL PLUGIN... YET.
-    return host.getEnv(params.env_var);
+    return host.process.env(params.env_var);
   },
 };

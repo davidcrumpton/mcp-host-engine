@@ -19,6 +19,6 @@ module.exports = {
     required: ["path", "content"]
   },
   call(params) {
-    return host.writeFile(params.path, params.content);
+    return host.fs.writeFile(params.path, params.content);
   }
 };

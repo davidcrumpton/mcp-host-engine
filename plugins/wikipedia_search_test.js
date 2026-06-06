@@ -29,7 +29,7 @@ module.exports = {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
 
     try {
-      const response = host.httpGet(url, {
+      const response = host.http.get(url, {
         headers: {
           "User-Agent": "mcp-test-wikipedia/1.0 (Testing MCP App)",
           "Accept": "application/json"

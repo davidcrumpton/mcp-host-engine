@@ -112,7 +112,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 
 	// Route based on transport type
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Inject request headers into context so plugins can access them via host.httpHeaders
+		// Inject request headers into context so plugins can access them via host.server.httpHeaders
 		r = r.WithContext(context.WithValue(r.Context(), "http_headers", r.Header))
 
 		// Derive session ID for routing decisions (SSE vs StreamableHTTP)

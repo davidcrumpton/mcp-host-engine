@@ -24,7 +24,7 @@ module.exports = {
       throw new Error("google_api_key and google_cx_id must be configured");
     }
     const url = `https://customsearch.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(params.query)}&num=5`;
-    const response = host.httpGet(url);
+    const response = host.http.get(url);
     const payload = JSON.parse(response.body);
     if (payload.error) {
       throw new Error(payload.error.message || "Google Search error");
