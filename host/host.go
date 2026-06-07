@@ -111,10 +111,10 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			"rmDir": func(path string) error {
 				return fs.RmDir(path, cfg, pluginName)
 			},
-			"isdir": func(path string) (bool, error) {
+			"isDir": func(path string) (bool, error) {
 				return fs.IsDir(path, cfg, pluginName)
 			},
-			"isexisted": func(path string) (bool, error) {
+			"exists": func(path string) (bool, error) {
 				return fs.IsPathExisted(path, cfg, pluginName)
 			},
 		},
