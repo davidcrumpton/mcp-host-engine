@@ -123,6 +123,8 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			"post": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Post(ctx, urlStr, headers, body, cfg, pluginName) },
 			"put": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Put(ctx, urlStr, headers, body, cfg, pluginName) },
 			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName) },
+			"options": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Options(ctx, urlStr, headers, cfg, pluginName) },
+			"head": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Head(ctx, urlStr, headers, cfg, pluginName) },
 		},
 		"exec": map[string]interface{}{
 			"runCommand": func(command string) (string, error) { return exec.RunCommand(ctx, cfg, pluginName, command) },

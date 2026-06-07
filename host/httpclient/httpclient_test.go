@@ -165,3 +165,49 @@ func TestHTTPDelete_Success(t *testing.T) {
 		t.Errorf("body: got %q", res["body"])
 	}
 }
+
+func TestHTTPOptions_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodOptions {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		fmt.Fprint(w, "options-ok")
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	cfg := cfgWithDomains("http_request_options", []string{parsed.Hostname()})
+
+	res, err := Options(context.Background(), srv.URL, nil, cfg, "http_request_options")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res["body"] != "options-ok" {
+		t.Errorf("body: got %q", res["body"])
+	}
+}
+
+func TestHTTPHead_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		fmt.Fprint(w, "head-ok")
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	cfg := cfgWithDomains("http_request_head", []string{parsed.Hostname()})
+
+	res, err := Head(context.Background(), srv.URL, nil, cfg, "http_request_head")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res["body"] != "" {
+		t.Errorf("Request to %s body: got %q", srv.URL, res["body"])
+	}
+}
