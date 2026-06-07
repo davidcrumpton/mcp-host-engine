@@ -47,6 +47,6 @@ plugins:
     allowed_domains: ["zabbix.crumpton.org"]
   wikijs:
     allowed_env_vars: ["WIKIJS_API_URL", "WIKIJS_API_TOKEN"]
-    allowed_domains: ["wiki.crumpton.org","ollama.crumpton.org"]
+    allowed_domains: ["wiki.crumpton.org"]
     
     
