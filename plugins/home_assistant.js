@@ -6,7 +6,10 @@
  *   plugins:
  *     home_assistant:
  *       allowed_domains:
- *         - your-ha-host.local       # or IP address
+ *         - your-ha-host.local # or IP address
+ *       allowed_env_vars:
+ *         - "HASS_URL"
+ *         - "HASS_TOKEN"
  *       options:
  *         ApiUrl: "http://your-ha-host.local:8123"
  *         ApiToken: "your-long-lived-access-token"
