@@ -77,8 +77,8 @@ module.exports = {
     };
 
     // Debug log
-    host.logger(4, `CommandEvent: ${CommandEvent}`);
-    host.logger(4, `Params: ${JSON.stringify(params.params)}`);
+    host.server.logger(4, `CommandEvent: ${CommandEvent}`);
+    host.server.logger(4, `Params: ${JSON.stringify(params.params)}`);
     // Command handling
     switch (CommandEvent) {
       // Search for pages
@@ -100,8 +100,8 @@ module.exports = {
             }
             }
         `;
-        host.logger(1, `GraphQL Query: ${graphqlQuery}`);
-        host.logger(1, `GraphQL Variables: ${JSON.stringify({ query })}`);
+        host.server.logger(1, `GraphQL Query: ${graphqlQuery}`);
+        host.server.logger(1, `GraphQL Variables: ${JSON.stringify({ query })}`);
         return graphqlRequest(graphqlQuery, { query });
         }
 
