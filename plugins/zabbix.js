@@ -53,12 +53,12 @@ module.exports = {
     try {
       apiUrl =
         host.process.env("ZABBIX_API_URL") ||
-        host.config.options.zabbixApiUrl ||
+        host.config.options.ApiUrl ||
         undefined;
 
       username =
         host.process.env("ZABBIX_USER") ||
-        host.config.options.zabbixUser ||
+        host.config.options.User ||
         undefined;
 
       // Logic Error.  Code should check for auth token first, then username, then password, then use those to get the auth token.
@@ -71,7 +71,7 @@ module.exports = {
 
       authToken =
         host.process.env("ZABBIX_AUTH_TOKEN") ||
-        host.config.options.zabbixAuthToken ||
+        host.config.options.AuthToken ||
         undefined;
 
       host.server.logger(
@@ -91,7 +91,7 @@ module.exports = {
     }
 
     if (!apiUrl) {
-      const errorMsg = "Missing Zabbix API URL in host.config.options.zabbixApiUrl or ZABBIX_API_URL";
+      const errorMsg = "Missing Zabbix API URL in host.config.options.ApiUrl or ZABBIX_API_URL";
       host.server.logger(1, errorMsg);
       return { success: false, error: errorMsg };
     }

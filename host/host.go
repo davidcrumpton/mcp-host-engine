@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"mcphe/config"
 	"mcphe/host/env"
@@ -125,6 +126,22 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName) },
 			"options": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Options(ctx, urlStr, headers, cfg, pluginName) },
 			"head": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Head(ctx, urlStr, headers, cfg, pluginName) },
+			"rawPost": func(urlStr string, headers map[string]interface{}, body interface{}) (map[string]interface{}, error) {
+				var bodyStr string
+				switch v := body.(type) {
+				case string:
+					bodyStr = v
+				case map[string]interface{}, []interface{}:
+					b, err := json.Marshal(v)
+					if err != nil {
+						return nil, fmt.Errorf("failed to marshal body: %w", err)
+					}
+					bodyStr = string(b)
+				default:
+					bodyStr = fmt.Sprintf("%v", v)
+				}
+				return httpclient.Post(ctx, urlStr, headers, bodyStr, cfg, pluginName)
+			},
 		},
 		"exec": map[string]interface{}{
 			"runCommand": func(command string) (string, error) { return exec.RunCommand(ctx, cfg, pluginName, command) },
