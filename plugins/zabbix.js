@@ -61,10 +61,13 @@ module.exports = {
         host.config.options.zabbixUser ||
         undefined;
 
-      password =
-        host.process.env("ZABBIX_PASSWORD") ||
-        host.config.options.zabbixPassword ||
-        undefined;
+      // Logic Error.  Code should check for auth token first, then username, then password, then use those to get the auth token.
+      // Password in try block with auth token makes no sense in relation to auth token retrieval logic
+      // 
+      // password =
+      //   host.process.env("ZABBIX_PASSWORD") ||
+      //   host.config.options.zabbixPassword ||
+      //   undefined;
 
       authToken =
         host.process.env("ZABBIX_AUTH_TOKEN") ||
