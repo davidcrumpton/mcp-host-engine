@@ -2,6 +2,8 @@
 // List and read gmail
 // Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables
 
+// I have not tested this yet since I don't use Gmail, but I don't see why this wouldn't work.
+
 module.exports = {
   name: "gmail",
   description: "List and read gmail",
@@ -73,7 +75,7 @@ module.exports = {
       case "list_labels":
         try {
           const url = `${apiUrl}/users/me/labels?access_token=${apiToken}`;
-          const response = host.httpGet(url);
+          const response = host.http.get(url);
           return response;
         } catch (err) {
           return { success: false, error: `Failed to list labels: ${err.message}` };
@@ -81,7 +83,7 @@ module.exports = {
       case "list_messages":
         try {
           const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&labelIds=${params.label}`;
-          const response = host.httpGet(url);
+          const response = host.http.get(url);
           return response;
         } catch (err) {
           return { success: false, error: `Failed to list messages: ${err.message}` };
@@ -89,7 +91,7 @@ module.exports = {
       case "read_message":
         try {
           const url = `${apiUrl}/users/me/messages/${params.message_id}?access_token=${apiToken}`;
-          const response = host.httpGet(url);
+          const response = host.http.get(url);
           return response;
         } catch (err) {
           return { success: false, error: `Failed to read message: ${err.message}` };
@@ -97,7 +99,7 @@ module.exports = {
       case "search_messages":
         try {
           const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&q=${params.query}`;
-          const response = host.httpGet(url);
+          const response = host.http.get(url);
           return response;
         } catch (err) {
           return { success: false, error: `Failed to search messages: ${err.message}` };
