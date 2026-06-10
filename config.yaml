@@ -56,3 +56,6 @@ plugins:
       - "HASS_TOKEN"
     options:
       ApiUrl: "http://homeassistant.local:8123"
+  gitea:
+    allowed_env_vars: ["GITEA_API_KEY", "GITEA_API_URL"]
+    allowed_domains: ["git.crumpton.org"]
