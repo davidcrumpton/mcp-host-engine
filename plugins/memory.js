@@ -1,5 +1,5 @@
 /**
- * Session-scoped key-value memory tool for llmctrlx.
+ * Session-scoped key-value memory tool for mcphe.
  * Optimized with Atomic Writes to prevent data corruption.
  *
  * Usage: enable by placing in your active plugins directory
