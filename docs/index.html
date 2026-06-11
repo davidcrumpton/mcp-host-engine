@@ -57,6 +57,15 @@
       <li><code>server.config(name)</code>: Retrieves configuration for the specified plugin.</li>
     </ul>
 
+    <h3>4. URL (<code>url</code>)</h3>
+    <p>Provides Web-compatible URL and URLSearchParams API to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>url.parse(url)</code></td><td>Parses a URL.</td></tr>
+      <tr><td><code>url.searchParams(query)</code></td><td>Creates a URLSearchParams object.</td></tr>
+      <tr><td><code>url.resolve(base, relative)</code></td><td>Resolves a relative URL to a base URL.</td></tr>
+    </table>
+
     <h2>Legacy API</h2>
     <p>These methods are maintained for backward compatibility and are subject to future deprecation.</p>
     <p><code>readFile</code>, <code>writeFile</code>, <code>listFiles</code>, <code>deleteFile</code>, <code>renameFile</code>, <code>runCommand</code>, <code>httpGet</code>, <code>httpPost</code>, <code>httpPut</code>, <code>httpDelete</code>, <code>getEnv</code>, <code>readStream</code>, <code>writeStream</code>, <code>makeDir</code>, <code>rmDir</code>, <code>isdir</code>, <code>isexisted</code>.</p>
