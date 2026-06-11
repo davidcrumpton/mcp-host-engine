@@ -43,6 +43,7 @@
       <tr><th>Method</th><th>Description</th></tr>
       <tr><td><code>http.get(url, headers)</code></td><td>Performs HTTP GET.</td></tr>
       <tr><td><code>http.post(url, headers, body)</code></td><td>Performs HTTP POST.</td></tr>
+      <tr><td><code>http.patch(url, headers, body)</code></td><td>Performs HTTP PATCH.</td></tr>
       <tr><td><code>http.put(url, headers, body)</code></td><td>Performs HTTP PUT.</td></tr>
       <tr><td><code>http.delete(url, headers)</code></td><td>Performs HTTP DELETE.</td></tr>
       <tr><td><code>http.options(url, headers)</code></td><td>Performs HTTP OPTIONS request.</td></tr>
@@ -71,6 +72,36 @@
       <tr><td><code>url.parse(url)</code></td><td>Parses a URL.</td></tr>
       <tr><td><code>url.searchParams(query)</code></td><td>Creates a URLSearchParams object.</td></tr>
       <tr><td><code>url.resolve(base, relative)</code></td><td>Resolves a relative URL to a base URL.</td></tr>
+    </table>
+
+    <h3>6. console logger</h3>
+    <p>Provides console logger to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>console.log(msg)</code></td><td>Logs a message to the console.</td></tr>
+      <tr><td><code>console.error(msg)</code></td><td>Logs an error message to the console.</td></tr>
+      <tr><td><code>console.warn(msg)</code></td><td>Logs a warning message to the console.</td></tr>
+      <tr><td><code>console.info(msg)</code></td><td>Logs an info message to the console.</td></tr>
+      <tr><td><code>console.debug(msg)</code></td><td>Logs a debug message to the console.</td></tr>
+    </table>
+
+    <h3>7. HTTP Headers (<code>server.httpHeaders</code>)</h3>
+    <p>Provides HTTP headers to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>server.httpHeaders</code></td><td>Retrieves HTTP headers.</td></tr>
+    </table>
+
+    <h3>8. Path (<code>path</code>)</h3>
+    <p>Provides Web-compatible path manipulation API to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>path.basename(p)</code></td><td>Returns the basename of a path (e.g., path.basename('/foo/bar.txt') -> 'bar.txt').</td></tr>
+      <tr><td><code>path.join(...paths)</code></td><td>Joins path segments into a single path string, using the appropriate separator (e.g., path.join('/foo', 'bar', 'baz') -> '/foo/bar/baz').</td></tr>
+      <tr><td><code>path.resolve(...paths)</code></td><td>Resolves a sequence of paths or path segments into an absolute path (e.g., path.resolve('/foo', '/bar', 'baz') -> '/bar/baz').</td></tr>
+      <tr><td><code>path.normalize(p)</code></td><td>Normalizes a path, resolving '..' and '.' segments (e.g., path.normalize('/foo/bar/../baz') -> '/foo/baz').</td></tr>
+      <tr><td><code>path.dirname(p)</code></td><td>Returns the directory name of a path (e.g., path.dirname('/foo/bar/baz') -> '/foo/bar').</td></tr>
+      <tr><td><code>path.extname(p)</code></td><td>Returns the extension of a path (e.g., path.extname('/foo/bar.txt') -> '.txt').</td></tr>
     </table>
 
     <h2>Legacy API</h2>

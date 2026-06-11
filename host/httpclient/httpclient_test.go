@@ -120,6 +120,29 @@ func TestHTTPPost_BlockedDomain(t *testing.T) {
 	}
 }
 
+func TestHTTPPatch_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		fmt.Fprint(w, "patch-ok")
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	cfg := cfgWithDomains("http_request_patch", []string{parsed.Hostname()})
+
+	res, err := Patch(context.Background(), srv.URL, nil, "data", cfg, "http_request_patch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res["body"] != "patch-ok" {
+		t.Errorf("body: got %q", res["body"])
+	}
+}
+
 func TestHTTPPut_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {

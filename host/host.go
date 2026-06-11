@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"mcphe/config"
+	"mcphe/host/crypto"
 	"mcphe/host/env"
 	"mcphe/host/exec"
 	"mcphe/host/fs"
 	"mcphe/host/httpclient"
+	"mcphe/host/path"
 	"mcphe/host/url"
 	"net/http"
 	"os"
+	"time"
 )
 
 
@@ -94,6 +97,63 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		// JavaScript style functions and objects, will become the future format
 		// making above functions and objects obsolete and providing porters
 		// an easier pathway to port their plugin to GoJa JavsScript plugin.
+
+		"crypto": map[string]interface{}{
+			"randomBytes": func(n int) (string, error) {
+				return crypto.RandomBytes(n)
+			},
+			"sha256": func(data string) (string, error) {
+				return crypto.Sha256(data)
+			},
+		},
+		"sleep": func(ms int) error {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			return nil
+		},
+		"console": map[string]interface{}{
+			"log": func(msg string) error {
+				cfg.Logf(1, "%s: %s", pluginName, msg)
+				return nil
+			},
+			"debug": func(msg string) error {
+				cfg.Logf(4, "%s: %s", pluginName, msg)
+				return nil
+			},
+			"warn": func(msg string) error {
+				cfg.Logf(2, "%s: %s", pluginName, msg)
+				return nil
+			},
+			"error": func(msg string) error {
+				cfg.Logf(3, "%s: %s", pluginName, msg)
+				return nil
+			},
+		},
+		"path": map[string]interface{}{
+			"basename": func(p string) (string, error) {
+				return path.Basename(p), nil	
+			},
+			// join: Joins path segments into a single path string, using the appropriate separator (e.g., path.join('/foo', 'bar', 'baz') -> '/foo/bar/baz').
+			"join": func(paths ...string) (string, error) {
+				return path.Join(paths...), nil
+			},
+			// resolve: Resolves a sequence of paths or path segments into an absolute path (e.g., path.resolve('/foo', '/bar', 'baz') -> '/bar/baz').
+			"resolve": func(paths ...string) (string, error) {
+				return path.Resolve(paths...), nil
+			},
+			// normalize: Normalizes a path, resolving '..' and '.' segments (e.g., path.normalize('/foo/bar/../baz') -> '/foo/baz').
+			"normalize": func(p string) (string, error) {
+				return path.Normalize(p), nil
+			},
+			// dirname: Returns the directory name of a path (e.g., path.dirname('/foo/bar/baz') -> '/foo/bar').
+			"dirname": func(p string) (string, error) {
+				return path.Dirname(p), nil
+
+			},
+			// extname: Returns the extension of a path (e.g., path.extname('/foo/bar.txt') -> '.txt').
+			"extname": func(p string) (string, error) {
+				return path.Extname(p), nil
+			},
+		},
 		"fs": map[string]interface{}{
 			"readFile": func(path string) (string, error) { return fs.ReadFile(path, cfg, pluginName) },
 			"writeFile": func(path string, content string) error { return fs.WriteFile(path, content, cfg, pluginName) },
@@ -124,6 +184,7 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		"http": map[string]interface{}{
 			"get": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Get(ctx, urlStr, headers, cfg, pluginName) },
 			"post": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Post(ctx, urlStr, headers, body, cfg, pluginName) },
+			"patch": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Patch(ctx, urlStr, headers, body, cfg, pluginName) },
 			"put": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Put(ctx, urlStr, headers, body, cfg, pluginName) },
 			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName) },
 			"options": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Options(ctx, urlStr, headers, cfg, pluginName) },

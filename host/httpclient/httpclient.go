@@ -139,6 +139,68 @@ func Post(ctx context.Context, urlStr string, headers map[string]interface{}, bo
 	}, nil
 }
 
+func Patch(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
+	cfg.Logf(3, "HTTPPatch called with URL: %s", urlStr)
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
+		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, urlStr, strings.NewReader(body))
+	if err != nil {
+		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		return nil, err
+	}
+
+	for k, v := range headers {
+		cfg.Logf(4, "HTTPPatch header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		if str, ok := v.(string); ok {
+			cfg.Logf(4, "HTTPPatch header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			req.Header.Set(k, str)
+		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
+			for hk, hv := range nested {
+				if hstr, ok := hv.(string); ok {
+					cfg.Logf(4, "HTTPPatch header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					req.Header.Set(hk, hstr)
+				}
+			}
+		}
+	}
+
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "mcphe/1.0")
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		return nil, err
+	}
+
+	respHeaders := map[string]interface{}{}
+	for k, v := range resp.Header {
+		respHeaders[k] = v
+	}
+
+	return map[string]interface{}{
+		"status":  resp.StatusCode,
+		"headers": respHeaders,
+		"body":    string(respBody),
+	}, nil
+}
+
 func Put(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
 	cfg.Logf(3, "HTTPPut called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
