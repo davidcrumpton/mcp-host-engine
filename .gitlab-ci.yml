@@ -3,6 +3,7 @@ image: golang:1.25.4
 stages:
   - build
   - test
+  - release
 
 build:
   stage: build
