@@ -65,4 +65,6 @@ plugins:
   kibana:
     allowed_env_vars: ["KIBANA_BASE_URL", "KIBANA_USERNAME", "KIBANA_PASSWORD"]
     allowed_domains: ['elk.crumpton.org']
-    
+  proxmox_api:
+    allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
+    allowed_domains: ['pve02.crumpton.org']

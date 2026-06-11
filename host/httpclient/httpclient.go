@@ -34,14 +34,14 @@ func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, v)
+		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, str)
+			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, hstr)
+					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -220,9 +220,9 @@ func Delete(ctx context.Context, urlStr string, headers map[string]interface{}, 
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, v)
+		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, str)
+			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
@@ -282,14 +282,14 @@ func Options(ctx context.Context, urlStr string, headers map[string]interface{},
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, v)
+		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, str)
+			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, hstr)
+					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -344,14 +344,14 @@ func Head(ctx context.Context, urlStr string, headers map[string]interface{}, cf
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, v)
+		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, str)
+			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, hstr)
+					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
