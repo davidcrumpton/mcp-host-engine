@@ -20,13 +20,13 @@ go mod tidy
 make build
 ```
 
-1. Start the server:
+2. Start the server:
 
 ```bash
 ./mcphe config.yaml
 ```
 
-1. Call the server via POST to `http://127.0.0.1:8001/rpc`.
+3. Call the server via POST to `http://127.0.0.1:8001/rpc`.
 
 ## Configuration File Reference (`config.yaml`)
 

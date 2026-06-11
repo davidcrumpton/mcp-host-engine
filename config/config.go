@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -314,4 +315,12 @@ func (c Config) WritePidFile() error {
 		return err
 	}
 	return nil
+}
+
+func (c Config) MaskKeyValue(key string, value any) any {
+	key = strings.ToLower(key)
+	if key == "authorization" || key == "cookie" || key == "token" || key == "password" {
+		return "***"
+	}
+	return value
 }

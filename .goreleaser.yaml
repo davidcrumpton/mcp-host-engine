@@ -1,0 +1,50 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./main.go
+    binary: mcphe
+    ldflags:
+      - -X mcphe/config.Version={{.Version}}
+      - -X mcphe/config.Commit={{.Commit}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+
+nfpms:
+  - package_name: mcphe
+    homepage: https://github.com/davidcrumpton/mcp-host-engine
+    maintainer: David Crumpton <david@example.com>
+    description: MCP Host Engine - Go MCP server with JavaScript plugins
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+    contents:
+      - src: plugins/
+        dst: /usr/share/mcphe/plugins
+        type: tree
+      - src: config.yaml
+        dst: /etc/mcphe/config.yaml
+        type: config|noreplace
+    scripts:
+      postinstall: scripts/postinstall.sh
+
+brews:
+  - name: mcphe
+    repository:
+      owner: davidcrumpton
+      name: homebrew-mcphe
+    homepage: https://github.com/davidcrumpton/mcp-host-engine
+    description: MCP Host Engine

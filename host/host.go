@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mcphe/config"
@@ -9,6 +10,7 @@ import (
 	"mcphe/host/exec"
 	"mcphe/host/fs"
 	"mcphe/host/httpclient"
+	"mcphe/host/url"
 	"net/http"
 	"os"
 )
@@ -177,5 +179,13 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			},
 			"httpHeaders": httpHeaders,
 		},
+		"utils": map[string]interface{}{
+			"btoa": func(str string) string { return base64.StdEncoding.EncodeToString([]byte(str)) },
+			"atob": func(str string) string {
+				bytes, _ := base64.StdEncoding.DecodeString(str)
+				return string(bytes)
+			},
+		},
+		"url": url.MakeURLNamespace(),
 	}
 }

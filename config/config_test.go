@@ -409,3 +409,54 @@ func TestAllowedENVsFor_MissingPlugin(t *testing.T) {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
+
+func TestMaskKeyValue(t *testing.T) {
+	// Sensitive keys matching (case-insensitive), key prefix matching, full value matching, no matching
+	// Sensitive keys are hardcoded as of this release
+	// But should be made variable in config file.
+	// cfg := Config{
+	// 	SensitiveKeys: []string{"password", "token", "secret"},
+	// }
+
+	// Masker is simple and only returns *** for now
+	cfg := DefaultConfig
+
+	tests := []struct {
+		key      string
+		value    interface{}
+		expected string
+	}{
+		{"password", "secret123", "***"},
+		{"token", "tkn_abc123", "***"},
+		{"PASSWORD", "secret123", "***"},
+		{"Authorization", "Bearer tkn_abc123", "***"},
+	}
+
+	for _, tt := range tests {
+		actual := cfg.MaskKeyValue(tt.key, tt.value)
+		if actual != tt.expected {
+			t.Errorf("key=%s, value=%v: expected %q, got %q", tt.key, tt.value, tt.expected, actual)
+		}
+	}
+}
+
+func TestMaskForNotDefinedValues(t *testing.T) {
+	cfg := DefaultConfig
+
+	tests := []struct {
+		key      string
+		value    interface{}
+		expected string
+	}{
+		{"other", "value", "value"},
+		{"", "value", "value"},
+		{"NotASen", "value", "value"},
+	}
+
+	for _, tt := range tests {
+		actual := cfg.MaskKeyValue(tt.key, tt.value)
+		if actual != tt.expected {
+			t.Errorf("key=%s, value=%v: expected %q, got %q", tt.key, tt.value, tt.expected, actual)
+		}
+	}
+}

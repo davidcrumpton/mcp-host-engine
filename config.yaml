@@ -59,3 +59,10 @@ plugins:
   gitea:
     allowed_env_vars: ["GITEA_API_KEY", "GITEA_API_URL"]
     allowed_domains: ["git.crumpton.org"]
+  opensearch:
+    allowed_env_vars: ["OPENSEARCH_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+    allowed_domains: ['opensearch.crumpton.org']
+  kibana:
+    allowed_env_vars: ["KIBANA_BASE_URL", "KIBANA_USERNAME", "KIBANA_PASSWORD"]
+    allowed_domains: ['elk.crumpton.org']
+    

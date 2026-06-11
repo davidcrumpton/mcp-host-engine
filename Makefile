@@ -30,3 +30,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## ";} {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+## release: Build and publish release packages
+release:
+	goreleaser release --clean

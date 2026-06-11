@@ -16,3 +16,13 @@ test:
   stage: test
   script:
     - make test
+
+release:
+  stage: release
+  script:
+    - make release
+  artifacts:
+    paths:
+      - mcphe
+  only:
+    - tags
