@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mcphe/config"
@@ -554,5 +555,97 @@ func TestOpenapiHandler_EmptyManager(t *testing.T) {
 	}
 	if len(tools) != 0 {
 		t.Errorf("expected 0 tools, got %d", len(tools))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Error Handling
+// ---------------------------------------------------------------------------
+
+func TestStandardErrorHandling_GoToJS(t *testing.T) {
+	// A Go function that returns an error is caught as a proper JS Error object in try/catch.
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "test_go_error",
+  description: "test error handling",
+  version: "1.0.0",
+  call: function(args) {
+    try {
+      // call host.fs.readFile on a non-existent file to trigger a Go error
+      host.fs.readFile("nonexistent_file_12345.txt");
+    } catch (e) {
+      return {
+        isErrorInstance: e instanceof Error,
+        errorMessage: e.message,
+        errorType: typeof e,
+        constructorName: e.constructor ? e.constructor.name : "none",
+        stringVal: String(e)
+      };
+    }
+    return "no error thrown";
+  }
+};
+`
+	writePlugin(t, dir, "test_go_error", js)
+	cfg := allEnabled("test_go_error")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_go_error", json.RawMessage(`{}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result to be map[string]interface{}, got %T", res)
+	}
+
+	if resultMap["isErrorInstance"] != true {
+		t.Errorf("expected isErrorInstance to be true, got %v", resultMap["isErrorInstance"])
+	}
+
+	msg, _ := resultMap["errorMessage"].(string)
+	if !strings.Contains(msg, "nonexistent_file_12345.txt") {
+		t.Errorf("expected error message to contain filename, got %q", msg)
+	}
+
+	if resultMap["errorType"] != "object" {
+		t.Errorf("expected errorType to be 'object', got %v", resultMap["errorType"])
+	}
+}
+
+func TestStandardErrorHandling_JSToGo(t *testing.T) {
+	// Throwing a standard JS Error object is correctly propagated to Go.
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "test_js_error",
+  description: "test error throwing",
+  version: "1.0.0",
+  call: function(args) {
+    throw new Error("this is a standard javascript error");
+  }
+};
+`
+	writePlugin(t, dir, "test_js_error", js)
+	cfg := allEnabled("test_js_error")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	_, err = pm.CallTool(context.Background(), "test_js_error", json.RawMessage(`{}`), cfg)
+	if err == nil {
+		t.Fatal("expected error calling tool, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "this is a standard javascript error") {
+		t.Errorf("expected error message to contain thrown message, got: %v", err)
 	}
 }

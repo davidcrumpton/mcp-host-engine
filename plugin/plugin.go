@@ -178,12 +178,6 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		return nil, err
 	}
 
-	errConstructor := func(message string) error {
-		return fmt.Errorf("CustomError: %s", message)
-	}
-	if err := vm.Set("Error", errConstructor); err != nil {
-		return nil, err
-	}
 
 	script := fmt.Sprintf("var module = { exports: {} }; var exports = module.exports;\n%s\nmodule.exports", content)
 	value, err := vm.RunString(script)

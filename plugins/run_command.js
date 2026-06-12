@@ -18,6 +18,6 @@ module.exports = {
     required: ["command"],
   },
   call(params) {
-    return host.runCommand(params.command);
+    return host.exec.runCommand(params.command);
   },
 };
