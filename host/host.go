@@ -46,7 +46,6 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 	return map[string]interface{}{
 		// Informational
 		"logger":      cfg.LogfForPlugin(pluginName),
-		"pluginConfig": pluginConfig,
 		"config":      pluginConfig,
 		"pid":         pid,
 		"httpHeaders": httpHeaders,

@@ -16,7 +16,7 @@ func TestMakeHostObject_Keys(t *testing.T) {
 	obj := MakeHostObject(cfg, context.Background(), "myplugin")
 
 	expectedKeys := []string{
-		"logger", "pluginConfig", "config", "pid", "httpHeaders",
+		"logger", "config", "pid", "httpHeaders",
 		"crypto", "sleep", "console", "path", "fs", "http",
 		"exec", "process", "mcp", "server", "utils", "url",
 	}
