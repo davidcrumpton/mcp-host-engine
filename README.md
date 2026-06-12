@@ -9,7 +9,7 @@ This repository contains a Go-based MCP server that runs tools as JavaScript plu
 - JSON-RPC 2.0 `/rpc` endpoint
 - Pluggable tool support via `plugins/*.js`
 - Configurable host, port, bearer auth, allowed domains, and enabled tools
-- Built-in host APIs exposed to plugins (`readFile`, `runCommand`, `httpGet`, `getEnv`, `config`)
+- Built-in host APIs exposed to plugins (Namespaced modules: `host.fs`, `host.http` (with PATCH support), `host.exec`, `host.process`, `host.path`, `host.crypto`, `host.console`, `host.sleep`, `host.url`, `host.utils`)
 
 ## Run
 

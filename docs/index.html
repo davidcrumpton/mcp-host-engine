@@ -81,7 +81,6 @@
       <tr><td><code>console.log(msg)</code></td><td>Logs a message to the console.</td></tr>
       <tr><td><code>console.error(msg)</code></td><td>Logs an error message to the console.</td></tr>
       <tr><td><code>console.warn(msg)</code></td><td>Logs a warning message to the console.</td></tr>
-      <tr><td><code>console.info(msg)</code></td><td>Logs an info message to the console.</td></tr>
       <tr><td><code>console.debug(msg)</code></td><td>Logs a debug message to the console.</td></tr>
     </table>
 
@@ -102,6 +101,21 @@
       <tr><td><code>path.normalize(p)</code></td><td>Normalizes a path, resolving '..' and '.' segments (e.g., path.normalize('/foo/bar/../baz') -> '/foo/baz').</td></tr>
       <tr><td><code>path.dirname(p)</code></td><td>Returns the directory name of a path (e.g., path.dirname('/foo/bar/baz') -> '/foo/bar').</td></tr>
       <tr><td><code>path.extname(p)</code></td><td>Returns the extension of a path (e.g., path.extname('/foo/bar.txt') -> '.txt').</td></tr>
+    </table>
+
+    <h3>9. Cryptography (<code>crypto</code>)</h3>
+    <p>Provides basic cryptographic utilities to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>crypto.randomBytes(n)</code></td><td>Generates a cryptographically secure random string of length <code>n</code>.</td></tr>
+      <tr><td><code>crypto.sha256(data)</code></td><td>Computes the SHA-256 hash of the input string <code>data</code>.</td></tr>
+    </table>
+
+    <h3>10. Sleep (<code>sleep</code>)</h3>
+    <p>Provides synchronous pauses to JavaScript plugins</p>
+    <table>
+      <tr><th>Method</th><th>Description</th></tr>
+      <tr><td><code>sleep(ms)</code></td><td>Suspends execution for <code>ms</code> milliseconds.</td></tr>
     </table>
 
     <h2>Legacy API</h2>
