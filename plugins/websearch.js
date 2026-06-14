@@ -1,11 +1,11 @@
 // MCP websearch plugin
 // Search DuckDuckGo    
-// Requires: host.httpGet(url)
+// Requires: host.http.get(url, headers?)
 
 module.exports = {
   name: 'websearch',
   description: 'Search DuckDuckGo',
-  version: '1.0.0',
+  version: '1.0.1',
   commit: 'none',
   tags: ['websearch', 'duckduckgo'],
   annotations: {
@@ -38,7 +38,7 @@ module.exports = {
     try {
       const encoded = encodeURIComponent(params.query)
 
-      const res = host.httpGet(
+      const res = host.http.get(
         `https://html.duckduckgo.com/html/?q=${encoded}`,
         {
           headers: {
