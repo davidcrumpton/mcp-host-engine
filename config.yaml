@@ -7,6 +7,8 @@ bearer_token: ""
 run_as_root: false
 verbosity_level: 4
 plugins:
+  get_ip:
+    allowed_domains: ["ifconfig.io"]
   get_datetime:
   google_search:
     google_api_key: "abc123"
