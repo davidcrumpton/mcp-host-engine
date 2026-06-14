@@ -161,6 +161,36 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 				}
 				return httpclient.Post(ctx, urlStr, headers, bodyStr, cfg, pluginName)
 			},
+			"request": func(opts map[string]interface{}) (map[string]interface{}, error) {
+				urlVal, ok := opts["url"].(string)
+				if !ok || urlVal == "" {
+					return nil, fmt.Errorf("http.request: url option is required and must be a string")
+				}
+				methodVal, ok := opts["method"].(string)
+				if !ok || methodVal == "" {
+					methodVal = "GET"
+				}
+				var headersVal map[string]interface{}
+				if h, ok := opts["headers"].(map[string]interface{}); ok {
+					headersVal = h
+				}
+				var bodyStr string
+				if body, exists := opts["body"]; exists && body != nil {
+					switch v := body.(type) {
+					case string:
+						bodyStr = v
+					case map[string]interface{}, []interface{}:
+						b, err := json.Marshal(v)
+						if err != nil {
+							return nil, fmt.Errorf("failed to marshal body: %w", err)
+						}
+						bodyStr = string(b)
+					default:
+						bodyStr = fmt.Sprintf("%v", v)
+					}
+				}
+				return httpclient.Request(ctx, methodVal, urlVal, headersVal, bodyStr, cfg, pluginName)
+			},
 		},
 		"exec": map[string]interface{}{
 			"runCommand": func(command string) (string, error) { return exec.RunCommand(ctx, cfg, pluginName, command) },

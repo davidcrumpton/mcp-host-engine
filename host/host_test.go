@@ -45,3 +45,22 @@ func TestMakeHostObject_ConfigMerge(t *testing.T) {
 		t.Error("mcp-version should be present in plugin config")
 	}
 }
+
+func TestMakeHostObject_HTTPRequest(t *testing.T) {
+	cfg := config.Config{}
+	obj := MakeHostObject(cfg, context.Background(), "myplugin")
+	httpObj, ok := obj["http"].(map[string]interface{})
+	if !ok {
+		t.Fatal("http should be a map")
+	}
+	reqFn, ok := httpObj["request"].(func(map[string]interface{}) (map[string]interface{}, error))
+	if !ok {
+		t.Fatal("http.request should be a function with correct signature")
+	}
+
+	// Verify that passing no url returns an error
+	_, err := reqFn(map[string]interface{}{})
+	if err == nil {
+		t.Error("expected error when no url is provided")
+	}
+}

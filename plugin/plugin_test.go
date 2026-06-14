@@ -3,8 +3,11 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -647,5 +650,75 @@ module.exports = {
 
 	if !strings.Contains(err.Error(), "this is a standard javascript error") {
 		t.Errorf("expected error message to contain thrown message, got: %v", err)
+	}
+}
+
+func TestPlugin_HTTPclientRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("X-Custom-Header", r.Header.Get("X-Request-Header"))
+		fmt.Fprintf(w, "method:%s;body:%s", r.Method, string(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "test_http_request",
+  description: "test request method",
+  version: "1.0.0",
+  call: function(args) {
+    var resp = host.http.request({
+      method: "POST",
+      url: args.url,
+      headers: {"X-Request-Header": "foo-val"},
+      body: {key: "val"}
+    });
+    return resp;
+  }
+};
+`
+	writePlugin(t, dir, "test_http_request", js)
+	parsed, _ := url.Parse(srv.URL)
+	cfg := allEnabled("test_http_request")
+	cfg.PluginDir = dir
+	cfg.Plugins = map[string]map[string]interface{}{
+		"test_http_request": {
+			"allowed_domains": []interface{}{parsed.Hostname()},
+		},
+	}
+
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_http_request", json.RawMessage(`{"url":"`+srv.URL+`"}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	respMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map response, got %T", res)
+	}
+
+	statusStr := fmt.Sprintf("%v", respMap["status"])
+	if statusStr != "200" {
+		t.Errorf("status: got %v (type %T), expected 200", respMap["status"], respMap["status"])
+	}
+
+	bodyVal, _ := respMap["body"].(string)
+	if bodyVal != `method:POST;body:{"key":"val"}` {
+		t.Errorf("body: got %q", bodyVal)
+	}
+
+	headersMap, ok := respMap["headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected headers map, got %T", respMap["headers"])
+	}
+	hdrVal := fmt.Sprintf("%v", headersMap["X-Custom-Header"])
+	if hdrVal != "[foo-val]" {
+		t.Errorf("X-Custom-Header: got %v (type %T), expected [foo-val]", headersMap["X-Custom-Header"], headersMap["X-Custom-Header"])
 	}
 }

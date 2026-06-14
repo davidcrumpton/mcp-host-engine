@@ -3,6 +3,7 @@ package httpclient
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -232,5 +233,28 @@ func TestHTTPHead_Success(t *testing.T) {
 	}
 	if res["body"] != "" {
 		t.Errorf("Request to %s body: got %q", srv.URL, res["body"])
+	}
+}
+
+func TestHTTPRequest_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST method, got %q", r.Method)
+		}
+		body, _ := io.ReadAll(r.Body)
+		fmt.Fprintf(w, "received:%s", string(body))
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	cfg := cfgWithDomains("http_request", []string{parsed.Hostname()})
+
+	res, err := Request(context.Background(), "POST", srv.URL, nil, "payload", cfg, "http_request")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res["body"] != "received:payload" {
+		t.Errorf("got body %q, expected received:payload", res["body"])
 	}
 }
