@@ -4,17 +4,6 @@ port: "7999"
 host: "127.0.0.1"
 use_https: false
 bearer_token: "test_token_dont_use_in_production_6847730246031040213"
-tools:
-  "ping": false
-  "google_search": false
-  "http_request_get": true
-  "write_file": true
-  "read_file": true
-  "get_ip": true
-  "wikipedia_search": true
-  "run_command": true
-  "get_env_var": true
-  "wikipedia_search_test": true
 verbosity_level: 4
 plugins:
   google_search:
@@ -53,6 +42,7 @@ plugins:
   get_ip:
     allowed_domains:
       - "ifconfig.io"
+    allowed_http_methods: ["GET"]
   wikipedia_search:
     allowed_domains:
       - en.wikipedia.org

@@ -253,6 +253,31 @@ func (c Config) AllowedENVsFor(pluginName string) []string {
 	}
 }
 
+func (c Config) AllowedHTTPMethodsFor(pluginName string) []string {
+	pCfg, ok := c.Plugins[pluginName]
+	if !ok {
+		return nil
+	}
+	raw, ok := pCfg["allowed_http_methods"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		methods := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				methods = append(methods, s)
+			}
+		}
+		return methods
+	default:
+		return nil
+	}
+}
+
 func (c Config) IsToolEnabled(name string) bool {
 	// New-style: presence in the plugins map enables a tool.
 	// An explicit  enabled: false  inside the plugin block disables it.

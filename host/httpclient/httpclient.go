@@ -26,7 +26,10 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
-
+	if !isMethodAllowed(method, cfg, pluginName) {
+		cfg.Logf(1, "Blocked HTTP request to %s - method %s not allowed", parsedURL.Hostname(), method)
+		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
+	}
 	var bodyReader io.Reader
 	method = strings.ToUpper(method)
 	if body != "" {
@@ -41,6 +44,10 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 
 	for k, v := range headers {
 		cfg.Logf(4, "HTTPRequest header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		if !IsHTTPReqHeaderAllowed(k, cfg, pluginName) {
+			cfg.Logf(1, "Blocked HTTP header: %s", k)
+			return nil, fmt.Errorf("header %s is not allowed", k)
+		}
 		if str, ok := v.(string); ok {
 			cfg.Logf(4, "HTTPRequest header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
@@ -530,12 +537,62 @@ func isDomainAllowed(hostname string, allowed []string) bool {
 	return false
 }
 
+// IsHTTPHeaderAllowed checks whether an inbound HTTP request header may be
+// forwarded to plugins. It reads from the global allowed_http_headers config key.
 func IsHTTPHeaderAllowed(header string, cfg config.Config) bool {
 	for _, allowedHeader := range cfg.AllowedHTTPHeaders {
 		if header == allowedHeader {
 			return true
 		}
 	}
-	cfg.Logf(4, "HTTP-Header: header: %s not in allowed to be shared with plugin", header)
+	cfg.Logf(4, "HTTP-Header: header: %s not in allowed_http_headers", header)
+	return false
+}
+
+// IsHTTPReqHeaderAllowed checks whether a request header is permitted for the
+// given plugin. If the plugin config has no "allowed_headers" key, all headers
+// are allowed (open-by-default). An explicit empty list also allows all headers.
+func IsHTTPReqHeaderAllowed(header string, cfg config.Config, pluginName string) bool {
+	pCfg, ok := cfg.Plugins[pluginName]
+	if !ok {
+		return true
+	}
+	raw, ok := pCfg["allowed_headers"]
+	if !ok {
+		return true
+	}
+	var allowedHeaders []string
+	switch v := raw.(type) {
+	case []string:
+		allowedHeaders = v
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				allowedHeaders = append(allowedHeaders, s)
+			}
+		}
+	}
+	if len(allowedHeaders) == 0 {
+		return true
+	}
+	for _, allowedHeader := range allowedHeaders {
+		if strings.EqualFold(header, allowedHeader) {
+			return true
+		}
+	}
+	cfg.Logf(4, "HTTP-Header: header: %s not in allowed_headers for plugin %s", header, pluginName)
+	return false
+}
+
+func isMethodAllowed(method string, cfg config.Config, pluginName string) bool {
+	allowedMethods := cfg.AllowedHTTPMethodsFor(pluginName)
+	if len(allowedMethods) == 0 {
+		return true // no restriction configured → allow all
+	}
+	for _, allowedMethod := range allowedMethods {
+		if strings.EqualFold(method, allowedMethod) {
+			return true
+		}
+	}
 	return false
 }

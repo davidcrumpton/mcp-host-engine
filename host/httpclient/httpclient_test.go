@@ -56,6 +56,48 @@ func TestIsAllowedDomain_TrailingColon(t *testing.T) {
 	}
 }
 
+func TestIsMethodAllowed_Success(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"get_ip": {"allowed_http_methods": []string{"GET"}},
+		},
+	}
+	if !isMethodAllowed("GET", cfg, "get_ip") {
+		t.Error("GET should be allowed")
+	}
+}
+
+func TestIsMethodAllowed_NoMatch(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"get_ip": {"allowed_http_methods": []string{"POST"}},
+		},
+	}
+	if isMethodAllowed("GET", cfg, "get_ip") {
+		t.Error("GET should not be allowed if POST is allowed")
+	}
+}
+
+func TestIsMethodAllowed_EmptyList(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"get_ip": {"allowed_http_methods": nil},
+		},
+	}
+	// empty / nil list means no restriction → allow all
+	if !isMethodAllowed("GET", cfg, "get_ip") {
+		t.Error("GET should be allowed when allowed_http_methods is not configured")
+	}
+}
+
+func TestIsMethodAllowed_NoPlugin(t *testing.T) {
+	cfg := config.Config{}
+	// plugin not in config at all → no restriction
+	if !isMethodAllowed("DELETE", cfg, "unknown_plugin") {
+		t.Error("method should be allowed when plugin has no config")
+	}
+}
+
 func TestHTTPGet_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "hello")
@@ -248,7 +290,14 @@ func TestHTTPRequest_Success(t *testing.T) {
 	httpClient = srv.Client()
 
 	parsed, _ := url.Parse(srv.URL)
-	cfg := cfgWithDomains("http_request", []string{parsed.Hostname()})
+	// domain must be allowed; method is unrestricted when not configured
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"http_request": {
+				"allowed_domains": []string{parsed.Hostname()},
+			},
+		},
+	}
 
 	res, err := Request(context.Background(), "POST", srv.URL, nil, "payload", cfg, "http_request")
 	if err != nil {
@@ -256,5 +305,141 @@ func TestHTTPRequest_Success(t *testing.T) {
 	}
 	if res["body"] != "received:payload" {
 		t.Errorf("got body %q, expected received:payload", res["body"])
+	}
+}
+
+func TestHTTPRequest_BlockedDomain(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {
+				"allowed_http_methods": []string{"GET"},
+				"allowed_domains":      []string{"allowed.example.com"},
+			},
+		},
+	}
+	_, err := Request(context.Background(), "GET", "http://blocked.example.com/", nil, "", cfg, "myplugin")
+	if err == nil {
+		t.Fatal("expected error for blocked domain")
+	}
+}
+
+func TestHTTPRequest_BlockedMethod(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	// explicit list: only GET allowed → POST must be rejected
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {
+				"allowed_http_methods": []string{"GET"},
+				"allowed_domains":      []string{parsed.Hostname()},
+			},
+		},
+	}
+	_, err := Request(context.Background(), "POST", srv.URL, nil, "body", cfg, "myplugin")
+	if err == nil {
+		t.Fatal("expected error for method not in explicit allowlist")
+	}
+}
+
+func TestHTTPRequest_BlockedHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	}))
+	t.Cleanup(srv.Close)
+	httpClient = srv.Client()
+
+	parsed, _ := url.Parse(srv.URL)
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {
+				"allowed_http_methods": []string{"GET"},
+				"allowed_domains":      []string{parsed.Hostname()},
+				"allowed_headers":      []string{"X-Allowed-Header"},
+			},
+		},
+	}
+	_, err := Request(context.Background(), "GET", srv.URL,
+		map[string]interface{}{"X-Blocked-Header": "value"}, "", cfg, "myplugin")
+	if err == nil {
+		t.Fatal("expected error for blocked header")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_NilPlugin(t *testing.T) {
+	cfg := config.Config{}
+	if !IsHTTPReqHeaderAllowed("Any-Header", cfg, "myplugin") {
+		t.Error("should allow all headers when plugin has no config")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_NoKey(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{"myplugin": {}},
+	}
+	if !IsHTTPReqHeaderAllowed("Any-Header", cfg, "myplugin") {
+		t.Error("should allow all headers when allowed_headers key is absent")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_EmptyList(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {"allowed_headers": []string{}},
+		},
+	}
+	if !IsHTTPReqHeaderAllowed("Any-Header", cfg, "myplugin") {
+		t.Error("should allow all headers when allowed_headers list is empty")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_Allowed(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {"allowed_headers": []string{"X-Custom", "Authorization"}},
+		},
+	}
+	if !IsHTTPReqHeaderAllowed("X-Custom", cfg, "myplugin") {
+		t.Error("X-Custom should be allowed")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_CaseInsensitive(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {"allowed_headers": []string{"x-custom"}},
+		},
+	}
+	if !IsHTTPReqHeaderAllowed("X-Custom", cfg, "myplugin") {
+		t.Error("header match should be case-insensitive")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_Blocked(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {"allowed_headers": []string{"X-Allowed"}},
+		},
+	}
+	if IsHTTPReqHeaderAllowed("X-Secret", cfg, "myplugin") {
+		t.Error("X-Secret should be blocked")
+	}
+}
+
+func TestIsHTTPReqHeaderAllowed_InterfaceSlice(t *testing.T) {
+	cfg := config.Config{
+		Plugins: map[string]map[string]interface{}{
+			"myplugin": {"allowed_headers": []interface{}{"X-Allowed"}},
+		},
+	}
+	if !IsHTTPReqHeaderAllowed("X-Allowed", cfg, "myplugin") {
+		t.Error("X-Allowed should be allowed via interface slice")
+	}
+	if IsHTTPReqHeaderAllowed("X-Other", cfg, "myplugin") {
+		t.Error("X-Other should be blocked when not in interface slice")
 	}
 }

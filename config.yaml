@@ -9,6 +9,8 @@ verbosity_level: 4
 plugins:
   get_ip:
     allowed_domains: ["ifconfig.io"]
+    allowed_http_methods:
+      - "GET"
   get_datetime:
   google_search:
     google_api_key: "abc123"

@@ -685,6 +685,7 @@ module.exports = {
 	cfg.Plugins = map[string]map[string]interface{}{
 		"test_http_request": {
 			"allowed_domains": []interface{}{parsed.Hostname()},
+			"allowed_http_methods": []interface{}{"POST"},
 		},
 	}
 
@@ -720,5 +721,105 @@ module.exports = {
 	hdrVal := fmt.Sprintf("%v", headersMap["X-Custom-Header"])
 	if hdrVal != "[foo-val]" {
 		t.Errorf("X-Custom-Header: got %v (type %T), expected [foo-val]", headersMap["X-Custom-Header"], headersMap["X-Custom-Header"])
+	}
+}
+
+func TestPlugin_HTTPRequest_BlockedDomain(t *testing.T) {
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "test_blocked_domain",
+  description: "should be blocked by domain constraint",
+  version: "1.0.0",
+  call: function(args) {
+    try {
+      host.http.request({ method: "GET", url: args.url });
+      return "unexpectedly succeeded";
+    } catch (e) {
+      return { blocked: true, message: e.message };
+    }
+  }
+};
+`
+	writePlugin(t, dir, "test_blocked_domain", js)
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins: map[string]map[string]interface{}{
+			"test_blocked_domain": {
+				"allowed_http_methods": []interface{}{"GET"},
+				"allowed_domains":      []interface{}{"allowed.example.com"},
+			},
+		},
+	}
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_blocked_domain",
+		json.RawMessage(`{"url":"http://evil.example.com/"}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T: %v", res, res)
+	}
+	if resultMap["blocked"] != true {
+		t.Errorf("expected blocked=true, got %v", resultMap)
+	}
+}
+
+func TestPlugin_HTTPRequest_BlockedMethod(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "test_blocked_method",
+  description: "should be blocked by method constraint",
+  version: "1.0.0",
+  call: function(args) {
+    try {
+      host.http.request({ method: "DELETE", url: args.url });
+      return "unexpectedly succeeded";
+    } catch (e) {
+      return { blocked: true, message: e.message };
+    }
+  }
+};
+`
+	writePlugin(t, dir, "test_blocked_method", js)
+	parsed, _ := url.Parse(srv.URL)
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins: map[string]map[string]interface{}{
+			"test_blocked_method": {
+				"allowed_http_methods": []interface{}{"GET"},
+				"allowed_domains":      []interface{}{parsed.Hostname()},
+			},
+		},
+	}
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_blocked_method",
+		json.RawMessage(`{"url":"`+srv.URL+`"}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T: %v", res, res)
+	}
+	if resultMap["blocked"] != true {
+		t.Errorf("expected blocked=true, got %v", resultMap)
 	}
 }

@@ -460,3 +460,33 @@ func TestMaskForNotDefinedValues(t *testing.T) {
 		}
 	}
 }
+
+func TestAllowedHTTPMethodsFor_StringSlice(t *testing.T) {
+	cfg := pluginCfg("allowed_http_methods", []string{"GET", "POST"})
+	methods := cfg.AllowedHTTPMethodsFor("myplugin")
+	if len(methods) != 2 || methods[0] != "GET" {
+		t.Errorf("unexpected methods: %v", methods)
+	}
+}
+
+func TestAllowedHTTPMethodsFor_InterfaceSlice(t *testing.T) {
+	cfg := pluginCfg("allowed_http_methods", []interface{}{"GET", "POST"})
+	methods := cfg.AllowedHTTPMethodsFor("myplugin")
+	if len(methods) != 2 || methods[0] != "GET" {
+		t.Errorf("unexpected methods: %v", methods)
+	}
+}
+
+func TestAllowedHTTPMethodsFor_MissingPlugin(t *testing.T) {
+	cfg := Config{}
+	if got := cfg.AllowedHTTPMethodsFor("nope"); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestAllowedHTTPMethodsFor_MissingKey(t *testing.T) {
+	cfg := Config{Plugins: map[string]map[string]interface{}{"myplugin": {}}}
+	if got := cfg.AllowedHTTPMethodsFor("myplugin"); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
