@@ -150,6 +150,41 @@ plugins:
             allowed_env_vars: ["API_KEY", "USER_ID"]
         ```
 
+### Plugin Required Modules
+
+To use any of the built in helper modules in your plugin, you need to add the following line to the top of your plugin file:
+
+```javascript
+const <module_name> = require('./lib/<module_name>.js');
+```
+
+Available built-in modules:
+
+- fs
+- http
+- path
+- crypto
+- console
+- sleep
+- url
+- utils
+
+### Example Plugin Code
+
+```javascript
+// plugins/test_plugin.js
+const { runCommand, http, fs, path, crypto, console, sleep, url, utils } = require('./lib/all.js');
+
+module.exports = {
+  name: "test_plugin",
+  description: "A simple test plugin.",
+  inputSchema: { type: "object", properties: {}, required: [] },
+  call(params) {
+    return "pong";
+  }
+};
+```
+
 ---
 
 ### Example Usage
@@ -179,8 +214,6 @@ plugins:
 
 
 ## Plugin development
-
-The `mcphe` server provides custom calls for the JavaScript plugin to use.  These custom calls are documented in the documentation for the `mcphe` server.  The documentation is available at `docs/index.html`.
 
 Create a JavaScript plugin in `plugins/` with `module.exports = { name, description, inputSchema, call }`.
 The `call` function receives the JSON arguments object and may return a string, object, array, or primitive.
