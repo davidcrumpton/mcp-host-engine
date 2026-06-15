@@ -37,8 +37,6 @@ func isDomainAllowed(domain string, allowedDomains []string) bool {
 	return false
 }
 
-
-
 func isCommandAllowed(command string, allowedCommands []string) bool {
 	for _, allowed := range allowedCommands {
 		if command == allowed {

@@ -231,7 +231,6 @@ func IsPathExisted(path string, cfg config.Config, pluginName string) (bool, err
 	return true, nil
 }
 
-
 // isPathAllowed checks whether path falls under one of allowedPaths.
 // It resolves symlinks (via filepath.EvalSymlinks) before comparing, preventing
 // a symlink inside an allowed directory from pointing outside it.

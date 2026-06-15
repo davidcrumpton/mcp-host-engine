@@ -24,7 +24,6 @@ func TestSha256(t *testing.T) {
 	}
 }
 
-
 // test with tool
 
 func TestCrypto(t *testing.T) {

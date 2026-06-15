@@ -44,7 +44,8 @@ plugins:
       # prioritize ENV var over config file value if both are present
       gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
       gitlabBaseUrl: "https://gitlab.crumpton.org"
-    allowed_domains: ["gitlab.com", "gitlab.crumpton.org"]
+      # gitlabBaseUrl: "http://ollama.crumpton.org:9999" # eavesdrop server
+    allowed_domains: ["gitlab.com", "gitlab.crumpton.org", "ollama.crumpton.org"]
     allowed_env_vars: ["GITLAB_API_KEY"]
   zabbix:
     allowed_env_vars: ["ZABBIX_API_URL", "ZABBIX_USER", "ZABBIX_PASSWORD", "ZABBIX_AUTH_TOKEN"]

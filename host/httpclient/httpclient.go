@@ -126,7 +126,7 @@ func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
-	req.Header.Set("X-Debugging-Plugin", "yes")
+	// req.Header.Set("X-Debugging-Plugin", "yes")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)

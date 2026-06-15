@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-
 func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) map[string]interface{} {
 	httpHeaders := make(map[string]string)
 	if h, ok := ctx.Value("http_headers").(http.Header); ok {
@@ -86,7 +85,7 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		},
 		"path": map[string]interface{}{
 			"basename": func(p string) (string, error) {
-				return path.Basename(p), nil	
+				return path.Basename(p), nil
 			},
 			// join: Joins path segments into a single path string, using the appropriate separator (e.g., path.join('/foo', 'bar', 'baz') -> '/foo/bar/baz').
 			"join": func(paths ...string) (string, error) {
@@ -111,9 +110,9 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			},
 		},
 		"fs": map[string]interface{}{
-			"readFile": func(path string) (string, error) { return fs.ReadFile(path, cfg, pluginName) },
-			"writeFile": func(path string, content string) error { return fs.WriteFile(path, content, cfg, pluginName) },
-			"listFiles": func(path string) ([]string, error) { return fs.ListFiles(path, cfg, pluginName) },
+			"readFile":   func(path string) (string, error) { return fs.ReadFile(path, cfg, pluginName) },
+			"writeFile":  func(path string, content string) error { return fs.WriteFile(path, content, cfg, pluginName) },
+			"listFiles":  func(path string) ([]string, error) { return fs.ListFiles(path, cfg, pluginName) },
 			"deleteFile": func(path string) error { return fs.DeleteFile(path, cfg, pluginName) },
 			"renameFile": func(oldPath, newPath string) error {
 				return fs.RenameFile(oldPath, newPath, cfg, pluginName)
@@ -138,13 +137,27 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			},
 		},
 		"http": map[string]interface{}{
-			"get": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Get(ctx, urlStr, headers, cfg, pluginName) },
-			"post": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Post(ctx, urlStr, headers, body, cfg, pluginName) },
-			"patch": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Patch(ctx, urlStr, headers, body, cfg, pluginName) },
-			"put": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) { return httpclient.Put(ctx, urlStr, headers, body, cfg, pluginName) },
-			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName) },
-			"options": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Options(ctx, urlStr, headers, cfg, pluginName) },
-			"head": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) { return httpclient.Head(ctx, urlStr, headers, cfg, pluginName) },
+			"get": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+				return httpclient.Get(ctx, urlStr, headers, cfg, pluginName)
+			},
+			"post": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+				return httpclient.Post(ctx, urlStr, headers, body, cfg, pluginName)
+			},
+			"patch": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+				return httpclient.Patch(ctx, urlStr, headers, body, cfg, pluginName)
+			},
+			"put": func(urlStr string, headers map[string]interface{}, body string) (map[string]interface{}, error) {
+				return httpclient.Put(ctx, urlStr, headers, body, cfg, pluginName)
+			},
+			"delete": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+				return httpclient.Delete(ctx, urlStr, headers, "", cfg, pluginName)
+			},
+			"options": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+				return httpclient.Options(ctx, urlStr, headers, cfg, pluginName)
+			},
+			"head": func(urlStr string, headers map[string]interface{}) (map[string]interface{}, error) {
+				return httpclient.Head(ctx, urlStr, headers, cfg, pluginName)
+			},
 			"rawPost": func(urlStr string, headers map[string]interface{}, body interface{}) (map[string]interface{}, error) {
 				var bodyStr string
 				switch v := body.(type) {
@@ -207,8 +220,8 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		},
 		"server": map[string]interface{}{
 			"version": func() string { return config.Version },
-			"commit": func() string { return config.Commit },
-			"logger": cfg.LogfForPlugin(pluginName),
+			"commit":  func() string { return config.Commit },
+			"logger":  cfg.LogfForPlugin(pluginName),
 			"config": func(name string) map[string]interface{} {
 				if len(name) == 0 {
 					name = pluginName

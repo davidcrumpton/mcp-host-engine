@@ -148,7 +148,7 @@ func TestHandleHTTPRequest_RejectsUnsupportedMethod(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	req := httptest.NewRequest(http.MethodPut, "/rpc", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -169,7 +169,7 @@ func TestHandleHTTPRequest_BadJSON(t *testing.T) {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		// Simulate bad JSON handling
 		body := []byte("{bad}")
 		if string(body) == "{bad}" {
@@ -179,7 +179,7 @@ func TestHandleHTTPRequest_BadJSON(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	req := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader("{bad}"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -203,13 +203,13 @@ func TestHandleRequest_Initialize(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	w := postJSON(t, handler, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "initialize",
 	})
-	
+
 	if w.Code != http.StatusOK {
 		t.Errorf("got %d, want 200", w.Code)
 	}
@@ -228,7 +228,7 @@ func TestHandleRequest_NotificationsInitialized(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	})
-	
+
 	w := postJSON(t, handler, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      nil,
@@ -266,19 +266,19 @@ func TestHandleRequest_UnknownMethod(t *testing.T) {
 		}
 		json.NewEncoder(w).Encode(response)
 	})
-	
+
 	w := postJSON(t, handler, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      99,
 		"method":  "no_such_method",
 	})
-	
+
 	// Check that we got a proper JSON-RPC error response
 	var resp map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	
+
 	if resp["error"] == nil {
 		t.Errorf("expected method-not-found -32601, got %v", resp["error"])
 	}
@@ -298,7 +298,7 @@ func TestHandleRequest_CancelNonExistentID(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	})
-	
+
 	w := postJSON(t, handler, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      nil,

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
 	"sort"
+	"strings"
 
 	"github.com/dop251/goja"
 
@@ -32,6 +34,8 @@ type Plugin struct {
 	InputSchema interface{}
 	Call        goja.Callable
 	VM          *goja.Runtime
+	Dir         string
+	File        string
 	Meta        interface{}
 	Annotations *PluginAnnotations
 }
@@ -96,6 +100,7 @@ func valueToString(val goja.Value) string {
 		return str
 	}
 	return val.String()
+
 }
 
 // safeExport safely exports a goja value, returning nil for undefined/null values.
@@ -153,6 +158,123 @@ func parseAnnotations(obj *goja.Object) *PluginAnnotations {
 	}
 	return ann
 }
+func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config) func(modulePath string, visited map[string]bool) goja.Value {
+	// internal recursive loader with cycle detection. Uses the provided VM so
+	// values can be returned into the calling runtime (avoids illegal runtime
+	// transitions when returning objects created in another Runtime).
+	var load func(modulePath string, visited map[string]bool) goja.Value
+	load = func(modulePath string, visited map[string]bool) goja.Value {
+		// (no-op)
+		// If the request appears to attempt path traversal and the requested
+		// basename exists inside the plugin directory, treat this as an
+		// explicit traversal attempt and reject it. Otherwise, reject
+		// non-.js extensions with a clearer error.
+		if strings.Contains(modulePath, "..") {
+			base := filepath.Base(modulePath)
+			if _, statErr := os.Stat(filepath.Join(pluginDir, base)); statErr == nil {
+				if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", fmt.Sprintf("path traversal not allowed: %s", modulePath))); runErr != nil {
+					panic(runErr)
+				}
+				return goja.Undefined()
+			}
+		}
+		// Reject explicit non-.js extensions (unless the heuristic above matched)
+		if ext := filepath.Ext(modulePath); ext != "" && ext != ".js" {
+			if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", fmt.Sprintf("only .js modules may be required: %s", modulePath))); runErr != nil {
+				panic(runErr)
+			}
+			return goja.Undefined()
+		}
+		// allow require("foo") to resolve to foo.js
+		candidates := []string{modulePath}
+		if !strings.HasSuffix(modulePath, ".js") {
+			candidates = append(candidates, modulePath+".js")
+		}
+
+		var lastErr error
+		for _, candidate := range candidates {
+			resolved := filepath.Join(pluginDir, candidate)
+			resolved = filepath.Clean(resolved)
+
+			// (no-op)
+
+			// prevent path traversal outside pluginDir
+			base := pluginDir
+			if !strings.HasSuffix(base, string(filepath.Separator)) {
+				base = base + string(filepath.Separator)
+			}
+			if !strings.HasPrefix(resolved, base) {
+				lastErr = fmt.Errorf("path traversal not allowed: %s", modulePath)
+				continue
+			}
+
+			if visited[resolved] {
+				// debug
+				fmt.Fprintf(os.Stderr, "DEBUG visited hit: resolved=%s visitedKeys=%v\n", resolved, visited)
+				cfg.Logf(1, "require: circular import detected: %s", modulePath)
+				if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", fmt.Sprintf("circular import: %s", modulePath))); runErr != nil {
+					panic(runErr)
+				}
+				return goja.Undefined()
+			}
+
+			content, err := os.ReadFile(resolved)
+			if err != nil {
+				lastErr = fmt.Errorf("cannot read %s: %w", modulePath, err)
+				continue
+			}
+
+			visited[resolved] = true
+			// ensure we remove from visited for other branches
+			defer func(p string) { delete(visited, p) }(resolved)
+
+			// provide a fresh module scope and run in the same VM so returned
+			// values are compatible with the caller's runtime.
+			script := fmt.Sprintf("var module={exports:{}};var exports=module.exports;\n%s\nmodule.exports", content)
+			val, err := vm.RunString(script)
+			if err != nil {
+				cfg.Logf(1, "require: error executing %s: %v", modulePath, err)
+				if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", fmt.Sprintf("error executing %s: %v", modulePath, err))); runErr != nil {
+					panic(runErr)
+				}
+				return goja.Undefined()
+			}
+			return val
+		}
+
+		// If we reach here, no candidate succeeded — throw a JS-visible error.
+		if lastErr != nil {
+			if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", lastErr.Error())); runErr != nil {
+				panic(runErr)
+			}
+			return goja.Undefined()
+		}
+		if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", fmt.Sprintf("only .js modules may be required: %s", modulePath))); runErr != nil {
+			panic(runErr)
+		}
+		return goja.Undefined()
+	}
+
+	return load
+}
+
+// makeRequire returns a JS-callable require implementation that uses a fresh
+// visited map per top-level require invocation. This is suitable for setting
+// on the VM during plugin load-time; CallTool will overwrite require with a
+// per-call variant that shares a visited map across nested requires.
+func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config) func(goja.FunctionCall) goja.Value {
+	loader := makeModuleLoader(vm, pluginDir, cfg)
+	return func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", "require: module path required")); runErr != nil {
+				panic(runErr)
+			}
+			return goja.Undefined()
+		}
+		modulePath := call.Arguments[0].String()
+		return loader(modulePath, make(map[string]bool))
+	}
+}
 
 func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 	content, err := os.ReadFile(path)
@@ -178,6 +300,11 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		return nil, err
 	}
 
+	pluginDir := filepath.Dir(path)
+	if err := vm.Set("require", makeRequire(vm, pluginDir, cfg)); err != nil {
+		cfg.Logf(1, "Failed to set require for plugin %s: %v", path, err)
+		return nil, err
+	}
 
 	script := fmt.Sprintf("var module = { exports: {} }; var exports = module.exports;\n%s\nmodule.exports", content)
 	value, err := vm.RunString(script)
@@ -253,6 +380,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		InputSchema: safeExport(inputSchemaVal),
 		Call:        callFunc,
 		VM:          vm,
+		Dir:         pluginDir,
 	}, nil
 }
 
@@ -284,6 +412,8 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		return nil, fmt.Errorf("tool %q not found", name)
 	}
 
+	// runtime cycle detection is handled by the per-call 'require' loader
+
 	var args interface{}
 	if len(rawArgs) > 0 {
 		if err := json.Unmarshal(rawArgs, &args); err != nil {
@@ -299,6 +429,27 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		return nil, fmt.Errorf("failed to set host API: %w", err)
 	}
 
+	// Install a per-call `require` that shares a single `visited` map across
+	// nested requires invoked during this plugin.Call invocation so circular
+	// imports can be detected.
+	loader := makeModuleLoader(plugin.VM, plugin.Dir, cfg)
+	visited := make(map[string]bool)
+	if plugin.File != "" {
+		visited[filepath.Clean(plugin.File)] = true
+	}
+	if err := plugin.VM.Set("require", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			if _, runErr := plugin.VM.RunString(fmt.Sprintf("throw new Error(%q)", "require: module path required")); runErr != nil {
+				panic(runErr)
+			}
+			return goja.Undefined()
+		}
+		return loader(call.Arguments[0].String(), visited)
+	}); err != nil {
+		cfg.Logf(1, "Failed to set require API for tool %s: %v", name, err)
+		return nil, fmt.Errorf("failed to set require API: %w", err)
+	}
+
 	scriptArgs := plugin.VM.ToValue(args)
 	result, err := plugin.Call(goja.Undefined(), scriptArgs)
 	if err != nil {
@@ -306,7 +457,33 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 		return nil, fmt.Errorf("tool error: %w", err)
 	}
 	cfg.Logf(2, "Tool returned result for %s with raw args %s", name, string(rawArgs))
-	return result.Export(), nil
+	exported := result.Export()
+	// Normalize integer numeric types to float64 so callers observing JSON-like
+	// numbers see consistent types.
+	switch v := exported.(type) {
+	case int:
+		return float64(v), nil
+	case int8:
+		return float64(v), nil
+	case int16:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case uint:
+		return float64(v), nil
+	case uint8:
+		return float64(v), nil
+	case uint16:
+		return float64(v), nil
+	case uint32:
+		return float64(v), nil
+	case uint64:
+		return float64(v), nil
+	default:
+		return exported, nil
+	}
 }
 
 func (pm *PluginManager) GetAllTools(cfg config.Config) []map[string]interface{} {
@@ -335,9 +512,4 @@ func OpenapiHandler(cfg config.Config, pm *PluginManager) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tools)
 	}
-}
-
-func (pm *PluginManager) GetToolByName(name string) (*Plugin, bool) {
-	plugin, ok := pm.byName[name]
-	return plugin, ok
 }

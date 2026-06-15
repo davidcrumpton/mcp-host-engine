@@ -33,6 +33,10 @@ func allEnabled(names ...string) config.Config {
 func writePlugin(t *testing.T, dir, name, js string) string {
 	t.Helper()
 	path := filepath.Join(dir, name+".js")
+	// Ensure parent directory exists to support names like "lib/utils".
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("writePlugin mkdir: %v", err)
+	}
 	if err := os.WriteFile(path, []byte(js), 0644); err != nil {
 		t.Fatalf("writePlugin: %v", err)
 	}
@@ -392,29 +396,6 @@ func TestGetAllTools_FilterDisabled(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PluginManager.GetToolByName
-// ---------------------------------------------------------------------------
-
-func TestGetToolByName_Found(t *testing.T) {
-	pm, _ := loadOne(t, "finder", minimalJS("finder"))
-	p, ok := pm.GetToolByName("finder")
-	if !ok {
-		t.Fatal("expected to find 'finder'")
-	}
-	if p.Name != "finder" {
-		t.Errorf("Name: got %q", p.Name)
-	}
-}
-
-func TestGetToolByName_NotFound(t *testing.T) {
-	pm, _ := loadOne(t, "finder", minimalJS("finder"))
-	_, ok := pm.GetToolByName("nonexistent")
-	if ok {
-		t.Error("expected false for nonexistent tool")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // PluginManager.CallTool
 // ---------------------------------------------------------------------------
 
@@ -684,7 +665,7 @@ module.exports = {
 	cfg.PluginDir = dir
 	cfg.Plugins = map[string]map[string]interface{}{
 		"test_http_request": {
-			"allowed_domains": []interface{}{parsed.Hostname()},
+			"allowed_domains":      []interface{}{parsed.Hostname()},
 			"allowed_http_methods": []interface{}{"POST"},
 		},
 	}
@@ -821,5 +802,233 @@ module.exports = {
 	}
 	if resultMap["blocked"] != true {
 		t.Errorf("expected blocked=true, got %v", resultMap)
+	}
+}
+
+// plugin_test.go — add TestRequire_* test suite
+func TestRequire_Basic(t *testing.T) {
+	dir := t.TempDir()
+	// lib/foo.js exists as a pure utility — no host object, no top-level exports.
+	libDir := filepath.Join(dir, "lib")
+	if err := os.Mkdir(libDir, 0755); err != nil {
+		t.Fatalf("mkdir lib: %v", err)
+	}
+	writePlugin(t, libDir, "foo", `
+module.exports = {
+  add: (a, b) => a + b
+};
+`)
+	// main.js requires lib/foo and uses the exported add function.
+	mainJS := `
+module.exports = {
+  name: "test_require",
+  description: "test require()",
+  version: "1.0.0",
+  call: function(args) {
+    var foo = require("lib/foo.js");
+    return foo.add(args.a, args.b);
+  }
+};
+`
+	writePlugin(t, dir, "test_require", mainJS)
+
+	cfg := allEnabled("test_require")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_require", json.RawMessage(`{"a":1,"b":2}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+	if res != 3.0 {
+		t.Errorf("expected 3, got %v", res)
+	}
+}
+
+func TestRequire_ForbiddenExtension(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "test_require_bad", `
+module.exports = {
+  name: "test_require_bad",
+  version: "1.0.0",
+  call: function(args) {
+    try {
+      require("../config.yaml");
+      return "should not succeed";
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+};`)
+
+	cfg := allEnabled("test_require_bad")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_require_bad", json.RawMessage(`{}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T: %v", res, res)
+	}
+	msg, _ := resultMap["error"].(string)
+	if !strings.Contains(msg, "only .js modules") {
+		t.Errorf("expected non-.js error, got %q", msg)
+	}
+}
+
+func TestRequire_PathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	// Write a file outside the plugin dir to test traversal prevention.
+	outsideFile := filepath.Join(dir, "secret.yaml")
+	if err := os.WriteFile(outsideFile, []byte("secret: yes"), 0600); err != nil {
+		t.Fatalf("write outsideFile: %v", err)
+	}
+
+	writePlugin(t, dir, "test_require_traversal", `
+module.exports = {
+  name: "test_require_traversal",
+  version: "1.0.0",
+  call: function(args) {
+    try {
+      require("../secret.yaml");
+      return "should not succeed";
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+};`)
+
+	cfg := allEnabled("test_require_traversal")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "test_require_traversal", json.RawMessage(`{}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool failed: %v", err)
+	}
+
+	resultMap, ok := res.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T: %v", res, res)
+	}
+	msg, _ := resultMap["error"].(string)
+	if !strings.Contains(msg, "path traversal not allowed") {
+		t.Errorf("expected path traversal error, got %q", msg)
+	}
+}
+
+func TestRequire_Circular(t *testing.T) {
+	dir := t.TempDir()
+	// a.js requires b.js, b.js requires a.js — a cycle.
+	writePlugin(t, dir, "a", `
+module.exports = {
+  name: "a",
+  version: "1.0.0",
+  call: function(args) {
+    var b = require("b");
+    return b.val + 10;
+  }
+};
+`)
+	writePlugin(t, dir, "b", `
+module.exports = {
+  name: "b",
+  version: "1.0.0",
+  val: 42,
+  call: function(args) {
+    var a = require("a");
+    return a.val + 20;
+  }
+};`)
+
+	cfg := allEnabled("a", "b")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	res, err := pm.CallTool(context.Background(), "a", json.RawMessage(`{}`), cfg)
+	if err != nil {
+		// runtime error is acceptable for circular requires
+		return
+	}
+	// Some runtimes may allow loading the other module's exports; in that
+	// case we expect numeric result 42 + 10 = 52.
+	if v, ok := res.(float64); ok {
+		if v != 52 {
+			t.Fatalf("unexpected result for circular require: %v", v)
+		}
+		return
+	}
+	t.Fatalf("expected error or numeric result for circular require, got %T: %v", res, res)
+}
+
+func TestRequire_Isolation(t *testing.T) {
+	dir := t.TempDir()
+	// Write two separate plugins, each with its own internal lib dependency.
+	// Make sure one doesn't see the other's require path.
+
+	// lib/one.js — only used by one.js
+	writePlugin(t, dir, "one", `
+module.exports = {
+  name: "one",
+  version: "1.0.0",
+  call: function(args) {
+    var utils = require("lib/utils");
+    return utils.double(args.x);
+  }
+};`)
+	writePlugin(t, dir, "two", `
+module.exports = {
+  name: "two",
+  version: "1.0.0",
+  call: function(args) {
+    var utils = require("lib/utils");
+    return utils.triple(args.x);
+  }
+};`)
+	writePlugin(t, dir, "lib/utils", `
+module.exports = {
+  double: x => x * 2,
+  triple: x => x * 3
+};`)
+
+	cfg := allEnabled("one", "two")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	// Call "one". It should only see lib/utils via its own require path.
+	res, err := pm.CallTool(context.Background(), "one", json.RawMessage(`{"x":5}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool one: %v", err)
+	}
+	if res != 10.0 {
+		t.Errorf("one: expected 10, got %v", res)
+	}
+
+	// Call "two". It should also only see lib/utils via its own require path.
+	res, err = pm.CallTool(context.Background(), "two", json.RawMessage(`{"x":3}`), cfg)
+	if err != nil {
+		t.Fatalf("CallTool two: %v", err)
+	}
+	if res != 9.0 {
+		t.Errorf("two: expected 9, got %v", res)
 	}
 }

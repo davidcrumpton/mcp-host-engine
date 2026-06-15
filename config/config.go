@@ -23,23 +23,23 @@ const (
 )
 
 type Config struct {
-	Port          string                            `yaml:"port"`
-	Host          string                            `yaml:"host"`
-	UseHTTPS      bool                              `yaml:"use_https"`
-	CertFile      string                            `yaml:"cert_file"`
-	KeyFile       string                            `yaml:"key_file"`
-	BearerToken   string                            `yaml:"bearer_token"`
-	CORSOrigin    string                            `yaml:"cors_origin"`
-	PluginDir     string                            `yaml:"plugin_dir"`
-	Tools         map[string]bool                   `yaml:"tools"`
-	Verbosity     int                               `yaml:"verbosity_level"`
-	PluginVersion string                            `yaml:"version"`
-	PidFile       string                            `yaml:"pid_file"`
-	Plugins       map[string]map[string]interface{} `yaml:"plugins"`
-	Meta          map[string]interface{}            `yaml:"meta"`
-	RunAsRoot     bool                              `yaml:"run_as_root"`
-	Transport     string                            `yaml:"transport"`
-	LogsAsJSON    bool                              `yaml:"logs_as_json"`
+	Port               string                            `yaml:"port"`
+	Host               string                            `yaml:"host"`
+	UseHTTPS           bool                              `yaml:"use_https"`
+	CertFile           string                            `yaml:"cert_file"`
+	KeyFile            string                            `yaml:"key_file"`
+	BearerToken        string                            `yaml:"bearer_token"`
+	CORSOrigin         string                            `yaml:"cors_origin"`
+	PluginDir          string                            `yaml:"plugin_dir"`
+	Tools              map[string]bool                   `yaml:"tools"`
+	Verbosity          int                               `yaml:"verbosity_level"`
+	PluginVersion      string                            `yaml:"version"`
+	PidFile            string                            `yaml:"pid_file"`
+	Plugins            map[string]map[string]interface{} `yaml:"plugins"`
+	Meta               map[string]interface{}            `yaml:"meta"`
+	RunAsRoot          bool                              `yaml:"run_as_root"`
+	Transport          string                            `yaml:"transport"`
+	LogsAsJSON         bool                              `yaml:"logs_as_json"`
 	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
 }
 
@@ -57,7 +57,7 @@ var DefaultConfig = Config{
 	Verbosity: 0,
 	Plugins: map[string]map[string]interface{}{
 		"wikipedia_search": {
-			"enabled": true,
+			"enabled":         true,
 			"allowed_domains": []string{"en.wikipedia.org"},
 		},
 		"ping": {
@@ -123,7 +123,7 @@ func (c Config) LogfForPlugin(pluginName string) func(level int, format string, 
 				logJSON, _ := json.Marshal(logEntry)
 				fmt.Fprintln(os.Stderr, string(logJSON))
 			} else {
-				fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05 ")+ " "+pluginName+": "+format+"\n", args...)
+				fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05 ")+" "+pluginName+": "+format+"\n", args...)
 			}
 		}
 	}

@@ -20,4 +20,3 @@ type NoOpLogger struct{}
 func (l NoOpLogger) Logf(level int, format string, args ...interface{}) {
 	// No operation performed
 }
-
