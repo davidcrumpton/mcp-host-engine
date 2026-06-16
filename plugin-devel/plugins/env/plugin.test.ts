@@ -3,13 +3,16 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { installMockHost } from "../mock-host";
+import { buildMockHost, installMockHost } from "../mock-host";
 
 let mockHost: ReturnType<typeof installMockHost>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockHost = installMockHost();
+  mockHost = installMockHost({
+    allowedDomains: ["ifconfig.io"],
+    env: { HOME: "/Users/mcphe" },
+  });
 });
 
 // Vitest transforms .ts natively — import the plugin directly
@@ -25,17 +28,16 @@ describe("get_env_var plugin", () => {
   it("version is \\d+\\.\\d+\\.\\d+ major.minor.patch format", () => {
     expect(plugin.version).match(/\d+\.\d+\.\d+/);
   });
+
+  it("fetches the HOME environment variable", async () => {
+    const params = {
+      CommandEvent: "CommandEvent.env",
+      env_var: "HOME"
+    };
+
+    const response = await plugin.call(params);
+
+    expect(response).toContain("/Users/mcphe"); // As set in mockHost.ts
+  });
 });
-//   it("fetches the HOME environment variable", async () => { 
-//     const params = {
-//       CommandEvent: "CommandEvent.env",
-//       key: "HOME"
-//     };
-
-//     const response = await plugin.call(params);
-
-//     expect(response).toContain("bear"); // As set in mockHost.ts
-
-//   });
-// });
 

@@ -82,11 +82,14 @@ export function buildMockHost(options: {
   allowedDomains?: string[];
   allowedReadPaths?: string[];
   allowedWritePaths?: string[];
+  allowedEnv?: string[];
+  env?: Record<string, string>;
   pluginConfig?: Record<string, unknown>;
 } = {}): Host {
   const {
     allowedDomains  = ["example.com", "ifconfig.io", "en.wikipedia.org"],
-    allowedEnv = ["HOME", "PATH", "TMP", "TMPDIR"],
+    allowedEnv      = ["HOME", "PATH", "TMP", "TMPDIR"],
+    env             = {},
     allowedReadPaths  = ["/tmp"],
     allowedWritePaths = ["/tmp"],
     pluginConfig    = {},
@@ -139,9 +142,11 @@ export function buildMockHost(options: {
   };
 
   const process: HostProcess = {
-    env:    vi.fn((key: string) => {
-        if (allowedEnv.includes(key)) return "/Users/bear";
-        return "";
+    env: vi.fn((key: string) => {
+      if (!allowedEnv.includes(key)) {
+        throw new Error(`GoError: access to env var "${key}" is not allowed`);
+      }
+      return env[key] ?? "";
     }),
     config: vi.fn(() => pluginConfig),
   };
