@@ -2,7 +2,7 @@
 const plugin = {
   name: "http_request_get",
   description: "Fetch content from a URL and return extracted plain text.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["utility"],
   annotations: {

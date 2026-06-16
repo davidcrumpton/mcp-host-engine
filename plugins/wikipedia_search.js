@@ -7,7 +7,7 @@ const plugin = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.1.0",
+  version: "2.1.2",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
@@ -173,7 +173,7 @@ function searchTitles(query, lang, limit) {
     srlimit: limit,
     srprop: "snippet|titlesnippet"
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -184,7 +184,7 @@ function searchTitles(query, lang, limit) {
 }
 function fetchRestSummary(lang, title) {
   const url = restSummaryUrl(lang, title);
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return null;
   try {
     return JSON.parse(resp.body);
@@ -202,7 +202,7 @@ function fetchExtract(title, lang, introOnly) {
   };
   if (introOnly) params.exintro = 1;
   const url = apiUrl(lang, params);
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -220,7 +220,7 @@ function fetchSections(title, lang) {
     prop: "sections",
     redirects: 1
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -238,7 +238,7 @@ function fetchSectionText(title, lang, sectionIndex) {
     redirects: 1,
     disableeditsection: 1
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -257,7 +257,7 @@ function fetchLinks(title, lang, limit) {
     pllimit: limit,
     plnamespace: 0
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);

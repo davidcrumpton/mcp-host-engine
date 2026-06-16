@@ -3,13 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { installMockHost } from "../mock-host";
-
-let mockHost: ReturnType<typeof installMockHost>;
+// import { installMockHost } from "../mock-host";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockHost = installMockHost();
 });
 
 // Vitest transforms .ts natively — import the plugin directly

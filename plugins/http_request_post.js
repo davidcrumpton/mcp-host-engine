@@ -2,7 +2,7 @@
 const plugin = {
   name: "http_request_post",
   description: "Make an HTTP POST request from the host.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["http", "utility"],
   annotations: {
@@ -25,7 +25,7 @@ const plugin = {
     required: ["url", "body"]
   },
   call(params) {
-    const response = host.httpPost(params.url, params.headers || {}, params.body);
+    const response = host.http.post(params.url, params.headers || void 0, params.body);
     return `Status: ${response.status}, Body: ${response.body}`;
   }
 };

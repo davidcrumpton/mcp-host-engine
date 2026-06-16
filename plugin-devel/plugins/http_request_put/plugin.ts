@@ -3,7 +3,7 @@
 const plugin = {
     name: "http_request_put",
     description: "Make an HTTP PUT request from the host.",
-    version: "1.1.0",
+    version: "1.1.2",
     commit: "none",
     Tags: ["http", "utility"],
     annotations: {
@@ -26,7 +26,12 @@ const plugin = {
         required: ["url", "body"],
     },
     call(params: Record<string, unknown>) {
-        const response = host.httpPut(params.url, params.headers || {}, params.body);
+        const response = host.http.put(params.url as string, params.headers as Record<string, string> || undefined, params.body as string);
+        if (response.status !== 200) {
+            console.log(`HTTP PUT request to ${params.url} failed with status ${response.status}`);
+        } else {
+            console.log(`HTTP PUT request to ${params.url} succeeded with status ${response.status}`);
+        }
         return `Status: ${response.status}, Body: ${response.body}`;
     },
 };

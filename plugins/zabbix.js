@@ -2,7 +2,7 @@
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
-  version: "1.1.0",
+  version: "1.1.2",
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,

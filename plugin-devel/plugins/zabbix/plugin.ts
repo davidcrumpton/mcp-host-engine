@@ -3,7 +3,7 @@
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
-  version: "1.1.0",
+  version: "1.1.2",
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,
@@ -46,10 +46,10 @@ const plugin = {
     const self = module.exports;
     const { CommandEvent } = params;
 
-    let apiUrl;
-    let username;
-    let password;
-    let authToken;
+    let apiUrl: string;
+    let username: string | undefined;
+    let password: string | undefined;
+    let authToken: string | undefined;
 
     // Load config exactly like the GitLab plugin does
     try {
@@ -109,7 +109,7 @@ const plugin = {
     }
 
     // Core JSON-RPC helper
-    function rpc(method, rpcParams = {}, useAuth = true) {
+    function rpc(method: string, rpcParams: Record<string, unknown> = {}, useAuth = true) {
       const body = {
         jsonrpc: "2.0",
         method,

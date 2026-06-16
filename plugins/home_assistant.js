@@ -2,7 +2,7 @@
 const plugin = {
   name: "home_assistant",
   description: "Control and query Home Assistant via its REST API. Supports getting/setting entity states, calling services (turn lights on/off, etc.), firing events, listing calendars, rendering templates, and more.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["home-automation", "iot", "utility"],
   annotations: {
@@ -154,7 +154,7 @@ const plugin = {
         return { success: false, error: `GET ${path} failed: ${err.message}` };
       }
     }
-    function post(path, body) {
+    function post(path, body = null) {
       try {
         const resp = host.http.post(`${apiUrl}${path}`, authHeaders, body ? JSON.stringify(body) : "{}");
         return self._handleResponse(resp, path);

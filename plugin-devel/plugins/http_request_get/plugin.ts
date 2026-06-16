@@ -3,7 +3,7 @@
 const plugin = {
   name: "http_request_get",
   description: "Fetch content from a URL and return extracted plain text.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["utility"],
   annotations: {
@@ -27,7 +27,7 @@ const plugin = {
     required: ["url"],
   },
   call(params: Record<string, unknown>) {
-    const response = host.http.get(params.url);
+    const response = host.http.get(params.url as string);
     if (typeof response !== "object" || response === null) {
       return response;
     }
@@ -41,7 +41,7 @@ const plugin = {
   },
 };
 
-function extractText(html) {
+function extractText(html: string): string {
   return html
     // Remove <script> and <style> blocks entirely (content + tags)
     .replace(/<script[\s\S]*?<\/script>/gi, "")

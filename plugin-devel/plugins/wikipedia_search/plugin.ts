@@ -25,7 +25,7 @@ const plugin = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.1.0",
+  version: "2.1.2",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
@@ -113,7 +113,7 @@ const SKIP_SECTIONS = new Set([
  * Synchronous GET via the mcphe host API.
  * Headers must be a flat {key: stringValue} object — NOT nested.
  */
-function httpGet(url, extraHeaders) {
+function httpGet(url: string, extraHeaders: { [key: string]: any }) {
   const headers = Object.assign({
     "User-Agent": USER_AGENT,
     "Accept": "application/json"
@@ -123,7 +123,7 @@ function httpGet(url, extraHeaders) {
   return response;
 }
 
-function apiUrl(lang, params) {
+function apiUrl(lang: string, params: { [key: string]: any }) {
   const base = "https://" + lang + ".wikipedia.org/w/api.php";
   const parts = ["format=json", "utf8=1"];
   for (const k in params) {
@@ -132,19 +132,19 @@ function apiUrl(lang, params) {
   return base + "?" + parts.join("&");
 }
 
-function restSummaryUrl(lang, title) {
+function restSummaryUrl(lang: string, title: string) {
   return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" +
          encodeURIComponent(title.replace(/ /g, "_"));
 }
 
-function pageUrl(title, lang) {
+function pageUrl(title: string, lang: string) {
   return "https://" + lang + ".wikipedia.org/wiki/" +
          encodeURIComponent(title.replace(/ /g, "_"));
 }
 
 // ─── Text utilities ───────────────────────────────────────────────────────────
 
-function cleanText(text) {
+function cleanText(text: string) {
   if (!text) return "";
   text = text.replace(/\n{3,}/g, "\n\n");
   text = text.replace(/[ \t]{2,}/g, " ");
@@ -153,11 +153,11 @@ function cleanText(text) {
   return text.trim();
 }
 
-function stripHtml(text) {
+function stripHtml(text: string) {
   return (text || "").replace(/<[^>]+>/g, "");
 }
 
-function stripWikitext(text) {
+function stripWikitext(text: string) {
   if (!text) return "";
 
   // Remove templates {{...}} — iterate until stable (handles light nesting)
@@ -192,7 +192,7 @@ function stripWikitext(text) {
   return cleanText(text);
 }
 
-function truncate(text, maxChars) {
+function truncate(text: string, maxChars: number) {
   if (!text || text.length <= maxChars) return { text: text || "", wasCut: false };
   let cut = text.slice(0, maxChars);
   const lastPara = cut.lastIndexOf("\n\n");
@@ -200,7 +200,7 @@ function truncate(text, maxChars) {
   return { text: cut, wasCut: true };
 }
 
-function isDisambiguation(title, extract) {
+function isDisambiguation(title: string, extract: string) {
   const lowt = (title || "").toLowerCase();
   const lowe = (extract || "").toLowerCase();
   return (
@@ -214,7 +214,7 @@ function isDisambiguation(title, extract) {
 
 // ─── Wikipedia API calls (all synchronous) ───────────────────────────────────
 
-function searchTitles(query, lang, limit) {
+function searchTitles(query: string, lang: string, limit: number) {
   limit = limit || 6;
   const url = apiUrl(lang, {
     action: "query",
@@ -223,7 +223,7 @@ function searchTitles(query, lang, limit) {
     srlimit: limit,
     srprop: "snippet|titlesnippet"
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -233,9 +233,9 @@ function searchTitles(query, lang, limit) {
   }
 }
 
-function fetchRestSummary(lang, title) {
+function fetchRestSummary(lang: string, title: string) {
   const url = restSummaryUrl(lang, title);
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return null;
   try {
     return JSON.parse(resp.body);
@@ -248,7 +248,7 @@ function fetchRestSummary(lang, title) {
  * Fetch plain-text extract via MediaWiki action API.
  * introOnly=true returns only the lead section.
  */
-function fetchExtract(title, lang, introOnly) {
+function fetchExtract(title: string, lang: string, introOnly: boolean) {
   const params = {
     action: "query",
     prop: "extracts",
@@ -259,7 +259,7 @@ function fetchExtract(title, lang, introOnly) {
   if (introOnly) params.exintro = 1;
 
   const url = apiUrl(lang, params);
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -271,14 +271,14 @@ function fetchExtract(title, lang, introOnly) {
   }
 }
 
-function fetchSections(title, lang) {
+function fetchSections(title: string, lang: string) {
   const url = apiUrl(lang, {
     action: "parse",
     page: title,
     prop: "sections",
     redirects: 1
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -288,7 +288,7 @@ function fetchSections(title, lang) {
   }
 }
 
-function fetchSectionText(title, lang, sectionIndex) {
+function fetchSectionText(title: string, lang: string, sectionIndex: string) {
   const url = apiUrl(lang, {
     action: "parse",
     page: title,
@@ -297,7 +297,7 @@ function fetchSectionText(title, lang, sectionIndex) {
     redirects: 1,
     disableeditsection: 1
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -308,7 +308,7 @@ function fetchSectionText(title, lang, sectionIndex) {
   }
 }
 
-function fetchLinks(title, lang, limit) {
+function fetchLinks(title: string, lang: string, limit: number) {
   limit = limit || 6;
   const url = apiUrl(lang, {
     action: "query",
@@ -317,13 +317,13 @@ function fetchLinks(title, lang, limit) {
     pllimit: limit,
     plnamespace: 0
   });
-  const resp = httpGet(url);
+  const resp = host.http.get(url);
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
     const pages = (data.query && data.query.pages) || {};
     const page = pages[Object.keys(pages)[0]] || {};
-    return (page.links || []).map(function(l) { return l.title; });
+    return (page.links || []).map(function(l: any) { return l.title; });
   } catch (e) {
     return [];
   }
@@ -331,14 +331,14 @@ function fetchLinks(title, lang, limit) {
 
 // ─── Disambiguation handler ───────────────────────────────────────────────────
 
-function handleDisambiguation(title, lang, searchResults) {
+function handleDisambiguation(title: string, lang: string, searchResults: string[] | null) {
   const lines = [
     "\"" + title + "\" is a disambiguation page — multiple articles match this title.\n",
     "Here are the closest results:\n"
   ];
   const results = (searchResults || []).slice(0, 6);
   for (let i = 0; i < results.length; i++) {
-    const r = results[i];
+    const r: any = results[i];
     let snippet = stripHtml(r.snippet || "").trim().replace(/\s+/g, " ");
     if (snippet.length > 120) snippet = snippet.slice(0, 120) + "…";
     const url = pageUrl(r.title, lang);
@@ -349,7 +349,7 @@ function handleDisambiguation(title, lang, searchResults) {
 
 // ─── Search mode ──────────────────────────────────────────────────────────────
 
-function searchMode(query, lang) {
+function searchMode(query: string, lang: any) {
   const results = searchTitles(query, lang, 8);
   if (!results.length) {
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
@@ -372,7 +372,7 @@ function searchMode(query, lang) {
 
 // ─── Lookup mode ──────────────────────────────────────────────────────────────
 
-function lookupMode(query, detail, lang) {
+function lookupMode(query: string, detail: string, lang: string) {
   // Step 1: find best matching article
   const searchResults = searchTitles(query, lang, 6);
   if (!searchResults.length) {

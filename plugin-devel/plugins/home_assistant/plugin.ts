@@ -23,7 +23,7 @@
 const plugin = {
   name: "home_assistant",
   description: "Control and query Home Assistant via its REST API. Supports getting/setting entity states, calling services (turn lights on/off, etc.), firing events, listing calendars, rendering templates, and more.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["home-automation", "iot", "utility"],
   annotations: {
@@ -158,7 +158,7 @@ const plugin = {
     const self = module.exports;
 
     // ── Load configuration ────────────────────────────────────────────────
-    let apiUrl, apiToken;
+    let apiUrl: string, apiToken: string;
     try {
       apiUrl =
         host.process.env("HASS_URL") ||
@@ -190,16 +190,16 @@ const plugin = {
       "Content-Type": "application/json"
     };
 
-    function get(path) {
+    function get(path: string) {
       try {
-        const resp = host.http.get(`${apiUrl}${path}`, { headers: authHeaders });
+        const resp: any = host.http.get(`${apiUrl}${path}`, { headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
         return { success: false, error: `GET ${path} failed: ${err.message}` };
       }
     }
 
-    function post(path, body) {
+    function post(path: string, body: unknown = null) {
       try {
         const resp = host.http.post(`${apiUrl}${path}`, authHeaders, body ? JSON.stringify(body) : "{}");
         return self._handleResponse(resp, path);
@@ -208,7 +208,7 @@ const plugin = {
       }
     }
 
-    function del(path) {
+    function del(path: string) {
       try {
         const resp = host.http.delete(`${apiUrl}${path}`, authHeaders);
         return self._handleResponse(resp, path);
@@ -366,7 +366,7 @@ const plugin = {
   },
 
   // ── Internal response normaliser ────────────────────────────────────────
-  _handleResponse(resp, path) {
+  _handleResponse(resp: any, path: string) {
     const status = resp.status ?? resp.statusCode;
     const bodyText = typeof resp.body === "string" ? resp.body : "";
 
