@@ -17,6 +17,7 @@ test:
   stage: test
   script:
     - make test
+    - make plugin-tests
 
 release:
   stage: release
