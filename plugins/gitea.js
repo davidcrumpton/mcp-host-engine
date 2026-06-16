@@ -1,3 +1,4 @@
+"use strict";
 module.exports = {
   name: "gitea",
   description: "Extended Gitea tools for project management, file operations, and collaboration.",
@@ -5,10 +6,10 @@ module.exports = {
   commit: "none",
   Tags: ["development", "utility", "gitea"],
   annotations: {
-    readOnlyHint:    false,
+    readOnlyHint: false,
     destructiveHint: true,
-    idempotentHint:  false,
-    openWorldHint:   true
+    idempotentHint: false,
+    openWorldHint: true
   },
   inputSchema: {
     type: "object",
@@ -110,10 +111,6 @@ module.exports = {
         type: "string",
         description: "Title for issue or merge request"
       },
-      description: {
-        type: "string",
-        description: "Description for issue or merge request"
-      },
       assignee_ids: {
         type: "array",
         description: "User IDs to assign",
@@ -147,20 +144,13 @@ module.exports = {
       namespace: {
         type: "string",
         description: "Namespace to fork to"
-      },
-      ref: {
-        type: "string",
-        description: "Source branch/commit for new branch"
       }
     },
     required: ["CommandEvent"]
   },
-
-  call: function (params) {
+  call: function(params) {
     const self = module.exports;
     const { CommandEvent } = params;
-    const page = params.page ?? 1;
-    const perPage = params.per_page ?? 20;
     const giteaApiKey = host.process.env("GITEA_API_KEY") || host.config.options.giteaApiKey;
     const giteaApiUrl = host.process.env("GITEA_API_URL") || host.config.options.giteaApiUrl || "https://try.gitea.io";
     if (!giteaApiKey) {
@@ -171,8 +161,8 @@ module.exports = {
     }
     const apiToken = `Bearer ${giteaApiKey}`;
     const headers = {
-      'Authorization': apiToken,
-      'Content-Type': 'application/json'
+      "Authorization": apiToken,
+      "Content-Type": "application/json"
     };
     switch (CommandEvent) {
       case "create_or_update_file":
@@ -208,32 +198,38 @@ module.exports = {
         };
     }
   },
-  createOrUpdateFile: function (params, headers, baseUrl) {
+  createOrUpdateFile: function(params, headers, baseUrl) {
     const { project_id, file_path, content, commit_message, branch } = params;
     let apiUrl = `${baseUrl}/api/v1/repos/${project_id}/contents/${file_path}`;
     if (branch) {
       apiUrl += `?branch=${branch}`;
     }
     const fileResponse = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
     let sha = null;
-    if (fileResponse.ok) {
-      const fileData = fileResponse.json();
+    if (fileResponse.body) {
+      const fileData = JSON.parse(fileResponse.body);
       sha = fileData.sha;
     }
     const body = {
       message: commit_message || `Update ${file_path}`,
-      content: content,
+      content,
       branch: branch || "main",
-      sha: sha
+      sha
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers,
       body: JSON.stringify(body)
     });
-        const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
+    const data = JSON.parse(response.body);
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -241,24 +237,30 @@ module.exports = {
     }
     return {
       success: true,
-      result: `File ${file_path} ${sha ? 'updated' : 'created'} successfully`,
-      data: data
+      result: `File ${file_path} ${sha ? "updated" : "created"} successfully`,
+      data
     };
   },
-  pushFiles:  function (params, headers, baseUrl) {
+  pushFiles: function(params, headers, baseUrl) {
     const { project_id, files, commit_message, branch } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/${project_id}/contents/files`;
     const body = {
       message: commit_message || "Push files",
-      files: files,
+      files,
       branch: branch || "main"
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers,
       body: JSON.stringify(body)
     });
-        const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
+    const data = JSON.parse(response.body);
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -267,17 +269,23 @@ module.exports = {
     return {
       success: true,
       result: `Pushed ${files.length} files successfully`,
-      data: data
+      data
     };
   },
-  searchRepositories: function (params, headers, baseUrl) {
+  searchRepositories: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
-        const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
+    const data = JSON.parse(response.body);
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -289,23 +297,29 @@ module.exports = {
       data: data.data
     };
   },
-  createRepository:  function (params, headers, baseUrl) {
+  createRepository: function(params, headers, baseUrl) {
     const { name, description, visibility, initialize_with_readme } = params;
     const apiUrl = `${baseUrl}/api/v1/user/repos`;
     const body = {
-      name: name,
-      description: description,
-      private: visibility === 'private',
+      name,
+      description,
+      private: visibility === "private",
       gitignores: "Node",
       license: "MIT",
       readme: initialize_with_readme ? "default" : ""
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers: headers.toString(),
       body: JSON.stringify(body)
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -314,20 +328,26 @@ module.exports = {
     return {
       success: true,
       result: `Repository ${name} created successfully`,
-      data: data
+      data
     };
   },
-  listProjectFiles: function (params, headers, baseUrl) {
+  listProjectFiles: function(params, headers, baseUrl) {
     const { project_id, branch } = params;
     let apiUrl = `${baseUrl}/api/v1/repos/${project_id}/contents`;
     if (branch) {
       apiUrl += `?ref=${branch}`;
     }
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -336,20 +356,26 @@ module.exports = {
     return {
       success: true,
       result: `Found ${data.length} files`,
-      data: data
+      data
     };
   },
-  getFileContents: function (params, headers, baseUrl) {
+  getFileContents: function(params, headers, baseUrl) {
     const { project_id, file_path, ref } = params;
     let apiUrl = `${baseUrl}/api/v1/repos/${project_id}/contents/${file_path}`;
     if (ref) {
       apiUrl += `?ref=${ref}`;
     }
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -358,24 +384,30 @@ module.exports = {
     return {
       success: true,
       result: `File contents for ${file_path}`,
-      data: data
+      data
     };
   },
-  createIssue: function (params, headers, baseUrl) {
+  createIssue: function(params, headers, baseUrl) {
     const { project_id, title, description, assignee_ids, labels } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/${project_id}/issues`;
     const body = {
-      title: title,
+      title,
       content: description,
-      assignee: assignee_ids ? assignee_ids[0] : undefined,
-      labels: labels
+      assignee: assignee_ids ? assignee_ids : void 0,
+      labels
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers: headers.toString(),
       body: JSON.stringify(body)
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -384,26 +416,32 @@ module.exports = {
     return {
       success: true,
       result: `Issue ${data.id} created successfully`,
-      data: data
+      data
     };
   },
-  createMergeRequest: function (params, headers, baseUrl) {
+  createMergeRequest: function(params, headers, baseUrl) {
     const { project_id, title, description, source_branch, target_branch, draft, allow_collaboration } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/${project_id}/pulls`;
     const body = {
-      title: title,
+      title,
       body: description,
       head: source_branch,
       base: target_branch,
-      draft: draft,
+      draft,
       allow_maintainer_edit: allow_collaboration
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers: headers.toString(),
       body: JSON.stringify(body)
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -412,21 +450,27 @@ module.exports = {
     return {
       success: true,
       result: `Merge request ${data.number} created successfully`,
-      data: data
+      data
     };
   },
-  forkRepository: function (params, headers, baseUrl) {
+  forkRepository: function(params, headers, baseUrl) {
     const { project_id, namespace } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/${project_id}/forks`;
     const body = {
       organization: namespace
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers: headers.toString(),
       body: JSON.stringify(body)
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -435,22 +479,28 @@ module.exports = {
     return {
       success: true,
       result: `Repository forked successfully`,
-      data: data
+      data
     };
   },
-  createBranch: function (params, headers, baseUrl) {
+  createBranch: function(params, headers, baseUrl) {
     const { project_id, ref, branch } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/${project_id}/branches`;
     const body = {
-      ref: ref,
+      ref,
       branch_name: branch
     };
     const response = host.http.post(apiUrl, {
-      headers: headers,
+      headers: headers.toString(),
       body: JSON.stringify(body)
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -459,18 +509,23 @@ module.exports = {
     return {
       success: true,
       result: `Branch ${branch} created successfully`,
-      data: data
+      data
     };
   },
-  searchProjects: function (params, headers, baseUrl) {
+  searchProjects: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
-    host.server.logger(1, response.toString());
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -482,14 +537,20 @@ module.exports = {
       data: data.data
     };
   },
-  searchIssues: function (params, headers, baseUrl) {
+  searchIssues: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/issues/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)
@@ -501,14 +562,20 @@ module.exports = {
       data: data.data
     };
   },
-  searchMergeRequests: function (params, headers, baseUrl) {
+  searchMergeRequests: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/pulls/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
     const response = host.http.get(apiUrl, {
-      headers: headers
+      headers: headers.toString()
     });
+    if (!response.body) {
+      return {
+        success: false,
+        error: "No response from server"
+      };
+    }
     const data = JSON.parse(response.body);
-    if (!response.ok) {
+    if (!response.body.includes("ok")) {
       return {
         success: false,
         error: data.message || JSON.stringify(data)

@@ -1,17 +1,18 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "wikipedia_search_test",
   description: "A simple Wikipedia search tool for testing MCP Apps.",
-  version: "1.0.0",
+  version: "1.1.0",
   Tags: ["search", "test", "utility"],
-
   // Add _meta.ui to make it an MCP App
   _meta: {
     ui: {
-      resourceUri: "https://en.wikipedia.org/wiki/Special:Search", // Wikipedia search page
-      type: "web" // Specifies this is a web-based UI
+      resourceUri: "https://en.wikipedia.org/wiki/Special:Search",
+      // Wikipedia search page
+      type: "web"
+      // Specifies this is a web-based UI
     }
   },
-
   inputSchema: {
     type: "object",
     properties: {
@@ -22,12 +23,11 @@ module.exports = {
     },
     required: ["query"]
   },
-
   // Tool logic
   call(params) {
+    var _a, _b, _c;
     const encoded = encodeURIComponent(params.query);
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
-
     try {
       const response = host.http.get(url, {
         headers: {
@@ -35,11 +35,9 @@ module.exports = {
           "Accept": "application/json"
         }
       });
-
-      const status = response.status ?? response.statusCode;
-      const body = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const status = (_a = response.status) != null ? _a : response.statusCode;
+      const body = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
       const payload = JSON.parse(body);
-
       if (payload.title && payload.extract) {
         return {
           success: true,
@@ -63,3 +61,4 @@ module.exports = {
     }
   }
 };
+module.exports = plugin;

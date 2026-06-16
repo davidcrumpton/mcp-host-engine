@@ -1,21 +1,5 @@
-/**
- * wikipedia_search.js — Enhanced Wikipedia plugin for mcphe
- *
- * Ports the full capability of the Python Wikipedia tool:
- *   - detail levels: brief / standard / full
- *   - disambiguation detection and handling
- *   - section-aware extraction (standard mode)
- *   - multi-language support (ISO 639-1 codes)
- *   - related article links
- *
- * goja runtime constraints observed throughout:
- *   - No async/await — all host.http.get calls are synchronous Go functions
- *   - Headers passed as a flat {key: value} object (not nested under "headers:")
- *   - No `this` inside call() — use `const self = module.exports` pattern if needed
- *   - host.http.get returns {status, headers, body} where body is a string
- */
-
-module.exports = {
+"use strict";
+const plugin = {
   name: "wikipedia_search",
   description: [
     "Search Wikipedia and return article content at three detail levels:",
@@ -23,16 +7,15 @@ module.exports = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.0.0",
+  version: "2.1.0",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
-    readOnlyHint:    true,
+    readOnlyHint: true,
     destructiveHint: false,
-    idempotentHint:  false,
-    openWorldHint:   true,
+    idempotentHint: false,
+    openWorldHint: true
   },
-
   inputSchema: {
     type: "object",
     properties: {
@@ -64,20 +47,15 @@ module.exports = {
     },
     required: ["query"]
   },
-
   call(params) {
-    const query    = String(params.query || "").trim();
+    const query = String(params.query || "").trim();
     const language = String(params.language || "en").trim().toLowerCase() || "en";
-    const mode     = String(params.mode || "lookup").trim().toLowerCase();
-
-    // Normalise detail with alias support
+    const mode = String(params.mode || "lookup").trim().toLowerCase();
     const detailAliases = { intro: "brief", short: "brief", long: "full", all: "full" };
     let detail = String(params.detail || "standard").trim().toLowerCase();
     detail = detailAliases[detail] || detail;
     if (!["brief", "standard", "full"].includes(detail)) detail = "standard";
-
     if (!query) return { success: false, result: "query parameter is required." };
-
     try {
       if (mode === "search") {
         return searchMode(query, language);
@@ -88,39 +66,48 @@ module.exports = {
     }
   }
 };
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const USER_AGENT = "mcphe-wikipedia-plugin/2.0 (https://github.com/davidcrumpton/mcp-host-engine; mcphe)";
-
 const LANG_NAMES = {
-  en: "English", fr: "French", de: "German", es: "Spanish", it: "Italian",
-  pt: "Portuguese", nl: "Dutch", ru: "Russian", ja: "Japanese", zh: "Chinese",
-  ar: "Arabic", ko: "Korean", pl: "Polish", sv: "Swedish", fa: "Persian",
-  tr: "Turkish", uk: "Ukrainian", vi: "Vietnamese", he: "Hebrew", id: "Indonesian"
+  en: "English",
+  fr: "French",
+  de: "German",
+  es: "Spanish",
+  it: "Italian",
+  pt: "Portuguese",
+  nl: "Dutch",
+  ru: "Russian",
+  ja: "Japanese",
+  zh: "Chinese",
+  ar: "Arabic",
+  ko: "Korean",
+  pl: "Polish",
+  sv: "Swedish",
+  fa: "Persian",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  vi: "Vietnamese",
+  he: "Hebrew",
+  id: "Indonesian"
 };
-
-const SKIP_SECTIONS = new Set([
-  "see also", "references", "external links", "further reading",
-  "notes", "bibliography", "citations", "footnotes", "sources"
+const SKIP_SECTIONS = /* @__PURE__ */ new Set([
+  "see also",
+  "references",
+  "external links",
+  "further reading",
+  "notes",
+  "bibliography",
+  "citations",
+  "footnotes",
+  "sources"
 ]);
-
-// ─── HTTP helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Synchronous GET via the mcphe host API.
- * Headers must be a flat {key: stringValue} object — NOT nested.
- */
 function httpGet(url, extraHeaders) {
   const headers = Object.assign({
     "User-Agent": USER_AGENT,
     "Accept": "application/json"
   }, extraHeaders || {});
-
   const response = host.http.get(url, headers);
   return response;
 }
-
 function apiUrl(lang, params) {
   const base = "https://" + lang + ".wikipedia.org/w/api.php";
   const parts = ["format=json", "utf8=1"];
@@ -129,19 +116,12 @@ function apiUrl(lang, params) {
   }
   return base + "?" + parts.join("&");
 }
-
 function restSummaryUrl(lang, title) {
-  return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" +
-         encodeURIComponent(title.replace(/ /g, "_"));
+  return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(title.replace(/ /g, "_"));
 }
-
 function pageUrl(title, lang) {
-  return "https://" + lang + ".wikipedia.org/wiki/" +
-         encodeURIComponent(title.replace(/ /g, "_"));
+  return "https://" + lang + ".wikipedia.org/wiki/" + encodeURIComponent(title.replace(/ /g, "_"));
 }
-
-// ─── Text utilities ───────────────────────────────────────────────────────────
-
 function cleanText(text) {
   if (!text) return "";
   text = text.replace(/\n{3,}/g, "\n\n");
@@ -150,15 +130,11 @@ function cleanText(text) {
   text = text.replace(/\[note \d+\]/g, "");
   return text.trim();
 }
-
 function stripHtml(text) {
   return (text || "").replace(/<[^>]+>/g, "");
 }
-
 function stripWikitext(text) {
   if (!text) return "";
-
-  // Remove templates {{...}} — iterate until stable (handles light nesting)
   let prev;
   let iterations = 0;
   do {
@@ -166,30 +142,16 @@ function stripWikitext(text) {
     text = text.replace(/\{\{[^{}]*\}\}/g, "");
     iterations++;
   } while (prev !== text && iterations < 10);
-
-  // Remove [[File:...]] / [[Image:...]]
   text = text.replace(/\[\[(?:File|Image|Media):[^\]]*\]\]/gi, "");
-
-  // [[link|label]] → label, [[link]] → link
   text = text.replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, "$1");
-
-  // External links [http://... label] → label, bare [http://...] → ''
   text = text.replace(/\[https?:\/\/\S+\s+([^\]]+)\]/g, "$1");
   text = text.replace(/\[https?:\/\/\S+\]/g, "");
-
-  // Bold/italic
   text = text.replace(/'{2,3}/g, "");
-
-  // Section headers
   text = text.replace(/={2,}[^=\n]+=*={2,}/g, "");
-
-  // <ref> tags and HTML
   text = text.replace(/<ref[^>]*\/?>[\s\S]*?<\/ref>/gi, "");
   text = text.replace(/<[^>]+>/g, "");
-
   return cleanText(text);
 }
-
 function truncate(text, maxChars) {
   if (!text || text.length <= maxChars) return { text: text || "", wasCut: false };
   let cut = text.slice(0, maxChars);
@@ -197,21 +159,11 @@ function truncate(text, maxChars) {
   if (lastPara > maxChars * 0.7) cut = cut.slice(0, lastPara);
   return { text: cut, wasCut: true };
 }
-
 function isDisambiguation(title, extract) {
   const lowt = (title || "").toLowerCase();
   const lowe = (extract || "").toLowerCase();
-  return (
-    lowt.includes("(disambiguation)") ||
-    lowe.includes("may refer to:") ||
-    lowe.includes("may refer to\n") ||
-    (lowe.trimLeft().startsWith("this article is about") &&
-      (lowe.includes("for other uses") || lowe.includes("see also")))
-  );
+  return lowt.includes("(disambiguation)") || lowe.includes("may refer to:") || lowe.includes("may refer to\n") || lowe.trimLeft().startsWith("this article is about") && (lowe.includes("for other uses") || lowe.includes("see also"));
 }
-
-// ─── Wikipedia API calls (all synchronous) ───────────────────────────────────
-
 function searchTitles(query, lang, limit) {
   limit = limit || 6;
   const url = apiUrl(lang, {
@@ -225,12 +177,11 @@ function searchTitles(query, lang, limit) {
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
-    return (data.query && data.query.search) || [];
+    return data.query && data.query.search || [];
   } catch (e) {
     return [];
   }
 }
-
 function fetchRestSummary(lang, title) {
   const url = restSummaryUrl(lang, title);
   const resp = httpGet(url);
@@ -241,11 +192,6 @@ function fetchRestSummary(lang, title) {
     return null;
   }
 }
-
-/**
- * Fetch plain-text extract via MediaWiki action API.
- * introOnly=true returns only the lead section.
- */
 function fetchExtract(title, lang, introOnly) {
   const params = {
     action: "query",
@@ -255,20 +201,18 @@ function fetchExtract(title, lang, introOnly) {
     redirects: 1
   };
   if (introOnly) params.exintro = 1;
-
   const url = apiUrl(lang, params);
   const resp = httpGet(url);
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
-    const pages = (data.query && data.query.pages) || {};
+    const pages = data.query && data.query.pages || {};
     const page = pages[Object.keys(pages)[0]] || {};
     return cleanText(page.extract || "");
   } catch (e) {
     return "";
   }
 }
-
 function fetchSections(title, lang) {
   const url = apiUrl(lang, {
     action: "parse",
@@ -280,12 +224,11 @@ function fetchSections(title, lang) {
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
-    return (data.parse && data.parse.sections) || [];
+    return data.parse && data.parse.sections || [];
   } catch (e) {
     return [];
   }
 }
-
 function fetchSectionText(title, lang, sectionIndex) {
   const url = apiUrl(lang, {
     action: "parse",
@@ -299,13 +242,12 @@ function fetchSectionText(title, lang, sectionIndex) {
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
-    const wikitext = (data.parse && data.parse.wikitext && data.parse.wikitext["*"]) || "";
+    const wikitext = data.parse && data.parse.wikitext && data.parse.wikitext["*"] || "";
     return stripWikitext(wikitext);
   } catch (e) {
     return "";
   }
 }
-
 function fetchLinks(title, lang, limit) {
   limit = limit || 6;
   const url = apiUrl(lang, {
@@ -319,179 +261,141 @@ function fetchLinks(title, lang, limit) {
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
-    const pages = (data.query && data.query.pages) || {};
+    const pages = data.query && data.query.pages || {};
     const page = pages[Object.keys(pages)[0]] || {};
-    return (page.links || []).map(function(l) { return l.title; });
+    return (page.links || []).map(function(l) {
+      return l.title;
+    });
   } catch (e) {
     return [];
   }
 }
-
-// ─── Disambiguation handler ───────────────────────────────────────────────────
-
 function handleDisambiguation(title, lang, searchResults) {
   const lines = [
-    "\"" + title + "\" is a disambiguation page — multiple articles match this title.\n",
+    '"' + title + '" is a disambiguation page \u2014 multiple articles match this title.\n',
     "Here are the closest results:\n"
   ];
   const results = (searchResults || []).slice(0, 6);
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     let snippet = stripHtml(r.snippet || "").trim().replace(/\s+/g, " ");
-    if (snippet.length > 120) snippet = snippet.slice(0, 120) + "…";
+    if (snippet.length > 120) snippet = snippet.slice(0, 120) + "\u2026";
     const url = pageUrl(r.title, lang);
-    lines.push((i + 1) + ". " + r.title + "\n   " + snippet + "\n   " + url);
+    lines.push(i + 1 + ". " + r.title + "\n   " + snippet + "\n   " + url);
   }
   return { success: false, disambiguation: true, result: lines.join("\n") };
 }
-
-// ─── Search mode ──────────────────────────────────────────────────────────────
-
 function searchMode(query, lang) {
   const results = searchTitles(query, lang, 8);
   if (!results.length) {
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
-    return { success: false, result: "No Wikipedia results found for \"" + query + "\"" + label };
+    return { success: false, result: 'No Wikipedia results found for "' + query + '"' + label };
   }
-
   const langLabel = lang !== "en" ? " (" + (LANG_NAMES[lang] || lang) + " Wikipedia)" : "";
-  const lines = ["Wikipedia search results for \"" + query + "\"" + langLabel + "\n"];
-
+  const lines = ['Wikipedia search results for "' + query + '"' + langLabel + "\n"];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     let snippet = stripHtml(r.snippet || "").trim().replace(/\s+/g, " ");
-    if (snippet.length > 150) snippet = snippet.slice(0, 150) + "…";
+    if (snippet.length > 150) snippet = snippet.slice(0, 150) + "\u2026";
     const url = pageUrl(r.title, lang);
-    lines.push((i + 1) + ". " + r.title + "\n   " + snippet + "\n   " + url);
+    lines.push(i + 1 + ". " + r.title + "\n   " + snippet + "\n   " + url);
   }
-
   return { success: true, result: lines.join("\n") };
 }
-
-// ─── Lookup mode ──────────────────────────────────────────────────────────────
-
 function lookupMode(query, detail, lang) {
-  // Step 1: find best matching article
   const searchResults = searchTitles(query, lang, 6);
   if (!searchResults.length) {
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
-    return { success: false, result: "No Wikipedia articles found for \"" + query + "\"" + label };
+    return { success: false, result: 'No Wikipedia articles found for "' + query + '"' + label };
   }
-
   const title = searchResults[0].title;
-
-  // Step 2: REST summary for canonical title, description, URL, last-modified
   let canonicalTitle = title;
-  let description    = "";
-  let restExtract    = "";
-  let articleUrl     = pageUrl(title, lang);
-  let lastModified   = "";
-
+  let description = "";
+  let restExtract = "";
+  let articleUrl = pageUrl(title, lang);
+  let lastModified = "";
   const rest = fetchRestSummary(lang, title);
   if (rest) {
     if (rest.type === "disambiguation") {
       return handleDisambiguation(title, lang, searchResults);
     }
     canonicalTitle = rest.title || title;
-    description    = rest.description || "";
-    restExtract    = rest.extract || "";
-    lastModified   = rest.timestamp ? rest.timestamp.slice(0, 10) : "";
+    description = rest.description || "";
+    restExtract = rest.extract || "";
+    lastModified = rest.timestamp ? rest.timestamp.slice(0, 10) : "";
     if (rest.content_urls && rest.content_urls.desktop && rest.content_urls.desktop.page) {
       articleUrl = rest.content_urls.desktop.page;
     }
   }
-
-  // Step 3: Build output
   const parts = [];
-
-  // Header
   const headerLines = ["## " + canonicalTitle];
   if (description) headerLines.push("_" + description + "_");
   if (lastModified) headerLines.push("Last updated: " + lastModified);
   headerLines.push(articleUrl);
   parts.push(headerLines.join("\n"));
-
-  // ── brief ─────────────────────────────────────────────────────────────────
   if (detail === "brief") {
     const intro = restExtract || fetchExtract(canonicalTitle, lang, true);
     parts.push(intro || "(No summary available.)");
-  }
-
-  // ── standard ──────────────────────────────────────────────────────────────
-  else if (detail === "standard") {
+  } else if (detail === "standard") {
     const intro = fetchExtract(canonicalTitle, lang, true);
     if (intro) {
-      const t = truncate(intro, 2000);
+      const t = truncate(intro, 2e3);
       parts.push("### Introduction\n" + t.text);
     }
-
     try {
       const allSections = fetchSections(canonicalTitle, lang);
-
-      // Top-level sections only, skip boilerplate
       const keySections = allSections.filter(function(s) {
         return s.toclevel === 1 && !SKIP_SECTIONS.has((s.line || "").toLowerCase());
       }).slice(0, 6);
-
       if (keySections.length) {
-        const toc = keySections.map(function(s) { return "  - " + s.line; }).join("\n");
+        const toc = keySections.map(function(s) {
+          return "  - " + s.line;
+        }).join("\n");
         parts.push("### Contents\n" + toc);
-
         const summaries = [];
         const cap = Math.min(keySections.length, 4);
         for (let i = 0; i < cap; i++) {
-          const s    = keySections[i];
-          const idx  = parseInt(s.index || "0", 10);
+          const s = keySections[i];
+          const idx = parseInt(s.index || "0", 10);
           if (idx === 0) continue;
-
           const secText = fetchSectionText(canonicalTitle, lang, idx);
           if (!secText) continue;
-
-          // First paragraph, capped at 500 chars
           const firstPara = secText.split("\n\n")[0].trim();
           const t = truncate(firstPara, 500);
           if (t.text) summaries.push("**" + s.line + "**\n" + t.text);
         }
-
         if (summaries.length) parts.push(summaries.join("\n\n---\n\n"));
       }
     } catch (e) {
-      // Graceful fallback to plain extract
       const full = fetchExtract(canonicalTitle, lang, false);
-      const t = truncate(full, 4000);
+      const t = truncate(full, 4e3);
       parts.push(t.text);
-      if (t.wasCut) parts.push("…article continues at " + articleUrl);
+      if (t.wasCut) parts.push("\u2026article continues at " + articleUrl);
     }
-  }
-
-  // ── full ──────────────────────────────────────────────────────────────────
-  else {
+  } else {
     const fullText = fetchExtract(canonicalTitle, lang, false);
     if (isDisambiguation(canonicalTitle, fullText)) {
       return handleDisambiguation(canonicalTitle, lang, searchResults);
     }
-    const t = truncate(fullText, 9000);
+    const t = truncate(fullText, 9e3);
     parts.push(t.text);
-    if (t.wasCut) parts.push("…article truncated. Full article: " + articleUrl);
+    if (t.wasCut) parts.push("\u2026article truncated. Full article: " + articleUrl);
   }
-
-  // Step 4: Related articles
   try {
     const links = fetchLinks(canonicalTitle, lang, 6);
     if (links.length) {
       parts.push("Related topics: " + links.slice(0, 6).join(", "));
     }
-  } catch (e) { /* non-fatal */ }
-
-  // Disambiguation safety check for brief/standard
+  } catch (e) {
+  }
   if (detail !== "full" && isDisambiguation(canonicalTitle, restExtract)) {
     return handleDisambiguation(canonicalTitle, lang, searchResults);
   }
-
   return {
     success: true,
-    title:   canonicalTitle,
-    url:     articleUrl,
-    result:  parts.join("\n\n")
+    title: canonicalTitle,
+    url: articleUrl,
+    result: parts.join("\n\n")
   };
 }
+module.exports = plugin;

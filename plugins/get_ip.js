@@ -1,24 +1,26 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "get_ip",
   description: "Get the public IP address of the host.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["utility"],
   annotations: {
-    readOnlyHint:    true,
+    readOnlyHint: true,
     destructiveHint: false,
-    idempotentHint:  false,
-    openWorldHint:   true,
+    idempotentHint: false,
+    openWorldHint: true
   },
-  inputSchema: { type: "object", properties: {}, required: [] },
-  call(params) {
-    const response = host.http.request({
-      method: "GET",
-      url: "https://ifconfig.io/all.json",
-      headers: {},
-      body: "",
-    });
+  inputSchema: {
+    type: "object",
+    properties: {},
+    required: []
+  },
+  call(_params) {
+    var _a, _b;
+    const response = host.http.get("https://ifconfig.io/all.json");
     const payload = JSON.parse(response.body);
-    return `${payload.country_code || "unknown"}: ${payload.ip || "unknown"}`;
-  },
+    return `${(_a = payload.country_code) != null ? _a : "unknown"}: ${(_b = payload.ip) != null ? _b : "unknown"}`;
+  }
 };
+module.exports = plugin;

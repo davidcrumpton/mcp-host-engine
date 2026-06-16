@@ -1,14 +1,15 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "write_file",
   description: "Write content to a file.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["utility"],
   annotations: {
-    readOnlyHint:    false,
+    readOnlyHint: false,
     destructiveHint: true,
-    idempotentHint:  true,
-    openWorldHint:   false,
+    idempotentHint: true,
+    openWorldHint: false
   },
   inputSchema: {
     type: "object",
@@ -22,3 +23,4 @@ module.exports = {
     return host.fs.writeFile(params.path, params.content);
   }
 };
+module.exports = plugin;

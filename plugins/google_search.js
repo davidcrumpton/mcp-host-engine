@@ -1,21 +1,22 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "google_search",
   description: "Search Google using Programmable Search API.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
-    readOnlyHint:    true,
+    readOnlyHint: true,
     destructiveHint: false,
-    idempotentHint:  false,
-    openWorldHint:   true,
+    idempotentHint: false,
+    openWorldHint: true
   },
   inputSchema: {
     type: "object",
     properties: {
-      query: { type: "string", description: "Search query." },
+      query: { type: "string", description: "Search query." }
     },
-    required: ["query"],
+    required: ["query"]
   },
   call(params) {
     const apiKey = host.config.google_api_key;
@@ -32,11 +33,18 @@ module.exports = {
     if (!payload.items || payload.items.length === 0) {
       return "No results found.";
     }
-    let output = `Google Search results for: ${params.query}\n\n`;
+    let output = `Google Search results for: ${params.query}
+
+`;
     for (let i = 0; i < payload.items.length; i += 1) {
       const item = payload.items[i];
-      output += `${i + 1}. ${item.title}\n${item.link}\n${item.snippet}\n\n`;
+      output += `${i + 1}. ${item.title}
+${item.link}
+${item.snippet}
+
+`;
     }
     return output;
-  },
+  }
 };
+module.exports = plugin;

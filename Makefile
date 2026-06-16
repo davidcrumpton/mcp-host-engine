@@ -33,3 +33,14 @@ help:
 ## release: Build and publish release packages
 release:
 	goreleaser release --clean
+
+## Build TypeScript plugins and Deploy
+plugin-deploy:
+	cd plugin-devel && \
+	npm run build && \
+	npm run deploy
+	
+
+plugin-tests:
+	cd plugin-devel && \
+	npm run test

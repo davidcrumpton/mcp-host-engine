@@ -1,14 +1,15 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "http_request_delete",
   description: "Make an HTTP DELETE request to a specified URL with optional headers.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["http", "utility"],
   annotations: {
-    readOnlyHint:    false,
+    readOnlyHint: false,
     destructiveHint: true,
-    idempotentHint:  false,
-    openWorldHint:   true,
+    idempotentHint: false,
+    openWorldHint: true
   },
   inputSchema: {
     type: "object",
@@ -17,14 +18,14 @@ module.exports = {
       headers: {
         type: "object",
         additionalProperties: { type: "string" },
-        description: "Optional headers to include in the request.",
-      },
+        description: "Optional headers to include in the request."
+      }
     },
-    required: ["url"],
+    required: ["url"]
   },
   call(params) {
     const response = host.httpDelete(params.url, params.headers || {});
     return response;
-  },
+  }
 };
-    
+module.exports = plugin;

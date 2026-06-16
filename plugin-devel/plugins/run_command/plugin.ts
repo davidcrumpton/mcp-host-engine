@@ -1,0 +1,27 @@
+/// <reference path="../../types/mcphe.d.ts" />
+
+const plugin = {
+  name: "run_command",
+  description: "Run a shell command on the host.",
+  version: "1.1.0",
+  commit: "none",
+  Tags: ["utility"],
+  annotations: {
+    readOnlyHint:    false,
+    destructiveHint: true,
+    idempotentHint:  false,
+    openWorldHint:   true,
+  },
+  inputSchema: {
+    type: "object",
+    properties: {
+      command: { type: "string", description: "Shell command to run." },
+    },
+    required: ["command"],
+  },
+  call(params: Record<string, unknown>) {
+    return host.exec.runCommand(params.command);
+  },
+};
+
+module.exports = plugin;

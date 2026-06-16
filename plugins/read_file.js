@@ -1,23 +1,25 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "read_file",
   description: "Read a file from the host filesystem.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["utility"],
   annotations: {
-    readOnlyHint:    true,
+    readOnlyHint: true,
     destructiveHint: false,
-    idempotentHint:  true,
-    openWorldHint:   false,
+    idempotentHint: true,
+    openWorldHint: false
   },
   inputSchema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Path to read." },
+      path: { type: "string", description: "Path to read." }
     },
-    required: ["path"],
+    required: ["path"]
   },
   call(params) {
     return host.fs.readFile(params.path);
-  },
+  }
 };
+module.exports = plugin;

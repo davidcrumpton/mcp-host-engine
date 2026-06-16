@@ -1,23 +1,25 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "run_command",
   description: "Run a shell command on the host.",
-  version: "1.0.0",
+  version: "1.1.0",
   commit: "none",
   Tags: ["utility"],
   annotations: {
-    readOnlyHint:    false,
+    readOnlyHint: false,
     destructiveHint: true,
-    idempotentHint:  false,
-    openWorldHint:   true,
+    idempotentHint: false,
+    openWorldHint: true
   },
   inputSchema: {
     type: "object",
     properties: {
-      command: { type: "string", description: "Shell command to run." },
+      command: { type: "string", description: "Shell command to run." }
     },
-    required: ["command"],
+    required: ["command"]
   },
   call(params) {
     return host.exec.runCommand(params.command);
-  },
+  }
 };
+module.exports = plugin;

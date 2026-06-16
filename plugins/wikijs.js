@@ -1,15 +1,16 @@
-module.exports = {
+"use strict";
+const plugin = {
   name: "wikijs",
   description: "WikiJS MCP tools for page management, search, and content operations using GraphQL API.",
-  version: "1.0.0",
+  version: "1.1.0",
   Tags: ["wiki", "documentation", "content-management", "graphql"],
   annotations: {
     readOnlyHint: false,
-    destructiveHint: true, // Some operations (e.g., delete) are destructive
+    destructiveHint: true,
+    // Some operations (e.g., delete) are destructive
     idempotentHint: false,
     openWorldHint: true
   },
-
   inputSchema: {
     type: "object",
     properties: {
@@ -43,31 +44,24 @@ module.exports = {
     },
     required: ["CommandEvent"]
   },
-
   call(params) {
     const { CommandEvent } = params;
     let apiUrl;
     let apiToken;
-
-    // Load config
     try {
       apiUrl = host.process.env("WIKIJS_API_URL") || host.config.options.ApiUrl;
       apiToken = host.process.env("WIKIJS_API_TOKEN") || host.config.options.ApiToken;
     } catch (e) {
       return { success: false, error: "Failed to load WikiJS configuration." };
     }
-
-    // Helper function for GraphQL requests
     const graphqlRequest = (query, variables = {}) => {
       if (!apiToken) {
         return { success: false, error: "WikiJS API token is required." };
       }
-
       const headers = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiToken}`
       };
-
       try {
         const response = host.http.rawPost(`${apiUrl}/graphql`, headers, JSON.stringify({ query, variables }));
         return response;
@@ -75,14 +69,11 @@ module.exports = {
         return { success: false, error: error.message };
       }
     };
-
-    // Debug log
     host.server.logger(4, `CommandEvent: ${CommandEvent}`);
     host.server.logger(4, `Params: ${JSON.stringify(params.params)}`);
-    // Command handling
     switch (CommandEvent) {
       // Search for pages
-        case "search_pages": {
+      case "search_pages": {
         const { query } = params.params || {};
         const graphqlQuery = `
             query SearchPages($query: String!) {
@@ -103,8 +94,7 @@ module.exports = {
         host.server.logger(1, `GraphQL Query: ${graphqlQuery}`);
         host.server.logger(1, `GraphQL Variables: ${JSON.stringify({ query })}`);
         return graphqlRequest(graphqlQuery, { query });
-        }
-
+      }
       // Get a specific page
       case "get_page": {
         const { pageId } = params.params || {};
@@ -124,7 +114,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { id: pageId });
       }
-
       // Create a new page
       case "create_page": {
         const { title, path, content, locale = "en" } = params.params || {};
@@ -153,7 +142,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { title, path, content, locale });
       }
-
       // Update an existing page
       case "update_page": {
         const { pageId, title, path, content, locale = "en" } = params.params || {};
@@ -183,7 +171,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { id: pageId, title, path, content, locale });
       }
-
       // Delete a page
       case "delete_page": {
         const { pageId, reason } = params.params || {};
@@ -202,7 +189,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { id: pageId, reason });
       }
-
       // Get page history
       case "get_page_history": {
         const { pageId } = params.params || {};
@@ -225,7 +211,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { id: pageId });
       }
-
       // Restore a page revision
       case "restore_page": {
         const { pageId, revisionId, reason } = params.params || {};
@@ -244,7 +229,6 @@ module.exports = {
         `;
         return graphqlRequest(graphqlQuery, { id: pageId, revisionId, reason });
       }
-
       // Unknown command
       default: {
         return { success: false, error: `Unknown CommandEvent: ${CommandEvent}` };
@@ -252,3 +236,4 @@ module.exports = {
     }
   }
 };
+module.exports = plugin;
