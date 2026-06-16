@@ -152,12 +152,6 @@ plugins:
 
 ### Plugin Required Modules
 
-To use any of the built in helper modules in your plugin, you need to add the following line to the top of your plugin file:
-
-```javascript
-const <module_name> = require('./lib/<module_name>.js');
-```
-
 Available built-in modules:
 
 - fs
