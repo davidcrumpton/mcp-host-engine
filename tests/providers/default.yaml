@@ -5,6 +5,7 @@ host: "127.0.0.1"
 use_https: false
 bearer_token: "test_token_dont_use_in_production_6847730246031040213"
 verbosity_level: 4
+plugin_dir: "plugin-devel/dist"
 plugins:
   google_search:
     google_api_key: "abc123"
