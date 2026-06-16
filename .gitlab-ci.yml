@@ -17,13 +17,13 @@ test:
   stage: test
   script:
     - make test
-    # need to install npm and nodejs
+    # need to install npm and nodejs and tsc and npm test
     - apt-get update && apt-get install -y curl
     - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     - apt-get install -y nodejs
+    - npm install -g typescript@5.8.3
     - cd plugin-devel && npm install
-    - cd ..
-    - make plugin-tests
+    - npm test
 
 release:
   stage: release
