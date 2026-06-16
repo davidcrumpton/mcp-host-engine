@@ -17,6 +17,12 @@ test:
   stage: test
   script:
     - make test
+    # need to install npm and nodejs
+    - apt-get update && apt-get install -y curl
+    - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    - apt-get install -y nodejs
+    - cd plugin-devel && npm install
+    - cd ..
     - make plugin-tests
 
 release:
