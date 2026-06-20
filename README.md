@@ -97,6 +97,7 @@ plugins:
    * **Default:** `true` if the plugin is defined in the `plugins` map, `false` otherwise.
    * **Purpose:** Explicitly enables or disables a plugin. If `false`, the plugin will not be loaded or available to the MCP server.
    * **Example:**
+
      ```yaml
      plugins:
        my_plugin:
