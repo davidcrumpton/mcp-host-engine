@@ -33,7 +33,7 @@ mcphe token create <username> <duration>
 ./mcphe config.yaml
 ```
 
-3. Call the server via POST to `http://127.0.0.1:8001/rpc`.
+4. Call the server via POST to `http://127.0.0.1:8001/rpc`.
 
 ## Configuration File Reference (`config.yaml`)
 
