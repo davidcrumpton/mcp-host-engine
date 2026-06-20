@@ -53,14 +53,14 @@ const plugin = {
 
     // Load config
     try {
-      apiUrl = host.process.env("WIKIJS_API_URL") || host.config.options.ApiUrl;
-      apiToken = host.process.env("WIKIJS_API_TOKEN") || host.config.options.ApiToken;
+      apiUrl = host.process.env("WIKIJS_API_URL") || host.config.options.ApiUrl as string;
+      apiToken = host.process.env("WIKIJS_API_TOKEN") || host.config.options.ApiToken as string;
     } catch (e) {
       return { success: false, error: "Failed to load WikiJS configuration." };
     }
 
     // Helper function for GraphQL requests
-    const graphqlRequest = (query, variables = {}) => {
+    const graphqlRequest = (query: string, variables: Record<string, unknown> = {}) => {
       if (!apiToken) {
         return { success: false, error: "WikiJS API token is required." };
       }

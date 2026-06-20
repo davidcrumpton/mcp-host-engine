@@ -4,6 +4,7 @@ port: "8001"
 host: "127.0.0.1"
 use_https: false
 bearer_token: ""
+token_secret: oludie3Aigae6Ohru6AhMigh
 run_as_root: false
 verbosity_level: 4
 plugins:

@@ -2,18 +2,40 @@
 package transport
 
 import (
+	"context"
 	"net/http"
 	"strings"
+
+	"mcphe/auth"
 )
 
-func ValidateBearerToken(next http.Handler, token string) http.Handler {
+type contextKey string
+
+const IdentityContextKey contextKey = "auth_identity"
+
+func ValidateToken(progname, version string, next http.Handler, secret, legacyToken string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") || strings.TrimPrefix(authHeader, "Bearer ") != token {
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
+
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+
+		if secret != "" {
+			if id, err := auth.Validate(progname, version, token, secret); err == nil {
+				r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, id.Username))
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		if legacyToken != "" && token == legacyToken {
+			r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, "legacy"))
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	})
 }
 

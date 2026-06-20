@@ -29,6 +29,7 @@ type Config struct {
 	CertFile           string                            `yaml:"cert_file"`
 	KeyFile            string                            `yaml:"key_file"`
 	BearerToken        string                            `yaml:"bearer_token"`
+	TokenSecret        string                            `yaml:"token_secret"`
 	CORSOrigin         string                            `yaml:"cors_origin"`
 	PluginDir          string                            `yaml:"plugin_dir"`
 	Tools              map[string]bool                   `yaml:"tools"`

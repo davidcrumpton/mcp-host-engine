@@ -34,6 +34,18 @@ help:
 release:
 	goreleaser release --clean
 
+
+## Build TypeScript plugins and run tests
+plugin-tests:
+	cd plugin-devel && \
+	npm run test
+
+
+## Build TypeScript plugins to dist/ only
+plugin-build:
+	cd plugin-devel && \
+	npm run build
+
 ## Build TypeScript plugins and Deploy
 plugin-deploy:
 	cd plugin-devel && \
@@ -41,6 +53,3 @@ plugin-deploy:
 	npm run deploy
 	
 
-plugin-tests:
-	cd plugin-devel && \
-	npm run test

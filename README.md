@@ -20,7 +20,14 @@ go mod tidy
 make build
 ```
 
-2. Start the server:
+2. Create tokens if using `token_secret` in config:
+
+```bash
+mcphe token create <username> <duration>
+# ensure application uses token in Bearer field in header.
+```
+
+3. Start the server:
 
 ```bash
 ./mcphe config.yaml
@@ -44,7 +51,8 @@ This section details the available settings for the MCP Host Engine. These value
 | `use_https` | `bool` | `false` | If set to `true`, the server will enforce HTTPS communication. |
 | `cert_file` | `string` | *(none)* | Path to the SSL certificate file required when `use_https` is `true`. |
 | `key_file` | `string` | *(none)* | Path to the private key file required when `use_https` is `true`. |
-| `bearer_token` | `string` | *(none)* | A mandatory API key/token used for authenticating external client requests. |
+| `token_secret` | `string` | *(none)* | A shared secret used to sign and verify JWT tokens. All clients and servers must use the same secret. |
+| `bearer_token` | `string` | *(none)* | Obsolete in future releases.  This is the static API key/token used for authenticating external client requests.  It will be replaced by tokens signed with the `token_secret`. |
 | `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. |
 
 ### Plugin and Tool Management

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"mcphe/auth"
 	"mcphe/config"
 	"mcphe/plugin"
 	"mcphe/server"
@@ -18,6 +21,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "token" {
+		runTokenCommand(os.Args[2:])
+		return
+	}
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [config.yaml]\n", os.Args[0])
 		flag.PrintDefaults()
@@ -82,6 +90,79 @@ func main() {
 	}
 }
 
+// runTokenCommand implements `mcphe token create <username> <duration>`.
+// This is an offline admin action, not runtime server behavior, so it
+// doesn't conflict with the "config.yaml controls everything" rule — it's
+// the same category as the positional config-path argument main() already
+// accepts.
+func runTokenCommand(args []string) {
+	fs := flag.NewFlagSet("token", flag.ExitOnError)
+	configPath := fs.String("config", "./config.yaml", "path to config.yaml")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: mcphe token create [-config path] <username> <duration>")
+		fmt.Fprintln(os.Stderr, "  duration examples: 12h, 30d, 1y  (flags must come before positional args)")
+	}
+
+	if len(args) < 1 || args[0] != "create" {
+		fs.Usage()
+		os.Exit(1)
+	}
+	fs.Parse(args[1:])
+
+	rest := fs.Args()
+	if len(rest) < 2 {
+		fs.Usage()
+		os.Exit(1)
+	}
+	username, durationStr := rest[0], rest[1]
+
+	ttl, err := parseTokenDuration(durationStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid duration %q: %v\n", durationStr, err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config %q: %v\n", *configPath, err)
+		os.Exit(1)
+	}
+	if cfg.TokenSecret == "" {
+		fmt.Fprintln(os.Stderr, "token_secret is not set in config — add one before minting tokens")
+		os.Exit(1)
+	}
+
+	token, err := auth.Create("mcphe", config.Version, username, ttl, cfg.TokenSecret)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create token: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(token)
+}
+
+// parseTokenDuration extends time.ParseDuration with day ("d") and year ("y")
+// suffixes, since token lifetimes are usually given as human spans like
+// "265d" or "1y" rather than raw hours — time.ParseDuration tops out at "h".
+func parseTokenDuration(s string) (time.Duration, error) {
+	switch {
+	case strings.HasSuffix(s, "d"):
+		days, err := strconv.ParseFloat(strings.TrimSuffix(s, "d"), 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid day duration: %w", err)
+		}
+		return time.Duration(days * 24 * float64(time.Hour)), nil
+	case strings.HasSuffix(s, "y"):
+		years, err := strconv.ParseFloat(strings.TrimSuffix(s, "y"), 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid year duration: %w", err)
+		}
+		return time.Duration(years * 365 * 24 * float64(time.Hour)), nil
+	default:
+		return time.ParseDuration(s)
+	}
+}
+
 // runStdio serves MCP over stdin/stdout. Bearer token and CORS are HTTP-only
 // concerns and are intentionally omitted here. The process exits when the
 // client disconnects (server.Run returns).
@@ -99,8 +180,13 @@ func runStdio(mcpServer *mcp.Server, cfg config.Config) {
 // transport and supports bearer-token auth and CORS middleware.
 func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg config.Config) {
 	// Warn if the server is exposed on a non-loopback address without a bearer token.
-	if cfg.BearerToken == "" && !isLoopback(cfg.Host) {
-		fmt.Fprintf(os.Stderr, "WARNING: bearer_token is not configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
+	if cfg.BearerToken == "" && cfg.TokenSecret == "" && !isLoopback(cfg.Host) {
+		fmt.Fprintf(os.Stderr, "WARNING: neither token_secret nor bearer_token is configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
+	}
+
+	// Warn bearer_token will be obsolete if it used
+	if cfg.BearerToken != "" && cfg.TokenSecret == "" {
+		fmt.Fprintf(os.Stderr, "WARNING: bearer_token will be obsolete in the future. Please use token_secret instead.\n")
 	}
 
 	// Create the HTTP handlers with a function that returns the server
@@ -124,7 +210,11 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 			sessionID = r.URL.Query().Get("sessionid")
 		}
 
-		cfg.Logf(4, "Incoming %s %s sessionID=%s", r.Method, r.URL.Path, sessionID)
+		identity, _ := r.Context().Value(transport.IdentityContextKey).(string)
+		if identity == "" {
+			identity = "-"
+		}
+		cfg.Logf(4, "Incoming %s %s identity=%s sessionID=%s", r.Method, r.URL.Path, identity, sessionID)
 
 		if sessionID != "" && r.Header.Get("Mcp-Session-Id") == "" {
 			// SSE POST: sessionid comes from query param
@@ -148,8 +238,8 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 	finalHandler = transport.CORSMiddleware(finalHandler, cfg.CORSOrigin)
 
 	// Apply bearer token middleware if configured
-	if cfg.BearerToken != "" {
-		finalHandler = transport.ValidateBearerToken(finalHandler, cfg.BearerToken)
+	if cfg.TokenSecret != "" || cfg.BearerToken != "" {
+		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken)
 	}
 
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
