@@ -29,7 +29,6 @@ type Config struct {
 	CertFile           string                            `yaml:"cert_file"`
 	KeyFile            string                            `yaml:"key_file"`
 	BearerToken        string                            `yaml:"bearer_token"`
-	TokenSecret        string                            `yaml:"token_secret"`
 	CORSOrigin         string                            `yaml:"cors_origin"`
 	PluginDir          string                            `yaml:"plugin_dir"`
 	Tools              map[string]bool                   `yaml:"tools"`
@@ -42,6 +41,8 @@ type Config struct {
 	Transport          string                            `yaml:"transport"`
 	LogsAsJSON         bool                              `yaml:"logs_as_json"`
 	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
+	TokenSecret        string                            `yaml:"token_secret"`
+	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
 }
 
 var DefaultConfig = Config{

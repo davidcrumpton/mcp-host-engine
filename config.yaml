@@ -7,6 +7,7 @@ bearer_token: ""
 token_secret: oludie3Aigae6Ohru6AhMigh
 run_as_root: false
 verbosity_level: 4
+token_revocation_file: tokens.yaml
 plugins:
   get_ip:
     allowed_domains: ["ifconfig.io"]

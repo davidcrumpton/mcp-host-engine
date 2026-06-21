@@ -90,57 +90,114 @@ func main() {
 	}
 }
 
-// runTokenCommand implements `mcphe token create <username> <duration>`.
-// This is an offline admin action, not runtime server behavior, so it
-// doesn't conflict with the "config.yaml controls everything" rule — it's
-// the same category as the positional config-path argument main() already
-// accepts.
+ 
+// runTokenCommand implements:
+//
+//	mcphe token create [-config path] <username> <duration> [label]
+//	mcphe token revoke [-config path] <username>[:<label>] [ttl]
+//
+// label/ttl are both optional. Omitting label on create means that token
+// can only be revoked at the username level. Omitting ttl on revoke just
+// means the revocation entry has no self-prune hint and stays until removed
+// by hand -- see auth.Revoker's doc comment.
 func runTokenCommand(args []string) {
 	fs := flag.NewFlagSet("token", flag.ExitOnError)
 	configPath := fs.String("config", "./config.yaml", "path to config.yaml")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: mcphe token create [-config path] <username> <duration>")
-		fmt.Fprintln(os.Stderr, "  duration examples: 12h, 30d, 1y  (flags must come before positional args)")
+		fmt.Fprintln(os.Stderr, "Usage:")
+		fmt.Fprintln(os.Stderr, "  mcphe token create [-config path] <username> <duration> [label]")
+		fmt.Fprintln(os.Stderr, "  mcphe token revoke [-config path] <username>[:<label>] [ttl]")
+		fmt.Fprintln(os.Stderr, "  duration/ttl examples: 12h, 30d, 1y  (flags must come before positional args)")
 	}
-
-	if len(args) < 1 || args[0] != "create" {
+ 
+	if len(args) < 1 || (args[0] != "create" && args[0] != "revoke") {
 		fs.Usage()
 		os.Exit(1)
 	}
+	subcommand := args[0]
 	fs.Parse(args[1:])
-
 	rest := fs.Args()
-	if len(rest) < 2 {
-		fs.Usage()
-		os.Exit(1)
-	}
-	username, durationStr := rest[0], rest[1]
-
-	ttl, err := parseTokenDuration(durationStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid duration %q: %v\n", durationStr, err)
-		os.Exit(1)
-	}
-
+ 
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config %q: %v\n", *configPath, err)
 		os.Exit(1)
 	}
-	if cfg.TokenSecret == "" {
-		fmt.Fprintln(os.Stderr, "token_secret is not set in config — add one before minting tokens")
-		os.Exit(1)
-	}
+ 
+	switch subcommand {
+	case "create":
+		if len(rest) < 2 {
+			fs.Usage()
+			os.Exit(1)
+		}
+		username, durationStr := rest[0], rest[1]
+		var label string
+		if len(rest) >= 3 {
+			label = rest[2]
+		}
+ 
+		ttl, err := parseTokenDuration(durationStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid duration %q: %v\n", durationStr, err)
+			os.Exit(1)
+		}
+		if cfg.TokenSecret == "" {
+			fmt.Fprintln(os.Stderr, "token_secret is not set in config — add one before minting tokens")
+			os.Exit(1)
+		}
 
-	token, err := auth.Create("mcphe", config.Version, username, ttl, cfg.TokenSecret)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create token: %v\n", err)
-		os.Exit(1)
-	}
+		// Create token and purge from revocation list
+		token, err := auth.Create("mcphe", config.Version, username, label, ttl, cfg.TokenSecret)
+		r, err := auth.NewRevoker(cfg.TokenRevocationFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open revocation file %q: %v\n", cfg.TokenRevocationFile, err)
+			os.Exit(1)
+		}
 
-	fmt.Println(token)
+		// Clear both the specific and the blanket revocation entries: a bare
+		// "username" entry denies all of that user's tokens, so it must be
+		// purged too or the token we just minted would be revoked on arrival.
+		if err := r.UnrevokeIdentity(username, label); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to unrevoke token: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully unrevoked token for %s\n", username)
+		fmt.Println(token)
+ 
+	case "revoke":
+		if len(rest) < 1 {
+			fs.Usage()
+			os.Exit(1)
+		}
+		key := rest[0]
+ 
+		var expiry int64
+		if len(rest) >= 2 {
+			ttl, err := parseTokenDuration(rest[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "invalid ttl %q: %v\n", rest[1], err)
+				os.Exit(1)
+			}
+			expiry = time.Now().Add(ttl).Unix()
+		}
+		if cfg.TokenRevocationFile == "" {
+			fmt.Fprintln(os.Stderr, "token_revocation_file is not set in config — add one before revoking tokens")
+			os.Exit(1)
+		}
+ 
+		r, err := auth.NewRevoker(cfg.TokenRevocationFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open revocation file %q: %v\n", cfg.TokenRevocationFile, err)
+			os.Exit(1)
+		}
+		if err := r.Revoke(key, expiry); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to revoke %q: %v\n", key, err)
+			os.Exit(1)
+		}
+		fmt.Printf("Revoked %q\n", key)
+	}
 }
-
+ 
 // parseTokenDuration extends time.ParseDuration with day ("d") and year ("y")
 // suffixes, since token lifetimes are usually given as human spans like
 // "265d" or "1y" rather than raw hours — time.ParseDuration tops out at "h".

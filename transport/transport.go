@@ -23,8 +23,9 @@ func ValidateToken(progname, version string, next http.Handler, secret, legacyTo
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 
+		r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, "unknown"))
 		if secret != "" {
-			if id, err := auth.Validate(progname, version, token, secret); err == nil {
+			if id, err := auth.Validate(progname, version, token, secret, nil); err == nil {
 				r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, id.Username))
 				next.ServeHTTP(w, r)
 				return
