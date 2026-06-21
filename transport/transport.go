@@ -13,7 +13,7 @@ type contextKey string
 
 const IdentityContextKey contextKey = "auth_identity"
 
-func ValidateToken(progname, version string, next http.Handler, secret, legacyToken string) http.Handler {
+func ValidateToken(progname, version string, next http.Handler, secret, legacyToken string, revoked auth.Revoked) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
@@ -25,7 +25,7 @@ func ValidateToken(progname, version string, next http.Handler, secret, legacyTo
 
 		r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, "unknown"))
 		if secret != "" {
-			if id, err := auth.Validate(progname, version, token, secret, nil); err == nil {
+			if id, err := auth.Validate(progname, version, token, secret, revoked); err == nil {
 				r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, id.Username))
 				next.ServeHTTP(w, r)
 				return

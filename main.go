@@ -161,7 +161,7 @@ func runTokenCommand(args []string) {
 			fmt.Fprintf(os.Stderr, "failed to unrevoke token: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Successfully unrevoked token for %s\n", username)
+		// fmt.Printf("Successfully unrevoked token for %s\n", username)
 		fmt.Println(token)
  
 	case "revoke":
@@ -296,7 +296,19 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 
 	// Apply bearer token middleware if configured
 	if cfg.TokenSecret != "" || cfg.BearerToken != "" {
-		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken)
+		var revoker auth.Revoked
+		if cfg.TokenRevocationFile != "" {
+			r, err := auth.NewRevoker(cfg.TokenRevocationFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to load revocation file: %v\n", err)
+				os.Exit(1)
+			}
+			revoker = r
+			// Watch the revocation file for changes
+			stopWatch := r.Watch(5*time.Second, cfg.Logf)
+			defer stopWatch()
+		}
+		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken, revoker)
 	}
 
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
