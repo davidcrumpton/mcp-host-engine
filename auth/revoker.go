@@ -104,12 +104,29 @@ func (r *Revoker) IsRevoked(id Identity) bool {
 // so revoking an already-revoked key just refreshes its expiry rather than
 // appending a duplicate line (the old append-only behaviour grew the file
 // without bound on repeated revokes).
+
+// Revoke needs to remove all entries when just username is passed without :label
+// e.g. 'bear' needs to remove 'bear:windows' and 'bear' itself.
 func (r *Revoker) Revoke(key string, expiry int64) error {
 	entries, err := r.readEntries()
 	if err != nil {
 		return err
 	}
-	entries[key] = expiry
+	// If the key contains a colon, it's a specific token. Remove it.
+	// If the key does not contain a colon, it's a blanket revoke. Reduce the list to just the username
+	if strings.Contains(key, ":") {
+		delete(entries, key)
+	} else {
+		// Remove all entries for that user
+		for k := range entries {
+			if strings.HasPrefix(k, key+":") {
+				delete(entries, k)
+			}
+		}
+		delete(entries, key)
+		// Add back the entry with the new expiry
+		entries[key] = 0
+	}
 	return r.writeEntries(entries)
 }
 
