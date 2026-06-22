@@ -125,7 +125,7 @@ func (r *Revoker) Revoke(key string, expiry int64) error {
 		}
 		delete(entries, key)
 		// Add back the entry with the new expiry
-		entries[key] = 0
+		entries[key] = expiry
 	}
 	return r.writeEntries(entries)
 }

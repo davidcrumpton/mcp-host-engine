@@ -7,6 +7,7 @@
 1. ✅ **Detailed Logs** - FIXED
 
 The logging format now includes:
+
 - Log level (e.g., [INFO], [WARN], [DEBUG])
 - Identity (username or "-" if not authenticated)
 - SessionID (or "-" if no session)
@@ -19,12 +20,12 @@ This is now consistent across all logging calls in the HTTP transport, plugin ex
 2. ✅ **Expired or revoked tokens** - FIXED
 
 Token validation events are now logged:
+
 - Successful token validation: `Token validation successful for user`
 - Failed validation: `Token validation failed: <error details>`
 - Legacy token usage: `Using legacy bearer token`
 
 Error messages include details about expiry or revocation status.
-
 
 ## Upcoming Features
 
