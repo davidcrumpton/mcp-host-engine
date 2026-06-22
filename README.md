@@ -52,6 +52,7 @@ This section details the available settings for the MCP Host Engine. These value
 | `cert_file` | `string` | *(none)* | Path to the SSL certificate file required when `use_https` is `true`. |
 | `key_file` | `string` | *(none)* | Path to the private key file required when `use_https` is `true`. |
 | `token_secret` | `string` | *(none)* | A shared secret used to sign and verify JWT tokens. All clients and servers must use the same secret. |
+| `token_revocation_file` | `string` | *(none)* | Path to the file containing revoked tokens. |
 | `bearer_token` | `string` | *(none)* | Obsolete in future releases.  This is the static API key/token used for authenticating external client requests.  It will be replaced by tokens signed with the `token_secret`. |
 | `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. |
 
@@ -233,6 +234,18 @@ module.exports = {
   }
 };
 ```
+
+## Token Management
+
+```bash
+❯ mcphe token 
+Usage:
+  mcphe token create [-config path] <username> <duration> [label]
+  mcphe token revoke [-config path] <username>[:<label>] [ttl]
+  duration/ttl examples: 12h, 30d, 1y  (flags must come before positional args)
+```
+
+Combine with `token_secret` for signing and revoking tokens.  Output a token to be used in the MCP Server's `Authorization: Bearer <token>` header field.
 
 ## Caveats
 
