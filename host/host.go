@@ -13,6 +13,7 @@ import (
 	"mcphe/host/httpclient"
 	"mcphe/host/path"
 	"mcphe/host/url"
+	"mcphe/transport"
 	"net/http"
 	"os"
 	"time"
@@ -30,6 +31,16 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		}
 	}
 
+	// Extract identity and sessionID from context for logging
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+
 	pluginConfig := map[string]interface{}{
 		"mcp-version": config.Version,
 		"mcp-commit":  config.Commit,
@@ -44,7 +55,9 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 
 	return map[string]interface{}{
 		// Informational
-		"logger":      cfg.LogfForPlugin(pluginName),
+		"logger": func(level int, format string, args ...interface{}) {
+			cfg.LogfForPluginWithContext(pluginName, identity, sessionID, level, format, args...)
+		},
 		"config":      pluginConfig,
 		"pid":         pid,
 		"httpHeaders": httpHeaders,
@@ -67,19 +80,19 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		},
 		"console": map[string]interface{}{
 			"log": func(msg string) error {
-				cfg.Logf(1, "%s: %s", pluginName, msg)
+				cfg.LogfWithContext(1, identity, sessionID, "%s: %s", pluginName, msg)
 				return nil
 			},
 			"debug": func(msg string) error {
-				cfg.Logf(4, "%s: %s", pluginName, msg)
+				cfg.LogfWithContext(4, identity, sessionID, "%s: %s", pluginName, msg)
 				return nil
 			},
 			"warn": func(msg string) error {
-				cfg.Logf(2, "%s: %s", pluginName, msg)
+				cfg.LogfWithContext(2, identity, sessionID, "%s: %s", pluginName, msg)
 				return nil
 			},
 			"error": func(msg string) error {
-				cfg.Logf(3, "%s: %s", pluginName, msg)
+				cfg.LogfWithContext(3, identity, sessionID, "%s: %s", pluginName, msg)
 				return nil
 			},
 		},

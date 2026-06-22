@@ -11,23 +11,32 @@ import (
 	"time"
 
 	"mcphe/config"
+	"mcphe/transport"
 )
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 func Request(ctx context.Context, method string, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPRequest %s %s", method, urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPRequest %s %s", method, urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 	if !isMethodAllowed(method, cfg, pluginName) {
-		cfg.Logf(1, "Blocked HTTP request to %s - method %s not allowed", parsedURL.Hostname(), method)
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - method %s not allowed", parsedURL.Hostname(), method)
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 	var bodyReader io.Reader
@@ -38,23 +47,23 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPRequest header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPRequest header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if !IsHTTPReqHeaderAllowed(k, cfg, pluginName) {
-			cfg.Logf(1, "Blocked HTTP header: %s", k)
+			cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP header: %s", k)
 			return nil, fmt.Errorf("header %s is not allowed", k)
 		}
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPRequest header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPRequest header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPRequest header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPRequest header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -67,14 +76,14 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -91,32 +100,40 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 }
 
 func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPGet %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPGet %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -129,14 +146,14 @@ func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg
 	// req.Header.Set("X-Debugging-Plugin", "yes")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -153,32 +170,40 @@ func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg
 }
 
 func Post(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPPost %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPPost %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, strings.NewReader(body))
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPPost header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPPost header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPPost header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPPost header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPPost header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPPost header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -191,14 +216,14 @@ func Post(ctx context.Context, urlStr string, headers map[string]interface{}, bo
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -215,32 +240,40 @@ func Post(ctx context.Context, urlStr string, headers map[string]interface{}, bo
 }
 
 func Patch(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPPatch called with URL: %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPPatch called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, urlStr, strings.NewReader(body))
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPPatch header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPPatch header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPPatch header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPPatch header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPPatch header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPPatch header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -253,14 +286,14 @@ func Patch(ctx context.Context, urlStr string, headers map[string]interface{}, b
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -277,32 +310,40 @@ func Patch(ctx context.Context, urlStr string, headers map[string]interface{}, b
 }
 
 func Put(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPPut called with URL: %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPPut called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, urlStr, strings.NewReader(body))
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -315,14 +356,14 @@ func Put(ctx context.Context, urlStr string, headers map[string]interface{}, bod
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -339,32 +380,40 @@ func Put(ctx context.Context, urlStr string, headers map[string]interface{}, bod
 }
 
 func Delete(ctx context.Context, urlStr string, headers map[string]interface{}, body string, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPDelete called with URL: %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPDelete called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, urlStr, strings.NewReader(body))
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, hstr)
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set (nested): %s: %s", hk, hstr)
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -377,14 +426,14 @@ func Delete(ctx context.Context, urlStr string, headers map[string]interface{}, 
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -401,32 +450,40 @@ func Delete(ctx context.Context, urlStr string, headers map[string]interface{}, 
 }
 
 func Options(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPOptions called with URL: %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPOptions called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, urlStr, nil)
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -439,14 +496,14 @@ func Options(ctx context.Context, urlStr string, headers map[string]interface{},
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 
@@ -463,32 +520,40 @@ func Options(ctx context.Context, urlStr string, headers map[string]interface{},
 }
 
 func Head(ctx context.Context, urlStr string, headers map[string]interface{}, cfg config.Config, pluginName string) (map[string]interface{}, error) {
-	cfg.Logf(3, "HTTPHead called with URL: %s", urlStr)
+	identity, _ := ctx.Value(transport.IdentityContextKey).(string)
+	if identity == "" {
+		identity = "-"
+	}
+	sessionID, _ := ctx.Value(transport.SessionIDContextKey).(string)
+	if sessionID == "" {
+		sessionID = "-"
+	}
+	cfg.LogfWithContext(3, identity, sessionID, "HTTPHead called with URL: %s", urlStr)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		cfg.Logf(1, "Invalid URL %s: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "Invalid URL %s: %v", urlStr, err)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if !isDomainAllowed(parsedURL.Hostname(), cfg.AllowedDomainsFor(pluginName)) {
-		cfg.Logf(1, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, urlStr, nil)
 	if err != nil {
-		cfg.Logf(1, "Failed to create HTTP request: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to create HTTP request: %v", err)
 		return nil, err
 	}
 
 	for k, v := range headers {
-		cfg.Logf(4, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
+		cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header inbound: %s: %v", k, cfg.MaskKeyValue(k, v))
 		if str, ok := v.(string); ok {
-			cfg.Logf(4, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
+			cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set: %s: %s", k, cfg.MaskKeyValue(k, str))
 			req.Header.Set(k, str)
 		} else if nested, ok := v.(map[string]interface{}); ok && k == "headers" {
 			for hk, hv := range nested {
 				if hstr, ok := hv.(string); ok {
-					cfg.Logf(4, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
+					cfg.LogfWithContext(4, identity, sessionID, "HTTPGet header set (nested): %s: %s", hk, cfg.MaskKeyValue(hk, hstr))
 					req.Header.Set(hk, hstr)
 				}
 			}
@@ -501,14 +566,14 @@ func Head(ctx context.Context, urlStr string, headers map[string]interface{}, cf
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cfg.Logf(1, "HTTP request to %s failed: %v", urlStr, err)
+		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cfg.Logf(1, "Failed to read HTTP response body: %v", err)
+		cfg.LogfWithContext(1, identity, sessionID, "Failed to read HTTP response body: %v", err)
 		return nil, err
 	}
 

@@ -271,7 +271,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 		if identity == "" {
 			identity = "-"
 		}
-		cfg.Logf(4, "Incoming %s %s identity=%s sessionID=%s", r.Method, r.URL.Path, identity, sessionID)
+		cfg.LogfWithContext(4, identity, sessionID, "Incoming %s %s identity=%s sessionID=%s", r.Method, r.URL.Path, identity, sessionID)
 
 		if sessionID != "" && r.Header.Get("Mcp-Session-Id") == "" {
 			// SSE POST: sessionid comes from query param
@@ -308,7 +308,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 			stopWatch := r.Watch(5*time.Second, cfg.Logf)
 			defer stopWatch()
 		}
-		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken, revoker)
+		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken, revoker, cfg)
 	}
 
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)

@@ -98,35 +98,89 @@ func (c Config) Verbose(level int) bool {
 }
 
 func (c Config) Logf(level int, format string, args ...interface{}) {
+	c.LogfWithContext(level, "", "", format, args...)
+}
+
+func (c Config) LogfWithContext(level int, identity, sessionID, format string, args ...interface{}) {
 	if c.Verbose(level) {
+		message := fmt.Sprintf(format, args...)
 		if c.LogsAsJSON {
 			logEntry := map[string]interface{}{
 				"level":     level,
 				"timestamp": time.Now().Format(time.RFC3339Nano),
-				"message":   fmt.Sprintf(format, args...),
+				"message":   message,
+			}
+			if identity != "" {
+				logEntry["identity"] = identity
+			}
+			if sessionID != "" {
+				logEntry["sessionID"] = sessionID
 			}
 			logJSON, _ := json.Marshal(logEntry)
 			fmt.Fprintln(os.Stderr, string(logJSON))
 		} else {
-			fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05")+" "+format+"\n", args...)
+			timestamp := time.Now().Format("2006-Jan-02 15:04:05")
+			levelStr := levelToString(level)
+			if identity == "" {
+				identity = "-"
+			}
+			if sessionID == "" {
+				sessionID = "-"
+			}
+			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s\n", timestamp, levelStr, identity, sessionID, message)
 		}
+	}
+}
+
+func levelToString(level int) string {
+	switch level {
+	case 1:
+		return "WARN"
+	case 2:
+		return "INFO"
+	case 3:
+		return "ERR"
+	case 4:
+		return "DEBUG"
+	default:
+		return "INFO"
 	}
 }
 
 func (c Config) LogfForPlugin(pluginName string) func(level int, format string, args ...interface{}) {
 	return func(level int, format string, args ...interface{}) {
-		if c.Verbose(level) {
-			if c.LogsAsJSON {
-				logEntry := map[string]interface{}{
-					"level":     level,
-					"timestamp": time.Now().Format(time.RFC3339Nano),
-					"message":   fmt.Sprintf(format, args...),
-				}
-				logJSON, _ := json.Marshal(logEntry)
-				fmt.Fprintln(os.Stderr, string(logJSON))
-			} else {
-				fmt.Fprintf(os.Stderr, time.Now().Format("2006-Jan-02 15:04:05 ")+" "+pluginName+": "+format+"\n", args...)
+		c.LogfForPluginWithContext(pluginName, "", "", level, format, args...)
+	}
+}
+
+func (c Config) LogfForPluginWithContext(pluginName, identity, sessionID string, level int, format string, args ...interface{}) {
+	if c.Verbose(level) {
+		message := fmt.Sprintf(format, args...)
+		if c.LogsAsJSON {
+			logEntry := map[string]interface{}{
+				"level":     level,
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"plugin":    pluginName,
+				"message":   message,
 			}
+			if identity != "" {
+				logEntry["identity"] = identity
+			}
+			if sessionID != "" {
+				logEntry["sessionID"] = sessionID
+			}
+			logJSON, _ := json.Marshal(logEntry)
+			fmt.Fprintln(os.Stderr, string(logJSON))
+		} else {
+			timestamp := time.Now().Format("2006-Jan-02 15:04:05")
+			levelStr := levelToString(level)
+			if identity == "" {
+				identity = "-"
+			}
+			if sessionID == "" {
+				sessionID = "-"
+			}
+			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s: %s\n", timestamp, levelStr, identity, sessionID, pluginName, message)
 		}
 	}
 }
