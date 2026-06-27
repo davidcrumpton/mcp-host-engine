@@ -112,10 +112,10 @@ func (r *Revoker) Revoke(key string, expiry int64) error {
 	if err != nil {
 		return err
 	}
-	// If the key contains a colon, it's a specific token. Remove it.
+	// If the key contains a colon, it's a specific token.
 	// If the key does not contain a colon, it's a blanket revoke. Reduce the list to just the username
 	if strings.Contains(key, ":") {
-		delete(entries, key)
+		entries[key] = expiry
 	} else {
 		// Remove all entries for that user
 		for k := range entries {
@@ -123,8 +123,6 @@ func (r *Revoker) Revoke(key string, expiry int64) error {
 				delete(entries, k)
 			}
 		}
-		delete(entries, key)
-		// Add back the entry with the new expiry
 		entries[key] = expiry
 	}
 	return r.writeEntries(entries)
