@@ -13,18 +13,36 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
 
+checksum:
+  name_template: checksums.txt
+
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+release:
+  draft: false
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
 
 nfpms:
   - package_name: mcphe
     homepage: https://github.com/davidcrumpton/mcp-host-engine
-    maintainer: David Crumpton <david@example.com>
+    maintainer: David Crumpton <davidmcrumpton@gmail.com>
     description: MCP Host Engine - Go MCP server with JavaScript plugins
     license: MIT
     formats:
@@ -48,3 +66,4 @@ brews:
       name: homebrew-mcphe
     homepage: https://github.com/davidcrumpton/mcp-host-engine
     description: MCP Host Engine
+
