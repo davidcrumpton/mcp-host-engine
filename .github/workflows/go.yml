@@ -27,5 +27,13 @@ jobs:
     - name: Test
       run: go test -v ./...
 
+    - name: Set up GoReleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        version: latest
+        install-only: true
+
     - name: Release
       run: make release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
