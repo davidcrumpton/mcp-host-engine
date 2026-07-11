@@ -55,6 +55,41 @@ This section details the available settings for the MCP Host Engine. These value
 | `token_revocation_file` | `string` | *(none)* | Path to the file containing revoked tokens. |
 | `bearer_token` | `string` | *(none)* | Obsolete in future releases.  This is the static API key/token used for authenticating external client requests.  It will be replaced by tokens signed with the `token_secret`. |
 | `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. |
+| `vault_addr` | `string` | *(none)* | The address of the Vault server.  This is required if you are using `vault://` scheme in your config. |
+| `vault_token` | `string` | *(none)* | The token to use for authentication with Vault.  This is required if you are using `vault://` scheme in your config. |
+
+### Resolving YAML Config Values
+
+Support for values from vault, env, or file are provided for any config values.  The 
+format is:
+
+```yaml
+<value>: "<scheme>://<path>"
+```
+
+where scheme is `vault`, `env`, or `file`.
+
+The values are resolved in the following order:
+
+1. `vault://<mount-point>/<path>` - The value is read from `vault`.
+2. `env://<ENV_VAR>` - The value is read from the environment variable `ENV_VAR`.
+3. `file:///path/to/file` - The value is read from a file.
+
+For the "vault://" scheme, the value is read from `vault` using the `path` to get the secret, and the `key` (everything after "#") to get the specific field from the secret.  The `path` should be the path to the secret in `vault`.  The `key` should be the key of the secret in `vault`.
+
+example:
+
+```yaml
+plugins:
+  get_ip:
+    api_key: "vault://secret/data/db#password"
+    ip_host: "env://IP_HOST"
+    mime_types: "file:///etc/mcphe/mime_types.yaml"
+    allowed_domains: ["ifconfig.io"]
+    allowed_http_methods:
+      - "GET"
+```
+
 
 ### Plugin and Tool Management
 
