@@ -7,7 +7,12 @@ bearer_token: ""
 token_secret: oludie3Aigae6Ohru6AhMigh
 run_as_root: false
 verbosity_level: 4
-token_revocation_file: revocations.yaml
+#token_revocation_file: revocations.yaml
+token_revocation_file: "env://MCPHE_REVOKE_FILE"
+
+vault_addr: http://docker-vm.crumpton.org:8400
+#vault_token: <your_token_here_use_env_var_instead>
+
 plugins:
   get_ip:
     allowed_domains: ["ifconfig.io"]
@@ -74,3 +79,6 @@ plugins:
   proxmox_api:
     allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
     allowed_domains: ['pve02.crumpton.org']
+    vault_test: "vault://cubbyhole/mcphe#BIGG"
+    invocation_user: "env://USER"
+    config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"

@@ -43,6 +43,8 @@ type Config struct {
 	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
 	TokenSecret        string                            `yaml:"token_secret"`
 	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
+	VaultAddr          string                            `yaml:"vault_addr"`
+	VaultToken         string                            `yaml:"vault_token"` // We might read from env VAULT_TOKEN
 }
 
 var DefaultConfig = Config{
@@ -90,6 +92,25 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.Transport != TransportHTTP && cfg.Transport != TransportStdio {
 		return cfg, fmt.Errorf("invalid transport %q: must be %q or %q", cfg.Transport, TransportHTTP, TransportStdio)
 	}
+	if cfg.VaultAddr != "" {
+		token := resolveVaultToken(cfg)
+		client, err := NewRealVaultClient(cfg.VaultAddr, token)
+		if err != nil {
+			return cfg, fmt.Errorf("initializing vault client: %w", err)
+		}
+		RegisterResolver("vault", &VaultResolver{Client: client})
+	}
+
+	RegisterResolver("env", EnvResolver{})
+	RegisterResolver("file", FileResolver{})
+	if err := cfg.resolveTopLevelFields(); err != nil {
+		return cfg, err
+	}
+
+	if err := cfg.resolvePluginValues(); err != nil { // Plugins map
+		return cfg, err
+	}
+
 	return cfg, nil
 }
 
@@ -404,4 +425,20 @@ func (c Config) MaskKeyValue(key string, value any) any {
 		return "***"
 	}
 	return value
+}
+
+
+func (c *Config) resolvePluginValues() error {
+	for pluginName, pluginCfg := range c.Plugins {
+		for k, v := range pluginCfg {
+			if s, ok := v.(string); ok {
+				resolved, err := resolveString(s)
+				if err != nil {
+					return fmt.Errorf("plugin %q key %q: %w", pluginName, k, err)
+				}
+				pluginCfg[k] = resolved
+			}
+		}
+	}
+	return nil
 }
