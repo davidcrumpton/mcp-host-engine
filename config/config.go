@@ -445,15 +445,77 @@ func (c Config) MaskKeyValue(key string, value any) any {
 }
 
 
+// listPluginKeys are the plugin config keys that the AllowedXFor accessors
+// (AllowedENVsFor, AllowedDomainsFor, etc.) expect to be lists. Their
+// type-switches only handle []string / []interface{} and silently return
+// nil for anything else — so if a scheme ref (env://, vault://, file://)
+// for one of these keys resolves to a scalar string, we split it on commas
+// rather than let it vanish.
+var listPluginKeys = map[string]bool{
+	"allowed_read_file_paths":  true,
+	"allowed_write_file_paths": true,
+	"allowed_domains":          true,
+	"allowed_commands":         true,
+	"allowed_env_vars":         true,
+	"allowed_http_methods":     true,
+}
+
+// splitListValue splits a resolved scalar string on commas, trims whitespace,
+// and drops empty entries. A value with no commas becomes a single-element
+// slice, so "OPENSEARCH_BASE_URL" and "A,B,C" both normalize consistently.
+func splitListValue(s string) []interface{} {
+	if s == "" {
+		return []interface{}{}
+	}
+	parts := strings.Split(s, ",")
+	out := make([]interface{}, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (c *Config) resolvePluginValues() error {
 	for pluginName, pluginCfg := range c.Plugins {
 		for k, v := range pluginCfg {
-			if s, ok := v.(string); ok {
-				resolved, err := resolveString(s)
+			switch val := v.(type) {
+			case string:
+				resolved, err := resolveString(val)
 				if err != nil {
 					return fmt.Errorf("plugin %q key %q: %w", pluginName, k, err)
 				}
-				pluginCfg[k] = resolved
+				if listPluginKeys[k] {
+					// e.g. allowed_env_vars: "env://OPENSEARCH_ALLOWED_ENVS"
+					// resolving to "A,B,C" — must become a list, not a scalar,
+					// or AllowedENVsFor's type-switch silently drops it.
+					pluginCfg[k] = splitListValue(resolved)
+				} else {
+					pluginCfg[k] = resolved
+				}
+
+			case []interface{}:
+				// Literal YAML list. Resolve each element individually in
+				// case an entry is itself a scheme ref, e.g.
+				// allowed_env_vars: ["env://SOME_ALIAS", "PLAIN_NAME"].
+				// Plain literals (the common case) pass through resolveString
+				// unchanged.
+				resolvedList := make([]interface{}, len(val))
+				for i, item := range val {
+					s, ok := item.(string)
+					if !ok {
+						resolvedList[i] = item
+						continue
+					}
+					resolved, err := resolveString(s)
+					if err != nil {
+						return fmt.Errorf("plugin %q key %q[%d]: %w", pluginName, k, i, err)
+					}
+					resolvedList[i] = resolved
+				}
+				pluginCfg[k] = resolvedList
 			}
 		}
 	}

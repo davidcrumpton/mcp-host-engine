@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -407,6 +408,25 @@ func TestAllowedENVsFor_MissingPlugin(t *testing.T) {
 	cfg := Config{}
 	if got := cfg.AllowedENVsFor("nope"); got != nil {
 		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestSplitListValue(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []interface{}
+	}{
+		{"", []interface{}{}},
+		{"a", []interface{}{"a"}},
+		{"a,b,c", []interface{}{"a", "b", "c"}},
+		{" a , b , c ", []interface{}{"a", "b", "c"}},
+		{"a,,b", []interface{}{"a", "b"}},
+	}
+	for _, tt := range tests {
+		actual := splitListValue(tt.input)
+		if !reflect.DeepEqual(actual, tt.expected) {
+			t.Errorf("splitListValue(%q): expected %v, got %v", tt.input, tt.expected, actual)
+		}
 	}
 }
 

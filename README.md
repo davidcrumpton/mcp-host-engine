@@ -92,6 +92,19 @@ plugins:
       - "GET"
 ```
 
+If you want to use a comma separated list of values, you can use the `splitListValue` function.
+
+```yaml
+plugins:
+  get_ip:
+    api_key: "vault://secret/data/db#password"
+    ip_host: "env://IP_HOST"
+    mime_types: "file:///etc/mcphe/mime_types.yaml"
+    allowed_domains: splitListValue("env://ALLOWS_IP_DOMAINS")
+    allowed_http_methods:
+      - "GET"
+```
+
 ### Resolvable Top Level Fields
 
 Common sense must prevail.  You can't resolve `vault_addr` with `vault://` before the vault system is initialized but you can resolve `vault_addr` with an environment variable or file contents.  If `vault_addr` is not set, Vault cannot be initialized and the `vault://` scheme will not be registered. Note that `env://` and `file://` are always registered and usable for all top level fields defined below.  MCPHE doesn't do any sanity checking or error handling for this.  If it's not there, it's not there and you'll get an error later on.
