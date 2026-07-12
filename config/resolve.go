@@ -47,8 +47,8 @@ var resolvableFields = []string{
 	"PidFile",
 	"VaultAddr",
 	"VaultToken",
-	"VaultRoleId",
-	"VaultSecretId",
+	"VaultRoleID",
+	"VaultSecretID",
 	"VaultApprole",
 }
 
