@@ -271,7 +271,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 		if identity == "" {
 			identity = "-"
 		}
-		cfg.LogfWithContext(4, identity, sessionID, "Incoming %s %s identity=%s sessionID=%s", r.Method, r.URL.Path, identity, sessionID)
+		cfg.LogfWithContext(4, identity, sessionID, "Incoming %s %s", r.Method, r.URL.Path)
 
 		if sessionID != "" && r.Header.Get("Mcp-Session-Id") == "" {
 			// SSE POST: sessionid comes from query param
