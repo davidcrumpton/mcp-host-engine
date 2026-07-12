@@ -102,10 +102,7 @@ func LoadConfig(path string) (Config, error) {
 		var client VaultClient
 		var err error
 		token := ""
-		fmt.Println("VaultAddr: ", cfg.VaultAddr)
-		fmt.Println("VaultRoleID: ", cfg.VaultRoleID)
-		fmt.Println("VaultSecretID: ", cfg.VaultSecretID)
-		fmt.Println("VaultApprole: ", cfg.VaultApprole)
+
 		if cfg.VaultRoleID != "" && cfg.VaultSecretID != "" {
 			cfg.Logf(1, "Using roleid and secretid for vault authentication")
 			client, err = NewVaultClientAppRole(cfg.VaultAddr, cfg.VaultRoleID, cfg.VaultSecretID, cfg.VaultApprole)
