@@ -63,7 +63,7 @@ This section details the available settings for the MCP Host Engine. These value
 
 ### Resolving YAML Config Values
 
-Support for values from vault, env, or file are provided for any config values.  The format is:
+Support for values from vault, env, or file are provided for any config values which relieves the JavaScirpt plugin of having to do it and reduces the attack surface area of the plugin by not needing approvals defined in the config file.  Plugin authors are still capable of using host functions to get values from env variables or read/write files.  That will still require explicit config file plugin approvals.  The format is:
 
 ```yaml
 <value>: "<scheme>://<path>"
