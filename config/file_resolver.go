@@ -19,6 +19,5 @@ func (FileResolver) Resolve(ref string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %q: %w", ref, err)
 	}
-	fmt.Println(string(content))
 	return string(content), nil
 }

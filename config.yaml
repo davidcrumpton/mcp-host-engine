@@ -4,17 +4,17 @@ port: "8001"
 host: "127.0.0.1"
 use_https: false
 bearer_token: ""
-token_secret: oludie3Aigae6Ohru6AhMigh
-#token_secret: "vault://CrumptonOrg/data/secrets/openbsd/mcphe/8000#token_secret"
+#token_secret: oludie3Aigae6Ohru6AhMigh
+token_secret: "vault://PurpleMac/data/mcphe/8000#token_secret"
 run_as_root: false
 verbosity_level: 4
 #token_revocation_file: revocations.yaml
 token_revocation_file: "env://MCPHE_REVOKE_FILE"
 
-# vault_addr: https://docker-vm.crumpton.org:8400
-# vault_role_id: "ed207c49-ea5e-a34d-546f-173fc5957a6f"
-# vault_secret_id: "e121a2e5-13ff-b013-e941-6c287c72b480"
-# vault_approle: "approle"
+vault_addr: http://localhost:8200
+vault_role_id: bf937367-9ba1-8212-2848-b6c8fe0286ec
+vault_secret_id: "7dba8532-5a96-896a-8006-32ada1ddd7b1"
+vault_approle: "purplemac-mcphe-8000"
 
 plugins:
   get_ip:
