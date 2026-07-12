@@ -38,7 +38,7 @@ func ValidateToken(progname, version string, next http.Handler, secret, legacyTo
 		if secret != "" {
 			if id, err := auth.Validate(progname, version, token, secret, revoked); err == nil {
 				r = r.WithContext(context.WithValue(r.Context(), IdentityContextKey, id.Username))
-				// cfg.LogfWithContext(2, id.Username, sessionID, "Token validation successful for user")
+				cfg.LogfWithContext(4, id.Username, sessionID, "Token validation successful for user")
 				next.ServeHTTP(w, r)
 				return
 			} else {
