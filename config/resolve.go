@@ -42,10 +42,14 @@ func resolveString(val string) (string, error) {
 // accident). Only fields that plausibly hold secrets or paths go here.
 var resolvableFields = []string{
 	"BearerToken",
-	"VaultAddr",
 	"TokenSecret",
 	"TokenRevocationFile",
 	"PidFile",
+	"VaultAddr",
+	"VaultToken",
+	"VaultRoleId",
+	"VaultSecretId",
+	"VaultApprole",
 }
 
 // resolveTopLevelFields walks resolvableFields and, for each, resolves its

@@ -5,13 +5,16 @@ host: "127.0.0.1"
 use_https: false
 bearer_token: ""
 token_secret: oludie3Aigae6Ohru6AhMigh
+#token_secret: "vault://CrumptonOrg/data/secrets/openbsd/mcphe/8000#token_secret"
 run_as_root: false
 verbosity_level: 4
 #token_revocation_file: revocations.yaml
 token_revocation_file: "env://MCPHE_REVOKE_FILE"
 
-vault_addr: http://docker-vm.crumpton.org:8400
-#vault_token: <your_token_here_use_env_var_instead>
+# vault_addr: https://docker-vm.crumpton.org:8400
+# vault_role_id: "ed207c49-ea5e-a34d-546f-173fc5957a6f"
+# vault_secret_id: "e121a2e5-13ff-b013-e941-6c287c72b480"
+# vault_approle: "approle"
 
 plugins:
   get_ip:
@@ -79,6 +82,6 @@ plugins:
   proxmox_api:
     allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
     allowed_domains: ['pve02.crumpton.org']
-    vault_test: "vault://cubbyhole/mcphe#BIGG"
+    # vault_test: "vault://cubbyhole/mcphe#BIGG"
     invocation_user: "env://USER"
     config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"

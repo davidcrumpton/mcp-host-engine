@@ -56,12 +56,14 @@ This section details the available settings for the MCP Host Engine. These value
 | `bearer_token` | `string` | *(none)* | Obsolete in future releases.  This is the static API key/token used for authenticating external client requests.  It will be replaced by tokens signed with the `token_secret`. |
 | `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. |
 | `vault_addr` | `string` | *(none)* | The address of the Vault server.  This is required if you are using `vault://` scheme in your config. |
-| `vault_token` | `string` | *(none)* | The token to use for authentication with Vault.  This is required if you are using `vault://` scheme in your config. |
+| `vault_token` | `string` | *(none)* | The token to use for authentication with Vault but you should use approle instead. |
+| `vault_role_id` | `string` | *(none)* | The role ID to use for authentication with Vault approle. |
+| `vault_secret_id` | `string` | *(none)* | The secret ID to use for authentication with Vault approle. |
+| `vault_approle` | `string` | *(none)* | The approle to use for authentication with Vault.  This is the mount point for the approle. |
 
 ### Resolving YAML Config Values
 
-Support for values from vault, env, or file are provided for any config values.  The 
-format is:
+Support for values from vault, env, or file are provided for any config values.  The format is:
 
 ```yaml
 <value>: "<scheme>://<path>"
@@ -90,6 +92,25 @@ plugins:
       - "GET"
 ```
 
+### Resolvable Top Level Fields
+
+Common sense must prevail.  You can't resolve `vault_addr` with `vault://` before the vault system is initialized but you can resolve `vault_addr` with an environment variable or file contents.  If `vault_addr` is not set, Vault cannot be initialized and the `vault://` scheme will not be registered. Note that `env://` and `file://` are always registered and usable for all top level fields defined below.  MCPHE doesn't do any sanity checking or error handling for this.  If it's not there, it's not there and you'll get an error later on.
+
+MCPHE doesn't support nesting `my_yaml_var: vault://Some/Vault/Path/secret#env://MY_SECRET`.  It will only resolve the leftmost scheme passing the entire string to vault as the path which won't work since the env:// part isn't in vault.  Same is true for file://.
+
+The following top level fields are resolvable using `vault://`, `env://`, or `file://` schemes:
+
+```text
+"bearer_token",
+"token_secret",
+"token_revocation_file",
+"pid_file",
+"vault_addr",
+"vault_token",
+"vault_role_id",
+"vault_secret_id",
+"vault_approle",
+```
 
 ### Plugin and Tool Management
 

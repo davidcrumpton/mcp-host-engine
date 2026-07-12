@@ -44,7 +44,10 @@ type Config struct {
 	TokenSecret        string                            `yaml:"token_secret"`
 	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
 	VaultAddr          string                            `yaml:"vault_addr"`
-	VaultToken         string                            `yaml:"vault_token"` // We might read from env VAULT_TOKEN
+	VaultToken         string                            `yaml:"vault_token"` 
+	VaultRoleID        string                            `yaml:"vault_role_id"`
+	VaultSecretID      string                            `yaml:"vault_secret_id"`
+	VaultApprole       string                            `yaml:"vault_approle"`
 }
 
 var DefaultConfig = Config{
@@ -57,6 +60,7 @@ var DefaultConfig = Config{
 	RunAsRoot:     false,
 	Transport:     TransportHTTP,
 	LogsAsJSON:    false,
+	VaultApprole:  "approle",
 
 	Verbosity: 0,
 	Plugins: map[string]map[string]interface{}{
@@ -93,8 +97,24 @@ func LoadConfig(path string) (Config, error) {
 		return cfg, fmt.Errorf("invalid transport %q: must be %q or %q", cfg.Transport, TransportHTTP, TransportStdio)
 	}
 	if cfg.VaultAddr != "" {
-		token := resolveVaultToken(cfg)
-		client, err := NewRealVaultClient(cfg.VaultAddr, token)
+		cfg.VaultRoleID = resolveVaultRoleID(cfg)
+		cfg.VaultSecretID = resolveVaultSecretID(cfg)
+		var client VaultClient
+		var err error
+		token := ""
+		fmt.Println("VaultAddr: ", cfg.VaultAddr)
+		fmt.Println("VaultRoleID: ", cfg.VaultRoleID)
+		fmt.Println("VaultSecretID: ", cfg.VaultSecretID)
+		fmt.Println("VaultApprole: ", cfg.VaultApprole)
+		if cfg.VaultRoleID != "" && cfg.VaultSecretID != "" {
+			cfg.Logf(1, "Using roleid and secretid for vault authentication")
+			client, err = NewVaultClientAppRole(cfg.VaultAddr, cfg.VaultRoleID, cfg.VaultSecretID, cfg.VaultApprole)
+		} else {
+			cfg.Logf(1, "Using token for vault authentication is not recommended practice. Consider using roleid and secretid.")
+			token = resolveVaultToken(cfg)
+			client, err = NewRealVaultClient(cfg.VaultAddr, token)
+		}
+		
 		if err != nil {
 			return cfg, fmt.Errorf("initializing vault client: %w", err)
 		}
