@@ -23,6 +23,7 @@ plugins:
       - "GET"
   get_datetime:
   google_search:
+    enabled: false
     google_api_key: "abc123"
     google_cx_id: "cx456"
     allowed_domains: ["google.com"]
