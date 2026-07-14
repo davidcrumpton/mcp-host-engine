@@ -2,7 +2,7 @@
 const plugin = {
   name: "websearch",
   description: "Search DuckDuckGo",
-  version: "1.1.0",
+  version: "1.1.1",
   commit: "none",
   tags: ["websearch", "duckduckgo"],
   annotations: {
@@ -34,9 +34,10 @@ const plugin = {
   call(params) {
     try {
       const encoded = encodeURIComponent(params.query);
-      const res = host.http.get(
-        `https://html.duckduckgo.com/html/?q=${encoded}`,
+      const res = host.http.request(
         {
+          url: `https://html.duckduckgo.com/html/?q=${encoded}`,
+          method: "GET",
           headers: {
             "User-Agent": "mcphe/1.0 (+duckduckgo-search)"
           }

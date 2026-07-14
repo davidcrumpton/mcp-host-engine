@@ -13,7 +13,6 @@ const plugin = {
   },
   inputSchema: { type: "object", properties: {}, required: [] },
   call(params) {
-    host.console.log("Called")
     return (/* @__PURE__ */ new Date()).toISOString();
   }
 };

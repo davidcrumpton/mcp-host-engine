@@ -2,7 +2,7 @@
 module.exports = {
   name: "gitea",
   description: "Extended Gitea tools for project management, file operations, and collaboration.",
-  version: "1.0.0",
+  version: "1.0.3",
   commit: "none",
   Tags: ["development", "utility", "gitea"],
   annotations: {
@@ -204,7 +204,9 @@ module.exports = {
     if (branch) {
       apiUrl += `?branch=${branch}`;
     }
-    const fileResponse = host.http.get(apiUrl, {
+    const fileResponse = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     let sha = null;
@@ -218,7 +220,9 @@ module.exports = {
       branch: branch || "main",
       sha
     };
-    const response = host.http.post(apiUrl, {
+    const response = host.http.request({
+      method: "PUT",
+      url: apiUrl,
       headers,
       body: JSON.stringify(body)
     });
@@ -249,7 +253,9 @@ module.exports = {
       files,
       branch: branch || "main"
     };
-    const response = host.http.post(apiUrl, {
+    const response = host.http.request({
+      method: "PUT",
+      url: apiUrl,
       headers,
       body: JSON.stringify(body)
     });
@@ -275,7 +281,9 @@ module.exports = {
   searchRepositories: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {
@@ -308,8 +316,10 @@ module.exports = {
       license: "MIT",
       readme: initialize_with_readme ? "default" : ""
     };
-    const response = host.http.post(apiUrl, {
-      headers: headers.toString(),
+    const response = host.http.request({
+      method: "POST",
+      url: apiUrl,
+      headers,
       body: JSON.stringify(body)
     });
     if (!response.body) {
@@ -337,7 +347,9 @@ module.exports = {
     if (branch) {
       apiUrl += `?ref=${branch}`;
     }
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {
@@ -365,7 +377,9 @@ module.exports = {
     if (ref) {
       apiUrl += `?ref=${ref}`;
     }
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {
@@ -396,8 +410,10 @@ module.exports = {
       assignee: assignee_ids ? assignee_ids : void 0,
       labels
     };
-    const response = host.http.post(apiUrl, {
-      headers: headers.toString(),
+    const response = host.http.request({
+      method: "POST",
+      url: apiUrl,
+      headers,
       body: JSON.stringify(body)
     });
     if (!response.body) {
@@ -430,8 +446,10 @@ module.exports = {
       draft,
       allow_maintainer_edit: allow_collaboration
     };
-    const response = host.http.post(apiUrl, {
-      headers: headers.toString(),
+    const response = host.http.request({
+      method: "POST",
+      url: apiUrl,
+      headers,
       body: JSON.stringify(body)
     });
     if (!response.body) {
@@ -459,8 +477,10 @@ module.exports = {
     const body = {
       organization: namespace
     };
-    const response = host.http.post(apiUrl, {
-      headers: headers.toString(),
+    const response = host.http.request({
+      method: "POST",
+      url: apiUrl,
+      headers,
       body: JSON.stringify(body)
     });
     if (!response.body) {
@@ -489,8 +509,10 @@ module.exports = {
       ref,
       branch_name: branch
     };
-    const response = host.http.post(apiUrl, {
-      headers: headers.toString(),
+    const response = host.http.request({
+      method: "POST",
+      url: apiUrl,
+      headers,
       body: JSON.stringify(body)
     });
     if (!response.body) {
@@ -515,7 +537,9 @@ module.exports = {
   searchProjects: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/repos/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {
@@ -540,7 +564,9 @@ module.exports = {
   searchIssues: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/issues/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {
@@ -565,7 +591,9 @@ module.exports = {
   searchMergeRequests: function(params, headers, baseUrl) {
     const { search, page = 1, per_page = 20 } = params;
     const apiUrl = `${baseUrl}/api/v1/pulls/search?q=${encodeURIComponent(search)}&page=${page}&limit=${per_page}`;
-    const response = host.http.get(apiUrl, {
+    const response = host.http.request({
+      method: "GET",
+      url: apiUrl,
       headers: headers.toString()
     });
     if (!response.body) {

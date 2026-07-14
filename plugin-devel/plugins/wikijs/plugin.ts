@@ -3,7 +3,7 @@
 const plugin = {
   name: "wikijs",
   description: "WikiJS MCP tools for page management, search, and content operations using GraphQL API.",
-  version: "1.1.0",
+  version: "1.1.2",
   Tags: ["wiki", "documentation", "content-management", "graphql"],
   annotations: {
     readOnlyHint: false,
@@ -71,8 +71,13 @@ const plugin = {
       };
 
       try {
-        const response = host.http.rawPost(`${apiUrl}/graphql`, headers, JSON.stringify({ query, variables }));
-        return response;
+        var resp = host.http.request({
+          method: "POST",
+          url: `${apiUrl}/graphql`,
+          headers: headers,
+          body: JSON.stringify({ query, variables })
+        });
+        return resp;
       } catch (error) {
         return { success: false, error: error.message };
       }
@@ -84,6 +89,7 @@ const plugin = {
     // Command handling
     switch (CommandEvent) {
       // Search for pages
+        
         case "search_pages": {
         const { query } = params.params || {};
         const graphqlQuery = `

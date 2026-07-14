@@ -11,10 +11,10 @@
  *   - related article links
  *
  * goja runtime constraints observed throughout:
- *   - No async/await — all host.http.get calls are synchronous Go functions
+ *   - No async/await — all host.http.request calls are synchronous Go functions
  *   - Headers passed as a flat {key: value} object (not nested under "headers:")
  *   - No `this` inside call() — use `const self = module.exports` pattern if needed
- *   - host.http.get returns {status, headers, body} where body is a string
+ *   - host.http.request returns {status, headers, body} where body is a string
  */
 
 const plugin = {
@@ -25,7 +25,7 @@ const plugin = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.1.2",
+  version: "2.1.4",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
@@ -119,7 +119,11 @@ function httpGet(url: string, extraHeaders: { [key: string]: any }) {
     "Accept": "application/json"
   }, extraHeaders || {});
 
-  const response = host.http.get(url, headers);
+  const response = host.http.request({
+    method: "GET",
+    url,
+    headers
+  })
   return response;
 }
 
@@ -223,7 +227,10 @@ function searchTitles(query: string, lang: string, limit: number) {
     srlimit: limit,
     srprop: "snippet|titlesnippet"
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -235,7 +242,10 @@ function searchTitles(query: string, lang: string, limit: number) {
 
 function fetchRestSummary(lang: string, title: string) {
   const url = restSummaryUrl(lang, title);
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return null;
   try {
     return JSON.parse(resp.body);
@@ -259,7 +269,10 @@ function fetchExtract(title: string, lang: string, introOnly: boolean) {
   if (introOnly) params.exintro = 1;
 
   const url = apiUrl(lang, params);
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -278,7 +291,10 @@ function fetchSections(title: string, lang: string) {
     prop: "sections",
     redirects: 1
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -297,7 +313,10 @@ function fetchSectionText(title: string, lang: string, sectionIndex: string) {
     redirects: 1,
     disableeditsection: 1
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -317,7 +336,10 @@ function fetchLinks(title: string, lang: string, limit: number) {
     pllimit: limit,
     plnamespace: 0
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url,
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);

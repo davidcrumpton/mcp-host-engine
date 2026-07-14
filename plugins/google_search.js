@@ -2,7 +2,7 @@
 const plugin = {
   name: "google_search",
   description: "Search Google using Programmable Search API.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
@@ -25,7 +25,7 @@ const plugin = {
       throw new Error("google_api_key and google_cx_id must be configured");
     }
     const url = `https://customsearch.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(params.query)}&num=5`;
-    const response = host.http.get(url);
+    const response = host.http.request({ method: "GET", url });
     const payload = JSON.parse(response.body);
     if (payload.error) {
       throw new Error(payload.error.message || "Google Search error");

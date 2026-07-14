@@ -2,7 +2,7 @@
 const plugin = {
   name: "wikijs",
   description: "WikiJS MCP tools for page management, search, and content operations using GraphQL API.",
-  version: "1.1.0",
+  version: "1.1.2",
   Tags: ["wiki", "documentation", "content-management", "graphql"],
   annotations: {
     readOnlyHint: false,
@@ -63,8 +63,13 @@ const plugin = {
         Authorization: `Bearer ${apiToken}`
       };
       try {
-        const response = host.http.rawPost(`${apiUrl}/graphql`, headers, JSON.stringify({ query, variables }));
-        return response;
+        var resp = host.http.request({
+          method: "POST",
+          url: `${apiUrl}/graphql`,
+          headers,
+          body: JSON.stringify({ query, variables })
+        });
+        return resp;
       } catch (error) {
         return { success: false, error: error.message };
       }

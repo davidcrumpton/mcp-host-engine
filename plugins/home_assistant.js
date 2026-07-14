@@ -2,7 +2,7 @@
 const plugin = {
   name: "home_assistant",
   description: "Control and query Home Assistant via its REST API. Supports getting/setting entity states, calling services (turn lights on/off, etc.), firing events, listing calendars, rendering templates, and more.",
-  version: "1.1.2",
+  version: "1.1.4",
   commit: "none",
   Tags: ["home-automation", "iot", "utility"],
   annotations: {
@@ -148,7 +148,7 @@ const plugin = {
     };
     function get(path) {
       try {
-        const resp = host.http.get(`${apiUrl}${path}`, { headers: authHeaders });
+        const resp = host.http.request({ method: "GET", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
         return { success: false, error: `GET ${path} failed: ${err.message}` };
@@ -156,7 +156,7 @@ const plugin = {
     }
     function post(path, body = null) {
       try {
-        const resp = host.http.post(`${apiUrl}${path}`, authHeaders, body ? JSON.stringify(body) : "{}");
+        const resp = host.http.request({ method: "POST", url: `${apiUrl}${path}`, headers: authHeaders, body: body ? JSON.stringify(body) : "{}" });
         return self._handleResponse(resp, path);
       } catch (err) {
         return { success: false, error: `POST ${path} failed: ${err.message}` };
@@ -164,7 +164,7 @@ const plugin = {
     }
     function del(path) {
       try {
-        const resp = host.http.delete(`${apiUrl}${path}`, authHeaders);
+        const resp = host.http.request({ method: "DELETE", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
         return { success: false, error: `DELETE ${path} failed: ${err.message}` };

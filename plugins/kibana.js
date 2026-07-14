@@ -2,7 +2,7 @@
 const plugin = {
   name: "kibana",
   description: "Fetch data from Kibana/Elasticsearch using query string syntax.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["search", "kibana"],
   annotations: {
@@ -41,7 +41,12 @@ const plugin = {
     const from = params.from || 0;
     const url = baseUrl.replace(/\/$/, "") + "/api/console/proxy?path=" + encodeURIComponent("/" + params.indexName + "/_search?size=" + size + "&from=" + from) + "&method=POST";
     try {
-      const resp = host.http.post(url, headers);
+      const resp = host.http.request({
+        method: "POST",
+        url,
+        headers,
+        body: params.query
+      });
       if (resp.status !== 200) {
         return { success: false, error: "HTTP " + resp.status, body: resp.body };
       }

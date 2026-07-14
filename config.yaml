@@ -26,19 +26,20 @@ plugins:
     google_api_key: "abc123"
     google_cx_id: "cx456"
     allowed_domains: ["google.com"]
-  http_request_get:
-    allowed_domains:
-      - "reddit.com"
-      - "github.com"
-      - "stackoverflow.com"
-      - "medium.com"
-      - "dev.to"
-      - "news.ycombinator.com"
-      - "gitlab.com"
     allowed_env_vars: []
     api_token: "xyz"
   wikipedia_search:
     allowed_domains: ["en.wikipedia.org"]
+    allowed_http_headers:
+      - "User-Agent"
+      - "Accept"
+      - "Accept-Language"
+      - "Content-Length"
+      - "Connection"
+      - "Authorization"
+      - "Content-Type"
+      - "Sec-Fetch-Mode"
+      - "Accept-Encoding"
   memory:
     enabled: true
     allowed_write_file_paths: ["/tmp/mcphe/"]

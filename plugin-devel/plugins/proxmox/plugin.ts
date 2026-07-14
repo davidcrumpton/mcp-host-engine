@@ -3,7 +3,7 @@
 const plugin = {
   name:        "proxmox_api",
   description: "Query Proxmox for LXCs, VMs, and cluster/node information.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit:      "none",
   Tags:        ["infrastructure", "proxmox", "virtualization"],
   annotations: {
@@ -87,7 +87,7 @@ const plugin = {
 
       try {
         host.server.logger(4, "proxmox_api GET " + url);
-        const resp = host.http.get(url, headers);
+        const resp = JSON.parse(host.http.request({ method: "GET", url, headers }));
 
         if (resp.status < 200 || resp.status >= 300) {
           host.server.logger(2, "proxmox_api HTTP error " + resp.status + " for " + url);

@@ -3,7 +3,7 @@
 const plugin = {
   name: "gitlab",
   description: "Extended GitLab tools for project management, file operations, and collaboration.",
-  version: "1.1.1",
+  version: "1.1.2",
   commit: "none",
   Tags: ["development", "utility", "gitlab"],
   annotations: {
@@ -145,10 +145,6 @@ const plugin = {
       namespace: {
         type: "string",
         description: "Namespace to fork to"
-      },
-      ref: {
-        type: "string",
-        description: "Source branch/commit for new branch"
       }
     },
     required: ["CommandEvent"]
@@ -347,7 +343,9 @@ const plugin = {
     const url = `${baseUrl}/api/v4/projects/search?search=${encodeURIComponent(search)}&page=${page}&per_page=${per_page}`;
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -440,7 +438,9 @@ const plugin = {
     }
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -483,7 +483,9 @@ const plugin = {
     }
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -726,7 +728,9 @@ const plugin = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -774,7 +778,9 @@ const plugin = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -822,7 +828,9 @@ const plugin = {
       `&per_page=${encodeURIComponent(per_page)}`;
     
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url: url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"

@@ -2,7 +2,7 @@
 const plugin = {
   name:        "outlook_365",
   description: "Microsoft Outlook 365.",
-  version: "1.1.0",
+  version: "1.1.2",
   commit:      "none",
   Tags:        ["office365", "email"],
   annotations: {
@@ -71,8 +71,8 @@ const plugin = {
 
 function listMicrosoftOutlookLabels(params: Record<string, unknown>, apiUrl: string, apiToken: string) {
   try {
-    const url = `${apiUrl}/users/me/labels?access_token=${apiToken}`;
-    const response = host.http.get(url);
+    const url = `${apiUrl}/users/me/labels`;
+    const response = JSON.parse(host.http.request({ method: "GET", url, headers: { "Authorization": `Bearer ${apiToken}` } }));
     return response;
   } catch (err) {
     return { success: false, error: `Failed to list labels: ${err.message}` };
@@ -82,7 +82,7 @@ function listMicrosoftOutlookLabels(params: Record<string, unknown>, apiUrl: str
 function listMicrosoftOutlookMessages(params: Record<string, unknown>, apiUrl: string, apiToken: string) {
   try {
     const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&labelIds=${params.label}`;
-    const response = host.http.get(url);
+    const response = JSON.parse(host.http.request({ method: "GET", url }));
     return response;
   } catch (err) {
     return { success: false, error: `Failed to list messages: ${err.message}` };
@@ -92,7 +92,7 @@ function listMicrosoftOutlookMessages(params: Record<string, unknown>, apiUrl: s
 function readMicrosoftOutlookMessage(params: Record<string, unknown>, apiUrl: string, apiToken: string) {
   try {
     const url = `${apiUrl}/users/me/messages/${params.message_id}?access_token=${apiToken}`;
-    const response = host.http.get(url);
+    const response = JSON.parse(host.http.request({ method: "GET", url }));
     return response;
   } catch (err) {
     return { success: false, error: `Failed to read message: ${err.message}` };
@@ -102,7 +102,7 @@ function readMicrosoftOutlookMessage(params: Record<string, unknown>, apiUrl: st
 function searchMicrosoftOutlookMessages(params: Record<string, unknown>, apiUrl: string, apiToken: string) {
   try {
     const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&search=${params.query}`;
-    const response = host.http.get(url);
+    const response = JSON.parse(host.http.request({ method: "GET", url }));
     return response;
   } catch (err) {
     return { success: false, error: `Failed to search messages: ${err.message}` };

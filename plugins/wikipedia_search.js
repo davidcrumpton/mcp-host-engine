@@ -7,7 +7,7 @@ const plugin = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.1.2",
+  version: "2.1.4",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {
@@ -105,7 +105,11 @@ function httpGet(url, extraHeaders) {
     "User-Agent": USER_AGENT,
     "Accept": "application/json"
   }, extraHeaders || {});
-  const response = host.http.get(url, headers);
+  const response = host.http.request({
+    method: "GET",
+    url,
+    headers
+  });
   return response;
 }
 function apiUrl(lang, params) {
@@ -173,7 +177,10 @@ function searchTitles(query, lang, limit) {
     srlimit: limit,
     srprop: "snippet|titlesnippet"
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -184,7 +191,10 @@ function searchTitles(query, lang, limit) {
 }
 function fetchRestSummary(lang, title) {
   const url = restSummaryUrl(lang, title);
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return null;
   try {
     return JSON.parse(resp.body);
@@ -202,7 +212,10 @@ function fetchExtract(title, lang, introOnly) {
   };
   if (introOnly) params.exintro = 1;
   const url = apiUrl(lang, params);
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -220,7 +233,10 @@ function fetchSections(title, lang) {
     prop: "sections",
     redirects: 1
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);
@@ -238,7 +254,10 @@ function fetchSectionText(title, lang, sectionIndex) {
     redirects: 1,
     disableeditsection: 1
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return "";
   try {
     const data = JSON.parse(resp.body);
@@ -257,7 +276,10 @@ function fetchLinks(title, lang, limit) {
     pllimit: limit,
     plnamespace: 0
   });
-  const resp = host.http.get(url);
+  const resp = host.http.request({
+    method: "GET",
+    url
+  });
   if (resp.status !== 200) return [];
   try {
     const data = JSON.parse(resp.body);

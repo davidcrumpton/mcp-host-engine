@@ -9,7 +9,7 @@
 const plugin = {
   name: "gmail",
   description: "List and read gmail",
-  version: "1.1.0",
+  version: "1.1.2",
   commit: "none",
   Tags: ["gmail"],
   annotations: {
@@ -77,7 +77,7 @@ const plugin = {
       case "list_labels":
         try {
           const url = `${apiUrl}/users/me/labels?access_token=${apiToken}`;
-          const response = host.http.get(url);
+          const response = host.http.request({method: "GET", url});
           return response;
         } catch (err) {
           return { success: false, error: `Failed to list labels: ${err.message}` };
@@ -85,7 +85,7 @@ const plugin = {
       case "list_messages":
         try {
           const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&labelIds=${params.label}`;
-          const response = host.http.get(url);
+          const response = host.http.request({method: "GET", url});
           return response;
         } catch (err) {
           return { success: false, error: `Failed to list messages: ${err.message}` };
@@ -93,7 +93,7 @@ const plugin = {
       case "read_message":
         try {
           const url = `${apiUrl}/users/me/messages/${params.message_id}?access_token=${apiToken}`;
-          const response = host.http.get(url);
+          const response = host.http.request({method: "GET", url});
           return response;
         } catch (err) {
           return { success: false, error: `Failed to read message: ${err.message}` };
@@ -101,7 +101,7 @@ const plugin = {
       case "search_messages":
         try {
           const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&q=${params.query}`;
-          const response = host.http.get(url);
+          const response = host.http.request({method: "GET", url});
           return response;
         } catch (err) {
           return { success: false, error: `Failed to search messages: ${err.message}` };

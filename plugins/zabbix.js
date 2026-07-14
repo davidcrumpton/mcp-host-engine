@@ -2,7 +2,7 @@
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
-  version: "1.1.2",
+  version: "1.1.3",
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,
@@ -92,14 +92,15 @@ const plugin = {
       }
       const payload = JSON.stringify(body);
       try {
-        const response = host.http.post(
-          apiUrl,
-          {
+        const response = host.http.request({
+          method: "POST",
+          url: apiUrl,
+          headers: {
             "Content-Type": "application/json",
             "User-Agent": "mcphe-zabbix-plugin/1.0 (goja)"
           },
-          payload
-        );
+          body: payload
+        });
         const status = (_a = response.status) != null ? _a : response.statusCode;
         const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
         if (status >= 200 && status < 300) {

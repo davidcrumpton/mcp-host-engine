@@ -2,7 +2,7 @@
 const plugin = {
   name: "gitlab",
   description: "Extended GitLab tools for project management, file operations, and collaboration.",
-  version: "1.1.1",
+  version: "1.1.2",
   commit: "none",
   Tags: ["development", "utility", "gitlab"],
   annotations: {
@@ -144,10 +144,6 @@ const plugin = {
       namespace: {
         type: "string",
         description: "Namespace to fork to"
-      },
-      ref: {
-        type: "string",
-        description: "Source branch/commit for new branch"
       }
     },
     required: ["CommandEvent"]
@@ -325,7 +321,9 @@ const plugin = {
     } = params;
     const url = `${baseUrl}/api/v4/projects/search?search=${encodeURIComponent(search)}&page=${page}&per_page=${per_page}`;
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -409,7 +407,9 @@ const plugin = {
       url += `&ref=${encodeURIComponent(ref)}`;
     }
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -448,7 +448,9 @@ const plugin = {
       url += `?ref=${encodeURIComponent(ref)}`;
     }
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -662,7 +664,9 @@ const plugin = {
     const encodedQuery = encodeURIComponent(search);
     const url = `${baseUrl}/api/v4/search?scope=projects&search=${encodedQuery}&page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(per_page)}`;
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -702,7 +706,9 @@ const plugin = {
     const encodedQuery = encodeURIComponent(search);
     const url = `${baseUrl}/api/v4/search?scope=issues&search=${encodedQuery}&page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(per_page)}`;
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
@@ -742,7 +748,9 @@ const plugin = {
     const encodedQuery = encodeURIComponent(search);
     const url = `${baseUrl}/api/v4/search?scope=merge_requests&search=${encodedQuery}&page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(per_page)}`;
     try {
-      const response = host.http.get(url, {
+      const response = host.http.request({
+        method: "GET",
+        url,
         headers: {
           "Authorization": token,
           "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
