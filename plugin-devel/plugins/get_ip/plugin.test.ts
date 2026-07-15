@@ -26,22 +26,23 @@ describe("get_ip plugin", () => {
   });
 
   it("returns country code and IP from ifconfig.io", () => {
-    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+    vi.mocked(mockHost.http.request).mockReturnValueOnce(
       mockHTTPResponse({ body: JSON.stringify({ ip: "1.2.3.4", country_code: "US" }) })
     );
-    expect(plugin.call({})).toBe("US: 1.2.3.4");
-    expect(mockHost.http.get).toHaveBeenCalledWith("https://ifconfig.io/all.json");
+    const res = plugin.call({}) as unknown as string;
+    expect(res).toBe("US: 1.2.3.4");
+    expect(mockHost.http.request).toHaveBeenCalledWith({url: "https://ifconfig.io/all.json", method: "GET"});
   });
 
   it("handles missing country_code gracefully", () => {
-    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+    vi.mocked(mockHost.http.request).mockReturnValueOnce(
       mockHTTPResponse({ body: JSON.stringify({ ip: "1.2.3.4" }) })
     );
     expect(plugin.call({})).toBe("unknown: 1.2.3.4");
   });
 
   it("handles missing ip gracefully", () => {
-    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+    vi.mocked(mockHost.http.request).mockReturnValueOnce(
       mockHTTPResponse({ body: JSON.stringify({ country_code: "US" }) })
     );
     expect(plugin.call({})).toBe("US: unknown");
@@ -54,7 +55,7 @@ describe("get_ip plugin", () => {
   });
 
   it("throws on invalid JSON response", () => {
-    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+    vi.mocked(mockHost.http.request).mockReturnValueOnce(
       mockHTTPResponse({ body: "not json" })
     );
     expect(() => plugin.call({})).toThrow();

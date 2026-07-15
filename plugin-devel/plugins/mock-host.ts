@@ -8,7 +8,7 @@
  *   - Synchronous returns only
  *
  * Tests override individual methods using vi.fn() or by replacing
- * mockHost.http.get directly on the global.
+ * mockHost.http.request directly on the global.
  */
 
 import { vi } from "vitest";
@@ -39,6 +39,7 @@ function makeMockSearchParams(init = ""): URLSearchParamsObject {
   const params = new URLSearchParams(init.replace(/^\?/, ""));
   return {
     get: (name: string) => params.get(name),
+    request: (name: string) => params.get(name),
     getAll: (name: string) => params.getAll(name),
     has: (name: string) => params.has(name),
     set: (name: string, value: string) => params.set(name, value),
@@ -124,6 +125,11 @@ export function buildMockHost(options: {
     delete:  vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
     options: vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
     head:    vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
+    request:    vi.fn((opts: string | { url: string; method?: string; headers?: Record<string, string>; body?: string }) => {
+      const url = typeof opts === "string" ? opts : opts.url;
+      checkDomain(url);
+      return mockHTTPResponse();
+    }),
     rawPost: vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
   };
 
@@ -195,6 +201,7 @@ export function buildMockHost(options: {
     // Legacy aliases
     readFile:   fs.readFile,
     writeFile:  fs.writeFile,
+    request:    http.request,
     httpGet:    http.get,
     httpPost:   http.post,
     httpPut:    http.put,
