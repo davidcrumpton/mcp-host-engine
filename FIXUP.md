@@ -21,7 +21,7 @@ This is now consistent across all logging calls in the HTTP transport, plugin ex
 
 Token validation events are now logged:
 
-- Successful token validation: `Token validation successful for user`
+- Successful token validation: `Token validation successful`
 - Failed validation: `Token validation failed: <error details>`
 - Legacy token usage: `Using legacy bearer token`
 
