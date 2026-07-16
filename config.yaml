@@ -4,17 +4,17 @@ port: "8001"
 host: "127.0.0.1"
 use_https: false
 bearer_token: ""
-#token_secret: oludie3Aigae6Ohru6AhMigh
-token_secret: "vault://PurpleMac/data/mcphe/8000#token_secret"
+token_secret: oludie3Aigae6Ohru6AhMigh
+#token_secret: "vault://PurpleMac/data/mcphe/8000#token_secret"
 run_as_root: false
 verbosity_level: 4
 #token_revocation_file: revocations.yaml
 token_revocation_file: "env://MCPHE_REVOKE_FILE"
 
-vault_addr: http://localhost:8200
-vault_role_id: bf937367-9ba1-8212-2848-b6c8fe0286ec
-vault_secret_id: "7dba8532-5a96-896a-8006-32ada1ddd7b1"
-vault_approle: "purplemac-mcphe-8000"
+# vault_addr: http://localhost:8200
+# vault_role_id: bf937367-9ba1-8212-2848-b6c8fe0286ec
+# vault_secret_id: "7dba8532-5a96-896a-8006-32ada1ddd7b1"
+# vault_approle: "purplemac-mcphe-8000"
 
 plugins:
   get_ip:
@@ -87,3 +87,10 @@ plugins:
     # vault_test: "vault://cubbyhole/mcphe#BIGG"
     invocation_user: "env://USER"
     config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"
+  wsd:
+    allowed_domains: ["docker-vm.crumpton.org"]
+    allowed_env_vars: ["WSD_BASE_URL", "WSD_TOKEN"]
+    http_timeout_seconds: 300
+    options:
+      base_url: "https://docker-vm.crumpton.org:9080"
+    # WSD_TOKEN env var is safer than a hardcoded token here

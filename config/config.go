@@ -41,6 +41,7 @@ type Config struct {
 	Transport          string                            `yaml:"transport"`
 	LogsAsJSON         bool                              `yaml:"logs_as_json"`
 	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
+	HTTPClientTimeoutSeconds int `yaml:"http_client_timeout_seconds"`
 	TokenSecret        string                            `yaml:"token_secret"`
 	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
 	VaultAddr          string                            `yaml:"vault_addr"`
@@ -61,7 +62,7 @@ var DefaultConfig = Config{
 	Transport:     TransportHTTP,
 	LogsAsJSON:    false,
 	VaultApprole:  "approle",
-
+	HTTPClientTimeoutSeconds: 60,
 	Verbosity: 0,
 	Plugins: map[string]map[string]interface{}{
 		"wikipedia_search": {
@@ -520,4 +521,23 @@ func (c *Config) resolvePluginValues() error {
 		}
 	}
 	return nil
+}
+
+// HTTPTimeoutSecondsFor returns the per-request HTTP client timeout for pluginName.
+// Precedence: plugin-level "http_timeout_seconds" > global http_client_timeout_seconds > 15s default.
+func (c Config) HTTPTimeoutSecondsFor(pluginName string) int {
+	if pCfg, ok := c.Plugins[pluginName]; ok {
+		if raw, ok := pCfg["http_timeout_seconds"]; ok {
+			switch v := raw.(type) {
+			case int:
+				return v
+			case float64:
+				return int(v)
+			}
+		}
+	}
+	if c.HTTPClientTimeoutSeconds > 0 {
+		return c.HTTPClientTimeoutSeconds
+	}
+	return 15
 }

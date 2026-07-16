@@ -74,7 +74,7 @@ func Request(ctx context.Context, method string, urlStr string, headers map[stri
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -144,7 +144,7 @@ func Get(ctx context.Context, urlStr string, headers map[string]interface{}, cfg
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 	// req.Header.Set("X-Debugging-Plugin", "yes")
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -214,7 +214,7 @@ func Post(ctx context.Context, urlStr string, headers map[string]interface{}, bo
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -284,7 +284,7 @@ func Patch(ctx context.Context, urlStr string, headers map[string]interface{}, b
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -354,7 +354,7 @@ func Put(ctx context.Context, urlStr string, headers map[string]interface{}, bod
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -424,7 +424,7 @@ func Delete(ctx context.Context, urlStr string, headers map[string]interface{}, 
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -494,7 +494,7 @@ func Options(ctx context.Context, urlStr string, headers map[string]interface{},
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -564,7 +564,7 @@ func Head(ctx context.Context, urlStr string, headers map[string]interface{}, cf
 		req.Header.Set("User-Agent", "mcphe/1.0")
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := clientFor(cfg, pluginName).Do(req)
 	if err != nil {
 		cfg.LogfWithContext(1, identity, sessionID, "HTTP request to %s failed: %v", urlStr, err)
 		return nil, err
@@ -660,4 +660,13 @@ func isMethodAllowed(method string, cfg config.Config, pluginName string) bool {
 		}
 	}
 	return false
+}
+
+
+func clientFor(cfg config.Config, pluginName string) *http.Client {
+	timeout := cfg.HTTPTimeoutSecondsFor(pluginName)
+	return &http.Client{
+		Timeout:   time.Duration(timeout) * time.Second,
+		Transport: httpClient.Transport,
+	}
 }

@@ -1,0 +1,36 @@
+/**
+ * get_ip/plugin.test.ts
+ */
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { installMockHost, mockHTTPResponse } from "../mock-host";
+
+let mockHost: ReturnType<typeof installMockHost>;
+
+beforeEach(() => {
+  mockHost = installMockHost({ allowedDomains: ["ifconfig.io"] });
+});
+
+// Vitest transforms .ts natively — import the plugin directly
+import * as pluginModule from "./plugin";
+const plugin = pluginModule as unknown as { version: string, name: string; description: string; call: (p: Record<string, unknown>) => string };
+
+describe("wsd plugin", () => {
+  it("has the correct metadata", () => {
+    expect(plugin.name).toBe("wsd");
+    expect(plugin.description).toBeTruthy();
+  });
+
+
+  it("can successfully prepare a workspace", () => {
+    const params = {
+      CommandEvent: "prepare_workspace",
+      repo_url: "https://github.com/your-org/your-repo.git",
+      ref: "main"
+    };
+
+    mockHTTPResponse(200, JSON.stringify({ workspace_id: "12345" }));
+    const result = plugin.call(params);
+    expect(result).toEqual({ success: true, workspace_id: "12345" });
+  });
+});
