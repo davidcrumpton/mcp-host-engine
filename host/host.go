@@ -61,6 +61,8 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 		"config":      pluginConfig,
 		"pid":         pid,
 		"httpHeaders": httpHeaders,
+		"sessionID":   sessionID,
+		"identity":    identity,
 
 		// JavaScript style functions and objects, will become the future format
 		// making above functions and objects obsolete and providing porters
