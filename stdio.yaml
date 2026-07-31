@@ -23,3 +23,14 @@ plugins:
     api_token: "xyz"
   wikipedia_search:
     allowed_domains: ["en.wikipedia.org"]
+  memory:
+    enabled: true
+    allowed_write_file_paths: ["/tmp/mcphe/"]
+    allowed_read_file_paths: ["/tmp/mcphe/"]
+    allowed_http_headers:
+      - "mcp-request-id"
+      - "mcp-session-id"
+    options:
+      data_dir: "/tmp/mcphe"
+  websearch:
+    allowed_domains: ["duckduckgo.com", "duck.ai"]

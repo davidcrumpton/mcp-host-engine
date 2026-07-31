@@ -44,7 +44,7 @@ const plugin = {
   call(params) {
     const { action, key, value, session_id } = params;
     const MEMORY_DIR_BASE = host.config.options.data_dir || "/tmp/mcphe." + host.pid;
-    const currentSession = session_id || host.identity || "default";
+    const currentSession = session_id || host.server.httpHeaders && host.server.httpHeaders["Mcp-Session-Id"] || host.config.options.session_key || "default";
     const memoryFile = `${MEMORY_DIR_BASE}/${currentSession}_memory.json`;
     const tempFile = `${MEMORY_DIR_BASE}/${currentSession}_memory.json.tmp`;
     createDataDir();
