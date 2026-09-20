@@ -27,6 +27,10 @@ Token validation events are now logged:
 
 Error messages include details about expiry or revocation status.
 
+3. host.http.* fixed timeout issue
+
+Fix `host.http.*` so the timeout is configurable.
+
 ## Upcoming Features
 
 None discussed.  If there were some, they would be noted here.
