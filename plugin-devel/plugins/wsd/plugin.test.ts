@@ -119,6 +119,30 @@ describe("wsd plugin", () => {
     });
   });
 
+  it("uses the configured default timeout when timeout_seconds is omitted", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ stdout: "ok" }) })
+    );
+    plugin.call({ CommandEvent: "exec_command", workspace_id: "w1", command: "make", allow_network: false });
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.timeout_seconds).toBe(180);
+  });
+
+  it("honors options.timeout_seconds for the default timeout", () => {
+    const h = installMockHost({
+      allowedDomains: ["docker-vm.crumpton.org"],
+      allowedEnv: ["WSD_BASE_URL", "WSD_TOKEN"],
+      env: { WSD_BASE_URL: BASE, WSD_TOKEN: "test-token" },
+      pluginConfig: { options: { timeout_seconds: 240 } },
+    });
+    vi.mocked(h.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ stdout: "ok" }) })
+    );
+    plugin.call({ CommandEvent: "exec_command", workspace_id: "w1", command: "make", allow_network: false });
+    const body = JSON.parse(vi.mocked(h.http.post).mock.calls[0][2] as string);
+    expect(body.timeout_seconds).toBe(240);
+  });
+
   // ── get_artifacts ───────────────────────────────────────────────────────
 
   it("fetches artifacts scoped to paths", () => {
@@ -156,7 +180,7 @@ describe("wsd plugin", () => {
 
   // ── commit_and_pr ───────────────────────────────────────────────────────
 
-  it("commits and opens a PR with forge metadata", () => {
+  it("commits and opens a PR without a forge type", () => {
     vi.mocked(mockHost.http.post).mockReturnValueOnce(
       mockHTTPResponse({ body: JSON.stringify({ branch: "wsd/abc", mr_url: "https://gitlab/mr/1" }) })
     );
@@ -165,7 +189,6 @@ describe("wsd plugin", () => {
       workspace_id: "w1",
       commit_message: "fix bug",
       pr_title: "Fix bug",
-      forge_type: "gitlab",
       project_path: "group/project",
     });
     expect(res.success).toBe(true);
@@ -173,9 +196,9 @@ describe("wsd plugin", () => {
     expect(body).toMatchObject({
       commit_message: "fix bug",
       pr_title: "Fix bug",
-      forge_type: "gitlab",
       project_path: "group/project",
     });
+    expect(body).not.toHaveProperty("forge_type");
   });
 
   it("requires commit_message and pr_title for commit_and_pr", () => {

@@ -8,7 +8,7 @@ function isObj(v) {
 const wsdPlugin = {
   name: "wsd",
   description: "Workspace Daemon (wsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background processes, pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local wsd Go daemon.",
-  version: "1.1.0",
+  version: "1.2.0",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
   annotations: {
@@ -53,14 +53,17 @@ const wsdPlugin = {
       },
       env_overrides: {
         type: "object",
-        description: "Optional map pinning the environment for prepare_workspace. Supported keys: language, version, package_manager, install_command, base_image, post_create_command.",
+        description: "Optional map pinning the environment for prepare_workspace. Supported keys: language, version, package_manager, install_command, base_image, post_create_command, system_package_manager, system_install_command, notes. `package_manager` describes only the project's dependency manager; when it is 'none' (or language is 'unknown') the runtime still has a system package manager \u2014 use profile.system_package_manager / profile.system_install_command to install system tools. Check the response's `os` field (linux, freebsd, openbsd, netbsd, minix) before installing anything.",
         properties: {
           language: { type: "string" },
           version: { type: "string" },
           package_manager: { type: "string" },
           install_command: { type: "string" },
           base_image: { type: "string" },
-          post_create_command: { type: "string" }
+          post_create_command: { type: "string" },
+          system_package_manager: { type: "string" },
+          system_install_command: { type: "string" },
+          notes: { type: "string" }
         }
       },
       // --- shared ---
@@ -71,7 +74,7 @@ const wsdPlugin = {
       // --- exec_command / start_process ---
       command: {
         type: "string",
-        description: "Shell command to execute, e.g. 'go test ./...' or 'pytest'. Required for exec_command and start_process."
+        description: "Shell command to execute, e.g. 'go test ./...' or 'pytest'. Required for exec_command and start_process. Commands run with the repo (work_dir, currently '/workspace/repo') as the working directory, so relative paths resolve there \u2014 do not 'cd' to the repo root."
       },
       allow_network: {
         type: "boolean",
@@ -79,8 +82,8 @@ const wsdPlugin = {
       },
       timeout_seconds: {
         type: "integer",
-        description: "Max seconds to allow the command to run before it's killed (exec_command). Default 120.",
-        default: 120
+        description: "Max seconds to allow the command to run before it's killed (exec_command). Pass 0 (the default) to use the configured default timeout.",
+        default: 0
       },
       secrets: {
         type: "array",
@@ -94,7 +97,7 @@ const wsdPlugin = {
       },
       path: {
         type: "string",
-        description: "Absolute path inside the workspace. Required for list_files, read_file, and write_file."
+        description: "Path inside the workspace. Required for list_files, read_file, and write_file. Prefer a path relative to the repo root (work_dir, e.g. '/workspace/repo'), such as '.' or 'src/main.c'; absolute paths must be inside the repo."
       },
       content: {
         type: "string",
@@ -103,7 +106,7 @@ const wsdPlugin = {
       // --- safe_edit ---
       file_path: {
         type: "string",
-        description: "Absolute path of the file to edit inside the workspace (safe_edit)."
+        description: "Path of the file to edit (safe_edit). Prefer a path relative to the repo root (e.g. 'src/main.c'), which is resolved against work_dir (e.g. '/workspace/repo'); absolute paths must be inside the repo."
       },
       pattern: {
         type: "string",
@@ -126,13 +129,9 @@ const wsdPlugin = {
         type: "string",
         description: "Optional longer description for the pull/merge request (commit_and_pr)."
       },
-      forge_type: {
-        type: "string",
-        description: "Type of the git forge, e.g. github, gitlab, gitea (commit_and_pr)."
-      },
       project_path: {
         type: "string",
-        description: "Project path or owner/repo format for the forge (commit_and_pr)."
+        description: "Project path or owner/repo format for the forge (commit_and_pr). The forge type (github/gitlab/gitea) is configured on the daemon; do not supply it."
       },
       gitlab_project_path: {
         type: "string",
@@ -254,14 +253,19 @@ const wsdPlugin = {
     }
   },
   execCommand(params, token, baseUrl) {
+    var _a;
     const missing = this._require(params, ["workspace_id", "command"], "exec_command");
     if (missing) return missing;
     if (typeof params.allow_network !== "boolean") {
       return { success: false, error: "allow_network (boolean) is mandatory for exec_command." };
     }
+    const cfgTimeout = (_a = host.config.options) == null ? void 0 : _a.timeout_seconds;
+    const defaultTimeout = typeof cfgTimeout === "number" && cfgTimeout > 0 ? cfgTimeout : 180;
+    const requested = typeof params.timeout_seconds === "number" ? params.timeout_seconds : 0;
+    const effectiveTimeout = requested > 0 ? requested : defaultTimeout;
     const body = JSON.stringify({
       command: params.command,
-      timeout_seconds: params.timeout_seconds || 120,
+      timeout_seconds: effectiveTimeout,
       secrets: Array.isArray(params.secrets) ? params.secrets : [],
       allow_network: params.allow_network
     });
@@ -308,7 +312,6 @@ const wsdPlugin = {
       pr_description: str(params.pr_description),
       repo_url: str(params.repo_url)
     };
-    if (params.forge_type) payload.forge_type = params.forge_type;
     if (params.project_path) payload.project_path = params.project_path;
     if (params.gitlab_project_path) payload.gitlab_project_path = params.gitlab_project_path;
     try {
