@@ -1,24 +1,24 @@
 /// <reference path="../../types/mcphe.d.ts" />
 "use strict";
 /**
- * wsd — Workspace Daemon plugin for mcphe
+ * mcwsd — MC Workspace Daemon plugin for mcphe
  *
- * Port of the OpenWebUI "Workspace Daemon (wsd)" tool (wsd.py v0.3.3) to a
+ * Port of the OpenWebUI "Workspace Daemon (mcwsd)" tool (wsd.py v0.3.3) to a
  * synchronous goja plugin. Provisions ephemeral dev workspaces, runs commands,
  * edits/reads/writes files, manages background processes, pulls diffs, opens
  * pull/merge requests, checks status, and tears workspaces down via the local
- * wsd Go daemon.
+ * mcwsd Go daemon.
  *
  * Config (config.yaml):
  *
  *   plugins:
- *     wsd:
+ *     mcwsd:
  *       allowed_domains: ["docker-vm.crumpton.org"]
- *       allowed_env_vars: ["WSD_BASE_URL", "WSD_TOKEN"]
+ *       allowed_env_vars: ["MCCWS_BASE_URL", "MCCWS_TOKEN"]
  *       options:
  *         base_url: "https://docker-vm.crumpton.org:9080"
  *         timeout_seconds: 180
- *         # token is better supplied via WSD_TOKEN env var than hardcoded here
+ *         # token is better supplied via MCWSD_TOKEN env var than hardcoded here
  *
  * goja constraints observed:
  *   - call() is synchronous — no async/await, host.http.* calls block.
@@ -37,9 +37,9 @@ function isObj(v: unknown): v is Record<string, unknown> {
 }
 
 const wsdPlugin = {
-  name: "wsd",
+  name: "mcwsd",
   description:
-    "Workspace Daemon (wsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background processes, pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local wsd Go daemon.",
+    "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background processes, pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
   version: "1.2.0",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
@@ -77,7 +77,7 @@ const wsdPlugin = {
       repo_url: {
         type: "string",
         description:
-          "Git URL to clone (https or ssh). Required for prepare_workspace and optionally used by commit_and_pr.",
+          "Optional Git URL to clone (https or ssh). Leave empty to create a blank workspace. Repository preparation requires forge authentication; optionally used by commit_and_pr.",
       },
       ref: {
         type: "string",
@@ -200,26 +200,26 @@ const wsdPlugin = {
     let token: string;
     try {
       baseUrl =
-        host.process.env("WSD_BASE_URL") ||
+        host.process.env("MCWSD_BASE_URL") ||
         str((host.config as Record<string, any>).options?.base_url) ||
         "https://docker-vm.crumpton.org:9080";
       token =
-        host.process.env("WSD_TOKEN") ||
+        host.process.env("MCWSD_TOKEN") ||
         str((host.config as Record<string, any>).options?.token) ||
         "";
     } catch (err) {
-      return { success: false, error: `Failed to load wsd configuration: ${(err as Error).message}` };
+      return { success: false, error: `Failed to load mcwsd configuration: ${(err as Error).message}` };
     }
 
     if (!token) {
       return {
         success: false,
-        error: "Missing wsd bearer token. Set options.token in config or the WSD_TOKEN environment variable.",
+        error: "Missing mcwsd bearer token. Set options.token in config or the MCWSD_TOKEN environment variable.",
       };
     }
 
     baseUrl = baseUrl.replace(/\/$/, "");
-    host.server.logger(3, `wsd: CommandEvent=${CommandEvent} baseUrl=${baseUrl}`);
+    host.server.logger(3, `mcwsd: CommandEvent=${CommandEvent} baseUrl=${baseUrl}`);
 
     switch (CommandEvent) {
       case "prepare_workspace":
@@ -275,7 +275,7 @@ const wsdPlugin = {
         return { success: true, result: bodyText };
       }
     }
-    host.server.logger(1, `wsd: ${label} \u2192 HTTP ${status}: ${bodyText}`);
+    host.server.logger(1, `mcwsd: ${label} \u2192 HTTP ${status}: ${bodyText}`);
     return { success: false, error: `HTTP ${status}`, detail: bodyText || undefined };
   },
 
@@ -295,13 +295,10 @@ const wsdPlugin = {
   // ── Workspace lifecycle ─────────────────────────────────────────────────
 
   prepareWorkspace(params: Params, token: string, baseUrl: string) {
-    const missing = this._require(params, ["repo_url"], "prepare_workspace");
-    if (missing) return missing;
-
-    const payload: Record<string, unknown> = {
-      repo_url: params.repo_url,
-      ref: str(params.ref) || "main",
-    };
+    const ref = str(params.ref) || "main";
+    const payload: Record<string, unknown> = str(params.repo_url)
+      ? { repo_url: params.repo_url, ref }
+      : { ref };
     if (isObj(params.env_overrides) && Object.keys(params.env_overrides).length > 0) {
       payload.env_overrides = params.env_overrides;
     }

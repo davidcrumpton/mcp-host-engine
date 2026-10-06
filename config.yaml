@@ -59,8 +59,9 @@ plugins:
     allowed_domains: "env://GITLAB_ALLOWED_DOMAINS"
     allowed_env_vars: ["GITLAB_API_KEY"]
   zabbix:
-    allowed_env_vars: ["ZABBIX_API_URL", "ZABBIX_USER", "ZABBIX_PASSWORD", "ZABBIX_AUTH_TOKEN"]
-    allowed_domains: ["ollama.crumpton.org","zabbix.crumpton.org"]
+    allowed_env_vars:
+      ["ZABBIX_API_URL", "ZABBIX_USER", "ZABBIX_PASSWORD", "ZABBIX_AUTH_TOKEN"]
+    allowed_domains: ["ollama.crumpton.org", "zabbix.crumpton.org"]
   wikijs:
     allowed_env_vars: ["WIKIJS_API_URL", "WIKIJS_API_TOKEN"]
     allowed_domains: ["wiki.crumpton.org"]
@@ -76,20 +77,21 @@ plugins:
     allowed_env_vars: ["GITEA_API_KEY", "GITEA_API_URL"]
     allowed_domains: ["git.crumpton.org"]
   opensearch:
-    allowed_env_vars: ["OPENSEARCH_BASE_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
-    allowed_domains: ['opensearch.crumpton.org']
+    allowed_env_vars:
+      ["OPENSEARCH_BASE_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+    allowed_domains: ["opensearch.crumpton.org"]
   kibana:
     allowed_env_vars: ["KIBANA_BASE_URL", "KIBANA_USERNAME", "KIBANA_PASSWORD"]
-    allowed_domains: ['elk.crumpton.org']
+    allowed_domains: ["elk.crumpton.org"]
   proxmox_api:
     allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
-    allowed_domains: ['pve02.crumpton.org']
+    allowed_domains: ["pve02.crumpton.org"]
     # vault_test: "vault://cubbyhole/mcphe#BIGG"
     invocation_user: "env://USER"
     config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"
   wsd:
     allowed_domains: ["docker-vm.crumpton.org"]
-    allowed_env_vars: ["WSD_BASE_URL", "WSD_TOKEN"]
+    allowed_env_vars: ["MCWSD_BASE_URL", "MCWSD_TOKEN"]
     http_timeout_seconds: 300
     options:
       base_url: "https://docker-vm.crumpton.org:9080"

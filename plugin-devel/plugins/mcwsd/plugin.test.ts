@@ -1,5 +1,5 @@
 /**
- * wsd/plugin.test.ts
+ * mcwsd/plugin.test.ts
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -13,8 +13,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockHost = installMockHost({
     allowedDomains: ["docker-vm.crumpton.org"],
-    allowedEnv: ["WSD_BASE_URL", "WSD_TOKEN"],
-    env: { WSD_BASE_URL: BASE, WSD_TOKEN: "test-token" },
+    allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+    env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "test-token" },
   });
 });
 
@@ -26,9 +26,9 @@ const plugin = pluginModule as unknown as {
   call: (p: Record<string, unknown>) => any;
 };
 
-describe("wsd plugin", () => {
+describe("mcwsd plugin", () => {
   it("has the correct metadata", () => {
-    expect(plugin.name).toBe("wsd");
+    expect(plugin.name).toBe("mcwsd");
     expect(plugin.description).toBeTruthy();
     expect(plugin.version).match(/\d+\.\d+\.\d+/);
   });
@@ -36,8 +36,8 @@ describe("wsd plugin", () => {
   it("errors when no token is configured", () => {
     installMockHost({
       allowedDomains: ["docker-vm.crumpton.org"],
-      allowedEnv: ["WSD_BASE_URL", "WSD_TOKEN"],
-      env: { WSD_BASE_URL: BASE, WSD_TOKEN: "" },
+      allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+      env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "" },
     });
     const res = plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
     expect(res.success).toBe(false);
@@ -68,6 +68,19 @@ describe("wsd plugin", () => {
     );
   });
 
+  it("prepares a blank workspace without a repo URL", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ workspace_id: "blank-1", os: "linux" }) })
+    );
+    const res = plugin.call({ CommandEvent: "prepare_workspace" });
+    expect(res).toEqual({ success: true, result: { workspace_id: "blank-1", os: "linux" } });
+    expect(mockHost.http.post).toHaveBeenCalledWith(
+      `${BASE}/workspaces`,
+      expect.objectContaining({ Authorization: "Bearer test-token" }),
+      JSON.stringify({ ref: "main" })
+    );
+  });
+
   it("forwards env_overrides when provided", () => {
     vi.mocked(mockHost.http.post).mockReturnValueOnce(
       mockHTTPResponse({ body: JSON.stringify({ workspace_id: "1" }) })
@@ -79,11 +92,6 @@ describe("wsd plugin", () => {
     });
     const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
     expect(body.env_overrides).toEqual({ language: "node", install_command: "npm ci" });
-  });
-
-  it("requires repo_url for prepare_workspace", () => {
-    const res = plugin.call({ CommandEvent: "prepare_workspace" });
-    expect(res).toEqual({ success: false, error: "repo_url is required for prepare_workspace." });
   });
 
   // ── exec_command ────────────────────────────────────────────────────────
@@ -131,8 +139,8 @@ describe("wsd plugin", () => {
   it("honors options.timeout_seconds for the default timeout", () => {
     const h = installMockHost({
       allowedDomains: ["docker-vm.crumpton.org"],
-      allowedEnv: ["WSD_BASE_URL", "WSD_TOKEN"],
-      env: { WSD_BASE_URL: BASE, WSD_TOKEN: "test-token" },
+      allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+      env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "test-token" },
       pluginConfig: { options: { timeout_seconds: 240 } },
     });
     vi.mocked(h.http.post).mockReturnValueOnce(
@@ -331,8 +339,8 @@ describe("wsd plugin", () => {
   it("reports an error when the domain is blocked", () => {
     installMockHost({
       allowedDomains: ["example.com"],
-      allowedEnv: ["WSD_BASE_URL", "WSD_TOKEN"],
-      env: { WSD_BASE_URL: BASE, WSD_TOKEN: "test-token" },
+      allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+      env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "test-token" },
     });
     const res = plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
     expect(res.success).toBe(false);
