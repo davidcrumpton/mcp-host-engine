@@ -2,6 +2,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,21 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// marshalNoEscape encodes v as JSON without HTML-escaping &, <, and >.
+// encoding/json escapes those by default ("a && b" -> "a \u0026\u0026 b").
+// In an MCP pipeline the escaped form leaks into raw-arg logs and into the
+// text content returned to the model, which then reproduces the literal
+// escape sequence in later tool calls and breaks shell commands.
+func marshalNoEscape(v interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
 
 func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Config) {
 	for _, plugin := range pm.ListTools(cfg) {
@@ -56,7 +72,7 @@ func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Co
 			}
 
 			// Convert params back to raw JSON for plugin call
-			rawArgs, err := json.Marshal(params)
+			rawArgs, err := marshalNoEscape(params)
 			if err != nil {
 				result := &mcp.CallToolResult{}
 				result.SetError(err)
@@ -139,8 +155,10 @@ func ResultToSDK(value interface{}) *mcp.CallToolResult {
 			&mcp.TextContent{Text: string(v)},
 		}
 	default:
-		// For other types, we'll convert to JSON
-		jsonData, _ := json.Marshal(value)
+		// For other types, we'll convert to JSON. Use a non-HTML-escaping
+		// encoder so ampersands and angle brackets in tool output are shown
+		// verbatim to the model instead of as \u0026, \u003c, \u003e.
+		jsonData, _ := marshalNoEscape(value)
 		result.Content = []mcp.Content{
 			&mcp.TextContent{Text: string(jsonData)},
 		}

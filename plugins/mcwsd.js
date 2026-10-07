@@ -97,7 +97,7 @@ const wsdPlugin = {
       },
       path: {
         type: "string",
-        description: "Path inside the workspace. Required for list_files, read_file, and write_file. Prefer a path relative to the repo root (work_dir, e.g. '/workspace/repo'), such as '.' or 'src/main.c'; absolute paths must be inside the repo."
+        description: "Path inside the workspace. Required for list_files, read_file, and write_file. Prefer a path relative to the repo root (work_dir, e.g. '/workspace/repo'), such as '.' or 'src/main.c'; absolute paths must be inside the repo. 'file_path' is accepted as an alias for this field."
       },
       content: {
         type: "string",
@@ -106,7 +106,7 @@ const wsdPlugin = {
       // --- safe_edit ---
       file_path: {
         type: "string",
-        description: "Path of the file to edit (safe_edit). Prefer a path relative to the repo root (e.g. 'src/main.c'), which is resolved against work_dir (e.g. '/workspace/repo'); absolute paths must be inside the repo."
+        description: "Path of the file to edit (safe_edit). Prefer a path relative to the repo root (e.g. 'src/main.c'), which is resolved against work_dir (e.g. '/workspace/repo'); absolute paths must be inside the repo. 'path' is accepted as an alias for this field."
       },
       pattern: {
         type: "string",
@@ -234,6 +234,12 @@ const wsdPlugin = {
   _wsUrl(baseUrl, workspaceId, suffix) {
     return baseUrl + "/workspaces/" + encodeURIComponent(str(workspaceId)) + suffix;
   },
+  // Some models send `file_path` (the safe_edit field name) for the file
+  // actions that are documented with `path`. Accept either so a naming
+  // mix-up cannot silently drop a write.
+  _path(params) {
+    return str(params.path) || str(params.file_path);
+  },
   // ── Workspace lifecycle ─────────────────────────────────────────────────
   prepareWorkspace(params, token, baseUrl) {
     const ref = str(params.ref) || "main";
@@ -285,10 +291,12 @@ const wsdPlugin = {
     }
   },
   safeEdit(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "file_path", "pattern"], "safe_edit");
+    const missing = this._require(params, ["workspace_id", "pattern"], "safe_edit");
     if (missing) return missing;
+    const filePath = str(params.file_path) || str(params.path);
+    if (!filePath) return { success: false, error: "file_path is required for safe_edit." };
     const body = JSON.stringify({
-      file_path: params.file_path,
+      file_path: filePath,
       pattern: params.pattern,
       replacement: str(params.replacement)
     });
@@ -346,9 +354,11 @@ const wsdPlugin = {
   },
   // ── File system ─────────────────────────────────────────────────────────
   listFiles(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "path"], "list_files");
+    const missing = this._require(params, ["workspace_id"], "list_files");
     if (missing) return missing;
-    const url = this._wsUrl(baseUrl, params.workspace_id, "/files") + "?path=" + encodeURIComponent(str(params.path));
+    const path = this._path(params);
+    if (!path) return { success: false, error: "path is required for list_files." };
+    const url = this._wsUrl(baseUrl, params.workspace_id, "/files") + "?path=" + encodeURIComponent(path);
     try {
       const resp = host.http.get(url, this._headers(token, false));
       return this._handleResponse(resp, "list_files");
@@ -357,9 +367,11 @@ const wsdPlugin = {
     }
   },
   readFile(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "path"], "read_file");
+    const missing = this._require(params, ["workspace_id"], "read_file");
     if (missing) return missing;
-    const url = this._wsUrl(baseUrl, params.workspace_id, "/file") + "?path=" + encodeURIComponent(str(params.path));
+    const path = this._path(params);
+    if (!path) return { success: false, error: "path is required for read_file." };
+    const url = this._wsUrl(baseUrl, params.workspace_id, "/file") + "?path=" + encodeURIComponent(path);
     try {
       const resp = host.http.get(url, this._headers(token, false));
       return this._handleResponse(resp, "read_file");
@@ -368,13 +380,15 @@ const wsdPlugin = {
     }
   },
   writeFile(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "path"], "write_file");
+    const missing = this._require(params, ["workspace_id"], "write_file");
     if (missing) return missing;
-    const body = JSON.stringify({ path: params.path, content: str(params.content) });
+    const path = this._path(params);
+    if (!path) return { success: false, error: "path is required for write_file." };
+    const body = JSON.stringify({ path, content: str(params.content) });
     try {
       const resp = host.http.put(this._wsUrl(baseUrl, params.workspace_id, "/file"), this._headers(token, true), body);
       if (resp.status >= 200 && resp.status < 300) {
-        return { success: true, result: `File ${params.path} written successfully.` };
+        return { success: true, result: `File ${path} written successfully.` };
       }
       return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
     } catch (err) {

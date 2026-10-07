@@ -269,6 +269,44 @@ describe("mcwsd plugin", () => {
     );
   });
 
+  it("writes a file when the model sends file_path instead of path", () => {
+    vi.mocked(mockHost.http.put).mockReturnValueOnce(mockHTTPResponse({ status: 200 }));
+    const res = plugin.call({
+      CommandEvent: "write_file",
+      workspace_id: "w1",
+      file_path: "/workspace/repo/a.txt",
+      content: "data",
+    });
+    expect(res).toEqual({ success: true, result: "File /workspace/repo/a.txt written successfully." });
+    expect(mockHost.http.put).toHaveBeenCalledWith(
+      `${BASE}/workspaces/w1/file`,
+      expect.any(Object),
+      JSON.stringify({ path: "/workspace/repo/a.txt", content: "data" })
+    );
+  });
+
+  it("reports a missing path for write_file", () => {
+    const res = plugin.call({ CommandEvent: "write_file", workspace_id: "w1", content: "data" });
+    expect(res).toEqual({ success: false, error: "path is required for write_file." });
+    expect(mockHost.http.put).not.toHaveBeenCalled();
+  });
+
+  it("reads a file when the model sends file_path instead of path", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ content: "hello" }) })
+    );
+    const res = plugin.call({ CommandEvent: "read_file", workspace_id: "w1", file_path: "/workspace/repo/main.go" });
+    expect(res).toEqual({ success: true, result: { content: "hello" } });
+  });
+
+  it("lists files when the model sends file_path instead of path", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ entries: [] }) })
+    );
+    const res = plugin.call({ CommandEvent: "list_files", workspace_id: "w1", file_path: "/workspace/repo" });
+    expect(res).toEqual({ success: true, result: { entries: [] } });
+  });
+
   // ── background processes ────────────────────────────────────────────────
 
   it("starts a background process", () => {
