@@ -89,10 +89,10 @@ plugins:
     # vault_test: "vault://cubbyhole/mcphe#BIGG"
     invocation_user: "env://USER"
     config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"
-  wsd:
+  mcwsd:
     allowed_domains: ["docker-vm.crumpton.org"]
     allowed_env_vars: ["MCWSD_BASE_URL", "MCWSD_TOKEN"]
     http_timeout_seconds: 300
     options:
       base_url: "https://docker-vm.crumpton.org:9080"
-    # WSD_TOKEN env var is safer than a hardcoded token here
+    # MCWSD_TOKEN env var is safer than a hardcoded token here
