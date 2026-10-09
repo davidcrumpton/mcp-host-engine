@@ -7,8 +7,8 @@ function isObj(v) {
 }
 const wsdPlugin = {
   name: "mcwsd",
-  description: "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background processes, pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
-  version: "1.2.0",
+  description: "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background jobs (start/poll/cancel with incremental output), pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
+  version: "1.3.0",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
   annotations: {
@@ -34,6 +34,10 @@ const wsdPlugin = {
           "list_files",
           "read_file",
           "write_file",
+          "start_job",
+          "list_jobs",
+          "get_job",
+          "cancel_job",
           "start_process",
           "list_processes",
           "get_process_status",
@@ -69,26 +73,36 @@ const wsdPlugin = {
       // --- shared ---
       workspace_id: {
         type: "string",
-        description: "ID returned by prepare_workspace. Required for exec_command, get_artifacts, safe_edit, commit_and_pr, workspace_status, destroy_workspace, list_files, read_file, write_file, start_process, list_processes, get_process_status, send_process_input, kill_process."
+        description: "ID returned by prepare_workspace. Required for exec_command, get_artifacts, safe_edit, commit_and_pr, workspace_status, destroy_workspace, list_files, read_file, write_file, start_job, list_jobs, get_job, cancel_job (and their legacy *_process aliases)."
       },
-      // --- exec_command / start_process ---
+      // --- exec_command / start_job ---
       command: {
         type: "string",
-        description: "Shell command to execute, e.g. 'go test ./...' or 'pytest'. Required for exec_command and start_process. Commands run with the repo (work_dir, currently '/workspace/repo') as the working directory, so relative paths resolve there \u2014 do not 'cd' to the repo root."
+        description: "Shell command to execute, e.g. 'go test ./...' or 'pytest'. Required for exec_command and start_job. Commands run with the repo (work_dir, currently '/workspace/repo') as the working directory, so relative paths resolve there \u2014 do not 'cd' to the repo root."
       },
       allow_network: {
         type: "boolean",
-        description: "MANDATORY for exec_command: true if the command needs internet access, false for local-only tasks (more secure). Optional for start_process (default false)."
+        description: "MANDATORY for exec_command: true if the command needs internet access, false for local-only tasks (more secure). Optional for start_job (default false)."
       },
       timeout_seconds: {
         type: "integer",
-        description: "Max seconds to allow the command to run before it's killed (exec_command). Pass 0 (the default) to use the configured default timeout.",
+        description: "Max seconds to allow the command/job to run before it's killed (exec_command and start_job). Pass 0 (the default) to use the configured default timeout.",
         default: 0
       },
       secrets: {
         type: "array",
-        description: "List of secret reference names to grant for this exec call only (exec_command).",
+        description: "List of secret reference names to grant for this exec call only (exec_command). Secrets are synchronous-only; do not combine with wait_seconds or async.",
         items: { type: "string" }
+      },
+      wait_seconds: {
+        type: "integer",
+        description: "exec_command: seconds to block before promoting a still-running command to a background job. If it finishes within the wait, output is returned inline; otherwise the response carries a job_id to poll with get_job. 0 (the default) uses the daemon default.",
+        default: 0
+      },
+      async: {
+        type: "boolean",
+        description: "exec_command: return a job_id immediately without waiting (an explicit background start, subject to the daemon's background job limits).",
+        default: false
       },
       // --- get_artifacts / list_files / read_file / write_file ---
       paths: {
@@ -137,14 +151,22 @@ const wsdPlugin = {
         type: "string",
         description: "URL-encoded namespace/project path, or numeric project ID (legacy, use project_path) (commit_and_pr)."
       },
-      // --- background processes ---
+      // --- background jobs ---
+      job_id: {
+        type: "string",
+        description: "Job ID returned by start_job (or the job_id from an exec_command response). Required for get_job and cancel_job. 'process_id' is accepted as a legacy alias."
+      },
+      cursor: {
+        type: "string",
+        description: "Opaque cursor from a previous get_job response. Pass it back to receive only output produced since then; omit it for all output so far."
+      },
       process_id: {
         type: "string",
-        description: "Process ID returned by start_process. Required for get_process_status, send_process_input, kill_process."
+        description: "Legacy alias for job_id (start_process/get_process_status/kill_process). Prefer job_id with start_job/get_job/cancel_job."
       },
       input_text: {
         type: "string",
-        description: "Text to write to stdin (newline not appended automatically) (send_process_input)."
+        description: "Deprecated: interactive stdin is not supported for background jobs."
       }
     },
     required: ["CommandEvent"]
@@ -190,6 +212,14 @@ const wsdPlugin = {
         return self.readFile(params, token, baseUrl);
       case "write_file":
         return self.writeFile(params, token, baseUrl);
+      case "start_job":
+        return self.startJob(params, token, baseUrl);
+      case "list_jobs":
+        return self.listJobs(params, token, baseUrl);
+      case "get_job":
+        return self.getJob(params, token, baseUrl);
+      case "cancel_job":
+        return self.cancelJob(params, token, baseUrl);
       case "start_process":
         return self.startProcess(params, token, baseUrl);
       case "list_processes":
@@ -240,6 +270,11 @@ const wsdPlugin = {
   _path(params) {
     return str(params.path) || str(params.file_path);
   },
+  // Accept both the canonical job_id and the legacy process_id so older
+  // prompts keep working.
+  _jobId(params) {
+    return str(params.job_id) || str(params.process_id);
+  },
   // ── Workspace lifecycle ─────────────────────────────────────────────────
   prepareWorkspace(params, token, baseUrl) {
     const ref = str(params.ref) || "main";
@@ -265,12 +300,19 @@ const wsdPlugin = {
     const defaultTimeout = typeof cfgTimeout === "number" && cfgTimeout > 0 ? cfgTimeout : 180;
     const requested = typeof params.timeout_seconds === "number" ? params.timeout_seconds : 0;
     const effectiveTimeout = requested > 0 ? requested : defaultTimeout;
-    const body = JSON.stringify({
+    const payload = {
       command: params.command,
       timeout_seconds: effectiveTimeout,
       secrets: Array.isArray(params.secrets) ? params.secrets : [],
       allow_network: params.allow_network
-    });
+    };
+    if (typeof params.wait_seconds === "number" && params.wait_seconds > 0) {
+      payload.wait_seconds = params.wait_seconds;
+    }
+    if (params.async === true) {
+      payload.async = true;
+    }
+    const body = JSON.stringify(payload);
     try {
       const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/exec"), this._headers(token, true), body);
       return this._handleResponse(resp, "exec_command");
@@ -395,74 +437,84 @@ const wsdPlugin = {
       return { success: false, error: `Error writing file: ${err.message}` };
     }
   },
-  // ── Background processes ────────────────────────────────────────────────
-  startProcess(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "command"], "start_process");
+  // ── Background jobs ─────────────────────────────────────────────────────
+  startJob(params, token, baseUrl) {
+    const missing = this._require(params, ["workspace_id", "command"], "start_job");
     if (missing) return missing;
-    const body = JSON.stringify({
+    const payload = {
       command: params.command,
       allow_network: typeof params.allow_network === "boolean" ? params.allow_network : false
-    });
+    };
+    if (typeof params.timeout_seconds === "number" && params.timeout_seconds > 0) {
+      payload.timeout_seconds = params.timeout_seconds;
+    }
     try {
-      const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/processes"), this._headers(token, true), body);
-      return this._handleResponse(resp, "start_process");
+      const resp = host.http.post(
+        this._wsUrl(baseUrl, params.workspace_id, "/jobs"),
+        this._headers(token, true),
+        JSON.stringify(payload)
+      );
+      return this._handleResponse(resp, "start_job");
     } catch (err) {
-      return { success: false, error: `Error starting process: ${err.message}` };
+      return { success: false, error: `Error starting job: ${err.message}` };
     }
   },
-  listProcesses(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id"], "list_processes");
+  listJobs(params, token, baseUrl) {
+    const missing = this._require(params, ["workspace_id"], "list_jobs");
     if (missing) return missing;
     try {
-      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/processes"), this._headers(token, false));
-      return this._handleResponse(resp, "list_processes");
+      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/jobs"), this._headers(token, false));
+      return this._handleResponse(resp, "list_jobs");
     } catch (err) {
-      return { success: false, error: `Error listing processes: ${err.message}` };
+      return { success: false, error: `Error listing jobs: ${err.message}` };
     }
   },
-  getProcessStatus(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "process_id"], "get_process_status");
+  getJob(params, token, baseUrl) {
+    const missing = this._require(params, ["workspace_id"], "get_job");
     if (missing) return missing;
-    const url = this._wsUrl(baseUrl, params.workspace_id, "/processes/" + encodeURIComponent(str(params.process_id)));
+    const jobId = this._jobId(params);
+    if (!jobId) return { success: false, error: "job_id is required for get_job." };
+    let url = this._wsUrl(baseUrl, params.workspace_id, "/jobs/" + encodeURIComponent(jobId));
+    const cursor = str(params.cursor);
+    if (cursor) url += "?cursor=" + encodeURIComponent(cursor);
     try {
       const resp = host.http.get(url, this._headers(token, false));
-      return this._handleResponse(resp, "get_process_status");
+      return this._handleResponse(resp, "get_job");
     } catch (err) {
-      return { success: false, error: `Error getting process status: ${err.message}` };
+      return { success: false, error: `Error getting job: ${err.message}` };
     }
   },
-  sendProcessInput(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "process_id"], "send_process_input");
+  cancelJob(params, token, baseUrl) {
+    const missing = this._require(params, ["workspace_id"], "cancel_job");
     if (missing) return missing;
-    const body = JSON.stringify({ input: str(params.input_text) });
-    const url = this._wsUrl(
-      baseUrl,
-      params.workspace_id,
-      "/processes/" + encodeURIComponent(str(params.process_id)) + "/input"
-    );
-    try {
-      const resp = host.http.post(url, this._headers(token, true), body);
-      if (resp.status >= 200 && resp.status < 300) {
-        return { success: true, result: `Input sent to process ${params.process_id}.` };
-      }
-      return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
-    } catch (err) {
-      return { success: false, error: `Error sending process input: ${err.message}` };
-    }
-  },
-  killProcess(params, token, baseUrl) {
-    const missing = this._require(params, ["workspace_id", "process_id"], "kill_process");
-    if (missing) return missing;
-    const url = this._wsUrl(baseUrl, params.workspace_id, "/processes/" + encodeURIComponent(str(params.process_id)));
+    const jobId = this._jobId(params);
+    if (!jobId) return { success: false, error: "job_id is required for cancel_job." };
+    const url = this._wsUrl(baseUrl, params.workspace_id, "/jobs/" + encodeURIComponent(jobId));
     try {
       const resp = host.http.delete(url, this._headers(token, false));
       if (resp.status >= 200 && resp.status < 300) {
-        return { success: true, result: `Process ${params.process_id} killed.` };
+        return { success: true, result: `Job ${jobId} cancelled.` };
       }
       return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
     } catch (err) {
-      return { success: false, error: `Error killing process: ${err.message}` };
+      return { success: false, error: `Error cancelling job: ${err.message}` };
     }
+  },
+  // ── Deprecated process aliases (use the *_job actions above) ────────────
+  startProcess(params, token, baseUrl) {
+    return this.startJob(params, token, baseUrl);
+  },
+  listProcesses(params, token, baseUrl) {
+    return this.listJobs(params, token, baseUrl);
+  },
+  getProcessStatus(params, token, baseUrl) {
+    return this.getJob(params, token, baseUrl);
+  },
+  killProcess(params, token, baseUrl) {
+    return this.cancelJob(params, token, baseUrl);
+  },
+  sendProcessInput(_params, _token, _baseUrl) {
+    return { success: false, error: "Interactive stdin is not supported for background jobs." };
   }
 };
 module.exports = wsdPlugin;

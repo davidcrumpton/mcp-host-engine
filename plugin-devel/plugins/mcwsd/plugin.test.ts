@@ -332,36 +332,130 @@ describe("mcwsd plugin", () => {
     expect(res).toEqual({ success: true, result: { processes: [] } });
   });
 
-  it("gets process status", () => {
+  it("gets process status (legacy alias targets the jobs API)", () => {
     vi.mocked(mockHost.http.get).mockReturnValueOnce(
-      mockHTTPResponse({ body: JSON.stringify({ id: "p1", status: "exited" }) })
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "p1", status: "succeeded" }) })
     );
     const res = plugin.call({ CommandEvent: "get_process_status", workspace_id: "w1", process_id: "p1" });
-    expect(res).toEqual({ success: true, result: { id: "p1", status: "exited" } });
-    expect(mockHost.http.get).toHaveBeenCalledWith(`${BASE}/workspaces/w1/processes/p1`, expect.any(Object));
+    expect(res).toEqual({ success: true, result: { job_id: "p1", status: "succeeded" } });
+    expect(mockHost.http.get).toHaveBeenCalledWith(`${BASE}/workspaces/w1/jobs/p1`, expect.any(Object));
   });
 
-  it("sends process input", () => {
-    vi.mocked(mockHost.http.post).mockReturnValueOnce(mockHTTPResponse({ status: 200 }));
+  it("reports that stdin is unsupported", () => {
     const res = plugin.call({
       CommandEvent: "send_process_input",
       workspace_id: "w1",
       process_id: "p1",
       input_text: "yes\n",
     });
-    expect(res).toEqual({ success: true, result: "Input sent to process p1." });
-    expect(mockHost.http.post).toHaveBeenCalledWith(
-      `${BASE}/workspaces/w1/processes/p1/input`,
-      expect.any(Object),
-      JSON.stringify({ input: "yes\n" })
+    expect(res).toEqual({
+      success: false,
+      error: "Interactive stdin is not supported for background jobs.",
+    });
+    expect(mockHost.http.post).not.toHaveBeenCalled();
+  });
+
+  it("kills a process (legacy alias targets the jobs API)", () => {
+    vi.mocked(mockHost.http.delete).mockReturnValueOnce(mockHTTPResponse({ status: 200 }));
+    const res = plugin.call({ CommandEvent: "kill_process", workspace_id: "w1", process_id: "p1" });
+    expect(res).toEqual({ success: true, result: "Job p1 cancelled." });
+    expect(mockHost.http.delete).toHaveBeenCalledWith(`${BASE}/workspaces/w1/jobs/p1`, expect.any(Object));
+  });
+
+  // ── background jobs ─────────────────────────────────────────────────────
+
+  it("starts a job", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "j1", status: "queued" }) })
+    );
+    const res = plugin.call({
+      CommandEvent: "start_job",
+      workspace_id: "w1",
+      command: "go build ./...",
+      allow_network: true,
+      timeout_seconds: 600,
+    });
+    expect(res).toEqual({ success: true, result: { job_id: "j1", status: "queued" } });
+    const [url, , body] = vi.mocked(mockHost.http.post).mock.calls[0];
+    expect(url).toBe(`${BASE}/workspaces/w1/jobs`);
+    expect(JSON.parse(body as string)).toEqual({
+      command: "go build ./...",
+      allow_network: true,
+      timeout_seconds: 600,
+    });
+  });
+
+  it("lists jobs", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ jobs: [] }) })
+    );
+    const res = plugin.call({ CommandEvent: "list_jobs", workspace_id: "w1" });
+    expect(res).toEqual({ success: true, result: { jobs: [] } });
+    expect(mockHost.http.get).toHaveBeenCalledWith(`${BASE}/workspaces/w1/jobs`, expect.any(Object));
+  });
+
+  it("gets a job and forwards the cursor", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "j1", status: "running", cursor: "9:0" }) })
+    );
+    const res = plugin.call({ CommandEvent: "get_job", workspace_id: "w1", job_id: "j1", cursor: "4:2" });
+    expect(res.success).toBe(true);
+    expect(mockHost.http.get).toHaveBeenCalledWith(
+      `${BASE}/workspaces/w1/jobs/j1?cursor=4%3A2`,
+      expect.any(Object)
     );
   });
 
-  it("kills a process", () => {
-    vi.mocked(mockHost.http.delete).mockReturnValueOnce(mockHTTPResponse({ status: 200 }));
-    const res = plugin.call({ CommandEvent: "kill_process", workspace_id: "w1", process_id: "p1" });
-    expect(res).toEqual({ success: true, result: "Process p1 killed." });
-    expect(mockHost.http.delete).toHaveBeenCalledWith(`${BASE}/workspaces/w1/processes/p1`, expect.any(Object));
+  it("gets a job without a cursor", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "j1", status: "running" }) })
+    );
+    plugin.call({ CommandEvent: "get_job", workspace_id: "w1", job_id: "j1" });
+    expect(mockHost.http.get).toHaveBeenCalledWith(`${BASE}/workspaces/w1/jobs/j1`, expect.any(Object));
+  });
+
+  it("requires a job_id for get_job", () => {
+    const res = plugin.call({ CommandEvent: "get_job", workspace_id: "w1" });
+    expect(res).toEqual({ success: false, error: "job_id is required for get_job." });
+  });
+
+  it("cancels a job", () => {
+    vi.mocked(mockHost.http.delete).mockReturnValueOnce(mockHTTPResponse({ status: 204 }));
+    const res = plugin.call({ CommandEvent: "cancel_job", workspace_id: "w1", job_id: "j1" });
+    expect(res).toEqual({ success: true, result: "Job j1 cancelled." });
+    expect(mockHost.http.delete).toHaveBeenCalledWith(`${BASE}/workspaces/w1/jobs/j1`, expect.any(Object));
+  });
+
+  it("forwards wait_seconds on exec_command", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "j1", status: "running" }) })
+    );
+    const res = plugin.call({
+      CommandEvent: "exec_command",
+      workspace_id: "w1",
+      command: "go build ./...",
+      allow_network: true,
+      wait_seconds: 5,
+    });
+    expect(res.success).toBe(true);
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.wait_seconds).toBe(5);
+    expect(body).not.toHaveProperty("async");
+  });
+
+  it("forwards async on exec_command", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ job_id: "j1", status: "running" }) })
+    );
+    plugin.call({
+      CommandEvent: "exec_command",
+      workspace_id: "w1",
+      command: "sleep 300",
+      allow_network: false,
+      async: true,
+    });
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.async).toBe(true);
   });
 
   // ── error handling ──────────────────────────────────────────────────────
