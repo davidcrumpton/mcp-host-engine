@@ -2,8 +2,6 @@
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/funcs.sh"
 
-SESSION_BASE="test-write_file-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
-
 echo -e "\n${CYAN}=== write_file+ : positive tests ===${NC}"
 
 TEST_FILE="$(mktemp /tmp/mcphe_test_XXXXXX)"

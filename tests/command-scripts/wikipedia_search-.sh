@@ -2,8 +2,6 @@
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/funcs.sh"
 
-SESSION_BASE="test-wikipedia_search-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
-
 echo -e "\n${CYAN}=== wikipedia_search- : negative tests ===${NC}"
 
 assert_output_contains "wikipedia_search wrong input" "missing properties" \

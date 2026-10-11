@@ -3,8 +3,6 @@
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/funcs.sh"
 
-SESSION_BASE="test-read_file-$(uuidgen | tr '[:upper:]' '[:lower:]' | cut -c1-8)"
-
 echo -e "\n${CYAN}=== read_file- : negative tests ===${NC}"
 
 assert_output_matches_re "read_file with file in /etc/passwd" "error.*access to file.*not allowed" \

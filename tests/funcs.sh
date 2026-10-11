@@ -204,47 +204,6 @@ mcp_stdio_call() {
 
 
 # mcp_session_call
-# Constructs and sends a JSON-RPC request to the MCPHE endpoint.
-# Usage: mcp_session_call <method> [params...]
-# Returns the JSON response body.
-mcp_session_call() {
-    local method="$1"
-    shift
-
-    local params="{}"
-    if [[ "$#" -gt 0 ]]; then
-        # Concatenate remaining arguments into the JSON params object
-        params="$*"
-    fi
-
-    # Build the JSON payload for the RPC call
-    local payload
-    payload="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}"
-
-    # Construct the full URL
-    local rpc_url="${PROTOCOL}://${HOST}:${PORT}/rpc"
-
-    # Make cURL call, handling authorization header conditionally
-    if [[ -n "$BEARER" ]]; then
-        local response
-        response=$(curl -s -X POST "$rpc_url" \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
-            -H "Authorization: $BEARER"
-        )
-    else
-        local response
-        response=$(curl -s -X POST "$rpc_url" \
-            -H "Content-Type: application/json" \
-            -d "$payload"
-        )
-    fi
-    local exit_val=$?
-    echo "$response"
-    return $exit_val
-}
-
-# mcp_session_call
 # Performs a full MCP session: initialize → initialized → your method → returns your method's response JSON
 # Usage: mcp_session_call <method> [params]
 mcp_session_call() {
@@ -265,11 +224,14 @@ mcp_session_call() {
     local init_payload='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test-client","version":"0.1"}}}'
 
     local init_raw
-    init_raw=$(curl -s -D - -X POST "$rpc_url" \
+    if ! init_raw=$(curl -fsS -D - -X POST "$rpc_url" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json, text/event-stream" \
         "${auth_header[@]}" \
-        -d "$init_payload")
+        -d "$init_payload"); then
+        echo "Error: MCP initialize request failed" >&2
+        return 1
+    fi
 
     # Extract session ID from response headers
     local session_id
@@ -282,24 +244,30 @@ mcp_session_call() {
 
     # --- 2. initialized notification (no response expected) ---
     local notif_payload='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
-    curl -s -X POST "$rpc_url" \
+    if ! curl -fsS -X POST "$rpc_url" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json, text/event-stream" \
         -H "Mcp-Session-Id: $session_id" \
         "${auth_header[@]}" \
-        -d "$notif_payload" > /dev/null
+        -d "$notif_payload" > /dev/null; then
+        echo "Error: MCP initialized notification failed" >&2
+        return 1
+    fi
 
     # --- 3. Actual call ---
     local payload
     payload="{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"$method\",\"params\":$params}"
 
     local raw
-    raw=$(curl -s -X POST "$rpc_url" \
+    if ! raw=$(curl -fsS -X POST "$rpc_url" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json, text/event-stream" \
         -H "Mcp-Session-Id: $session_id" \
         "${auth_header[@]}" \
-        -d "$payload")
+        -d "$payload"); then
+        echo "Error: MCP request '${method}' failed" >&2
+        return 1
+    fi
 
     # Strip SSE envelope → extract data: line
     local response
@@ -364,9 +332,16 @@ assert_fails() {
 # Usage: assert_output_contains <label> <pattern> <command> [args...]
 assert_output_contains() {
     local label="$1"; local pattern="$2"; shift 2
-    local output
+    local output exit_code
     output=$("$@" 2>&1)
-    if echo "${output}" | grep -q "${pattern}"; then
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (command failed, exit ${exit_code})"
+        echo "       CMD: $*"
+        echo "       OUT: ${output}"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+    elif echo "${output}" | grep -Fq -- "${pattern}"; then
         echo -e "${GREEN}  ✓ PASS${NC}  ${label}"
         _ASSERT_PASS=$((_ASSERT_PASS + 1))
     else
@@ -383,10 +358,16 @@ assert_output_contains() {
 # Usage: assert_output_matches_re <label> <regex_pattern> <command> [args...]
 assert_output_matches_re() {
     local label="$1"; local pattern="$2"; shift 2
-    local output
+    local output exit_code
     output=$("$@" 2>&1)
-    # Use grep -E for extended regex matching
-    if echo "${output}" | grep -E "${pattern}"; then
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (command failed, exit ${exit_code})"
+        echo "       CMD: $*"
+        echo "       OUT: ${output}"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+    elif echo "${output}" | grep -qE -- "${pattern}"; then
         echo -e "${GREEN}  ✓ PASS${NC}  ${label}"
         _ASSERT_PASS=$((_ASSERT_PASS + 1))
     else
@@ -403,10 +384,16 @@ assert_output_matches_re() {
 # Usage: assert_output_not_matches_re <label> <regex_pattern> <command> [args...]
 assert_output_not_matches_re() {
     local label="$1"; local pattern="$2"; shift 2
-    local output
+    local output exit_code
     output=$("$@" 2>&1)
-    # Use grep -qE for quiet extended regex matching; exit status 1 means no match
-    if ! echo "${output}" | grep -qE "${pattern}"; then
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}  ✗ FAIL${NC}  ${label}  (command failed, exit ${exit_code})"
+        echo "       CMD: $*"
+        echo "       OUT: ${output}"
+        print_safe_env
+        _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
+    elif ! echo "${output}" | grep -qE -- "${pattern}"; then
         echo -e "${GREEN}  ✓ PASS${NC}  ${label}"
         _ASSERT_PASS=$((_ASSERT_PASS + 1))
     else
@@ -504,7 +491,7 @@ assert_file_contains() {
         _ASSERT_FAIL=$((_ASSERT_FAIL + 1))
         return 1
     fi
-    if grep -q "${pattern}" "$file_path"; then
+    if grep -Fq -- "${pattern}" "$file_path"; then
         echo -e "${GREEN}  ✓ PASS${NC}  ${label}"
         _ASSERT_PASS=$((_ASSERT_PASS + 1))
     else
