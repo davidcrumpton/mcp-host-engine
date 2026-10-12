@@ -8,7 +8,7 @@ function isObj(v) {
 const wsdPlugin = {
   name: "mcwsd",
   description: "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background jobs (start/poll/cancel with incremental output), pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
-  version: "1.3.0",
+  version: "1.4.0",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
   annotations: {
@@ -86,7 +86,7 @@ const wsdPlugin = {
       },
       timeout_seconds: {
         type: "integer",
-        description: "Max seconds to allow the command/job to run before it's killed (exec_command and start_job). Pass 0 (the default) to use the configured default timeout.",
+        description: "Max seconds to allow the operation to run before it's killed. For exec_command/start_job it bounds the command; for prepare_workspace it bounds the whole provisioning pipeline (clone + runtime boot + install). Pass 0 (the default) to use the configured/daemon default.",
         default: 0
       },
       secrets: {
@@ -96,12 +96,12 @@ const wsdPlugin = {
       },
       wait_seconds: {
         type: "integer",
-        description: "exec_command: seconds to block before promoting a still-running command to a background job. If it finishes within the wait, output is returned inline; otherwise the response carries a job_id to poll with get_job. 0 (the default) uses the daemon default.",
+        description: "Seconds to block before promoting the operation to a background job. For exec_command a still-running command returns a job_id to poll with get_job. For prepare_workspace the whole provisioning pipeline is backgrounded: the response carries workspace_id + job_id + status, and you poll get_job(workspace_id, job_id) until it reaches 'succeeded' (its terminal response carries the finished workspace). 0 (the default) uses the configured/daemon default.",
         default: 0
       },
       async: {
         type: "boolean",
-        description: "exec_command: return a job_id immediately without waiting (an explicit background start, subject to the daemon's background job limits).",
+        description: "Return a job_id immediately without waiting (an explicit background start, subject to the daemon's background job limits). For exec_command poll get_job with the workspace_id/job_id; for prepare_workspace the same, where the job's terminal response carries the finished workspace (os, work_dir, profile, cache_hit).",
         default: false
       },
       // --- get_artifacts / list_files / read_file / write_file ---
@@ -154,7 +154,7 @@ const wsdPlugin = {
       // --- background jobs ---
       job_id: {
         type: "string",
-        description: "Job ID returned by start_job (or the job_id from an exec_command response). Required for get_job and cancel_job. 'process_id' is accepted as a legacy alias."
+        description: "Job ID returned by start_job, by an exec_command response with wait_seconds/async, or by a backgrounded prepare_workspace. Required for get_job and cancel_job. 'process_id' is accepted as a legacy alias."
       },
       cursor: {
         type: "string",
@@ -282,6 +282,12 @@ const wsdPlugin = {
     if (isObj(params.env_overrides) && Object.keys(params.env_overrides).length > 0) {
       payload.env_overrides = params.env_overrides;
     }
+    const opts = host.config.options;
+    const waitSeconds = typeof params.wait_seconds === "number" && params.wait_seconds > 0 ? params.wait_seconds : typeof (opts == null ? void 0 : opts.provision_wait_seconds) === "number" ? opts.provision_wait_seconds : 0;
+    if (waitSeconds > 0) payload.wait_seconds = waitSeconds;
+    if (params.async === true) payload.async = true;
+    const timeoutSeconds = typeof params.timeout_seconds === "number" && params.timeout_seconds > 0 ? params.timeout_seconds : typeof (opts == null ? void 0 : opts.provision_timeout_seconds) === "number" ? opts.provision_timeout_seconds : 0;
+    if (timeoutSeconds > 0) payload.timeout_seconds = timeoutSeconds;
     try {
       const resp = host.http.post(baseUrl + "/workspaces", this._headers(token, true), JSON.stringify(payload));
       return this._handleResponse(resp, "prepare_workspace");

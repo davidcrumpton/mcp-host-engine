@@ -94,6 +94,68 @@ describe("mcwsd plugin", () => {
     expect(body.env_overrides).toEqual({ language: "node", install_command: "npm ci" });
   });
 
+  it("forwards wait_seconds on prepare_workspace", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ workspace_id: "w1", job_id: "j1", status: "running" }) })
+    );
+    const res = plugin.call({
+      CommandEvent: "prepare_workspace",
+      repo_url: "https://github.com/org/repo.git",
+      wait_seconds: 30,
+    });
+    expect(res.success).toBe(true);
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.wait_seconds).toBe(30);
+    expect(body).not.toHaveProperty("async");
+  });
+
+  it("forwards async on prepare_workspace", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({
+        status: 202,
+        body: JSON.stringify({ workspace_id: "w1", job_id: "j1", status: "queued" }),
+      })
+    );
+    const res = plugin.call({
+      CommandEvent: "prepare_workspace",
+      repo_url: "https://github.com/org/repo.git",
+      async: true,
+    });
+    expect(res).toEqual({ success: true, result: { workspace_id: "w1", job_id: "j1", status: "queued" } });
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.async).toBe(true);
+    expect(body).not.toHaveProperty("wait_seconds");
+  });
+
+  it("forwards timeout_seconds on prepare_workspace", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ workspace_id: "1" }) })
+    );
+    plugin.call({
+      CommandEvent: "prepare_workspace",
+      repo_url: "https://github.com/org/repo.git",
+      timeout_seconds: 1200,
+    });
+    const body = JSON.parse(vi.mocked(mockHost.http.post).mock.calls[0][2] as string);
+    expect(body.timeout_seconds).toBe(1200);
+  });
+
+  it("uses configured provision defaults when the request omits them", () => {
+    const h = installMockHost({
+      allowedDomains: ["docker-vm.crumpton.org"],
+      allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+      env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "test-token" },
+      pluginConfig: { options: { provision_wait_seconds: 45, provision_timeout_seconds: 900 } },
+    });
+    vi.mocked(h.http.post).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ workspace_id: "1" }) })
+    );
+    plugin.call({ CommandEvent: "prepare_workspace", repo_url: "https://github.com/org/repo.git" });
+    const body = JSON.parse(vi.mocked(h.http.post).mock.calls[0][2] as string);
+    expect(body.wait_seconds).toBe(45);
+    expect(body.timeout_seconds).toBe(900);
+  });
+
   // ── exec_command ────────────────────────────────────────────────────────
 
   it("executes a command", () => {
