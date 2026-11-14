@@ -11,6 +11,8 @@ const BASE = "https://docker-vm.crumpton.org:9080";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  const workspaceTokens = (plugin as any)._workspaceTokens as Record<string, string>;
+  for (const id of Object.keys(workspaceTokens)) delete workspaceTokens[id];
   mockHost = installMockHost({
     allowedDomains: ["docker-vm.crumpton.org"],
     allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
@@ -154,6 +156,60 @@ describe("mcwsd plugin", () => {
     const body = JSON.parse(vi.mocked(h.http.post).mock.calls[0][2] as string);
     expect(body.wait_seconds).toBe(45);
     expect(body.timeout_seconds).toBe(900);
+  });
+
+  // ── workspace tokens ────────────────────────────────────────────────────
+
+  it("uses the workspace token returned by prepare_workspace", () => {
+    vi.mocked(mockHost.http.post).mockReturnValueOnce(
+      mockHTTPResponse({
+        body: JSON.stringify({ workspace_id: "w1", workspace_token: "wst_w1", os: "linux" }),
+      })
+    );
+    plugin.call({ CommandEvent: "prepare_workspace", repo_url: "https://github.com/org/repo.git" });
+
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ status: "running" }) })
+    );
+    plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
+
+    expect(mockHost.http.get).toHaveBeenCalledWith(
+      `${BASE}/workspaces/w1/status`,
+      expect.objectContaining({ Authorization: "Bearer wst_w1" })
+    );
+  });
+
+  it("learns a workspace token from a terminal provisioning job", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({
+        body: JSON.stringify({
+          status: "succeeded",
+          workspace: { workspace_id: "w1", workspace_token: "wst_w1", os: "linux" },
+        }),
+      })
+    );
+    plugin.call({ CommandEvent: "get_job", workspace_id: "w1", job_id: "j1" });
+
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ status: "running" }) })
+    );
+    plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
+
+    expect(mockHost.http.get).toHaveBeenLastCalledWith(
+      `${BASE}/workspaces/w1/status`,
+      expect.objectContaining({ Authorization: "Bearer wst_w1" })
+    );
+  });
+
+  it("falls back to the admin token for an unregistered workspace", () => {
+    vi.mocked(mockHost.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ status: "running" }) })
+    );
+    plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
+    expect(mockHost.http.get).toHaveBeenCalledWith(
+      `${BASE}/workspaces/w1/status`,
+      expect.objectContaining({ Authorization: "Bearer test-token" })
+    );
   });
 
   // ── exec_command ────────────────────────────────────────────────────────

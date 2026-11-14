@@ -14,7 +14,7 @@
  *   plugins:
  *     mcwsd:
  *       allowed_domains: ["docker-vm.crumpton.org"]
- *       allowed_env_vars: ["MCCWS_BASE_URL", "MCCWS_TOKEN"]
+ *       allowed_env_vars: ["MCWSD_BASE_URL", "MCWSD_TOKEN"]
  *       options:
  *         base_url: "https://docker-vm.crumpton.org:9080"
  *         timeout_seconds: 180
@@ -23,6 +23,10 @@
  *         # timeout_seconds on prepare_workspace (0 = daemon default).
  *         provision_wait_seconds: 0
  *         provision_timeout_seconds: 0
+ *         # token is the admin/control-plane token (MCWSD_TOKEN). Workspace
+ *         # tokens returned by prepare_workspace are remembered automatically
+ *         # and used for that workspace's subsequent calls. This works with
+ *         # daemons running --workspace-auth-mode=scoped or =strict.
  *         # token is better supplied via MCWSD_TOKEN env var than hardcoded here
  *
  * goja constraints observed:
@@ -45,7 +49,7 @@ const wsdPlugin = {
   name: "mcwsd",
   description:
     "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background jobs (start/poll/cancel with incremental output), pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
-  version: "1.4.0",
+  version: "1.5.0",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
   annotations: {
@@ -300,10 +304,29 @@ const wsdPlugin = {
 
   // ── Internal helpers ────────────────────────────────────────────────────
 
+  // Workspace tokens learned from prepare_workspace and terminal provisioning
+  // job responses. They live on the plugin object so they survive across calls
+  // in the same MCP host process. If a workspace has no registered token we
+  // fall back to the admin token (which the daemon accepts only in scoped
+  // mode); strict mode rejects that fallback.
+  _workspaceTokens: {} as Record<string, string>,
+
   _headers(token: string, json: boolean) {
     const h: Record<string, string> = { Authorization: "Bearer " + token };
     if (json) h["Content-Type"] = "application/json";
     return h;
+  },
+
+  _rememberWorkspaceToken(workspaceId: unknown, token: unknown) {
+    const id = str(workspaceId);
+    const tok = str(token);
+    if (id && tok) this._workspaceTokens[id] = tok;
+  },
+
+  _workspaceHeaders(params: Params, adminToken: string, json: boolean) {
+    const id = str(params.workspace_id);
+    const token = this._workspaceTokens[id] || adminToken;
+    return this._headers(token, json);
   },
 
   _handleResponse(resp: any, label: string) {
@@ -381,7 +404,11 @@ const wsdPlugin = {
 
     try {
       const resp = host.http.post(baseUrl + "/workspaces", this._headers(token, true), JSON.stringify(payload));
-      return this._handleResponse(resp, "prepare_workspace");
+      const handled = this._handleResponse(resp, "prepare_workspace");
+      if (handled.success && isObj(handled.result)) {
+        this._rememberWorkspaceToken(handled.result.workspace_id, handled.result.workspace_token);
+      }
+      return handled;
     } catch (err) {
       return { success: false, error: `Error preparing workspace: ${(err as Error).message}` };
     }
@@ -411,7 +438,7 @@ const wsdPlugin = {
     }
     const body = JSON.stringify(payload);
     try {
-      const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/exec"), this._headers(token, true), body);
+      const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/exec"), this._workspaceHeaders(params, token, true), body);
       return this._handleResponse(resp, "exec_command");
     } catch (err) {
       return { success: false, error: `Error executing command: ${(err as Error).message}` };
@@ -425,7 +452,7 @@ const wsdPlugin = {
     let url = this._wsUrl(baseUrl, params.workspace_id, "/artifacts");
     if (params.paths) url += "?paths=" + encodeURIComponent(str(params.paths));
     try {
-      const resp = host.http.get(url, this._headers(token, false));
+      const resp = host.http.get(url, this._workspaceHeaders(params, token, false));
       return this._handleResponse(resp, "get_artifacts");
     } catch (err) {
       return { success: false, error: `Error fetching artifacts: ${(err as Error).message}` };
@@ -444,7 +471,7 @@ const wsdPlugin = {
       replacement: str(params.replacement),
     });
     try {
-      const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/safe-edit"), this._headers(token, true), body);
+      const resp = host.http.post(this._wsUrl(baseUrl, params.workspace_id, "/safe-edit"), this._workspaceHeaders(params, token, true), body);
       return this._handleResponse(resp, "safe_edit");
     } catch (err) {
       return { success: false, error: `Error editing file: ${(err as Error).message}` };
@@ -467,7 +494,7 @@ const wsdPlugin = {
     try {
       const resp = host.http.post(
         this._wsUrl(baseUrl, params.workspace_id, "/commit-and-pr"),
-        this._headers(token, true),
+        this._workspaceHeaders(params, token, true),
         JSON.stringify(payload)
       );
       return this._handleResponse(resp, "commit_and_pr");
@@ -481,7 +508,7 @@ const wsdPlugin = {
     if (missing) return missing;
 
     try {
-      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/status"), this._headers(token, false));
+      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/status"), this._workspaceHeaders(params, token, false));
       return this._handleResponse(resp, "workspace_status");
     } catch (err) {
       return { success: false, error: `Error fetching status: ${(err as Error).message}` };
@@ -493,7 +520,7 @@ const wsdPlugin = {
     if (missing) return missing;
 
     try {
-      const resp = host.http.delete(this._wsUrl(baseUrl, params.workspace_id, ""), this._headers(token, false));
+      const resp = host.http.delete(this._wsUrl(baseUrl, params.workspace_id, ""), this._workspaceHeaders(params, token, false));
       if (resp.status >= 200 && resp.status < 300) {
         return { success: true, result: `Workspace ${params.workspace_id} destroyed.` };
       }
@@ -513,7 +540,7 @@ const wsdPlugin = {
 
     const url = this._wsUrl(baseUrl, params.workspace_id, "/files") + "?path=" + encodeURIComponent(path);
     try {
-      const resp = host.http.get(url, this._headers(token, false));
+      const resp = host.http.get(url, this._workspaceHeaders(params, token, false));
       return this._handleResponse(resp, "list_files");
     } catch (err) {
       return { success: false, error: `Error listing files: ${(err as Error).message}` };
@@ -528,7 +555,7 @@ const wsdPlugin = {
 
     const url = this._wsUrl(baseUrl, params.workspace_id, "/file") + "?path=" + encodeURIComponent(path);
     try {
-      const resp = host.http.get(url, this._headers(token, false));
+      const resp = host.http.get(url, this._workspaceHeaders(params, token, false));
       return this._handleResponse(resp, "read_file");
     } catch (err) {
       return { success: false, error: `Error reading file: ${(err as Error).message}` };
@@ -543,7 +570,7 @@ const wsdPlugin = {
 
     const body = JSON.stringify({ path, content: str(params.content) });
     try {
-      const resp = host.http.put(this._wsUrl(baseUrl, params.workspace_id, "/file"), this._headers(token, true), body);
+      const resp = host.http.put(this._wsUrl(baseUrl, params.workspace_id, "/file"), this._workspaceHeaders(params, token, true), body);
       if (resp.status >= 200 && resp.status < 300) {
         return { success: true, result: `File ${path} written successfully.` };
       }
@@ -569,7 +596,7 @@ const wsdPlugin = {
     try {
       const resp = host.http.post(
         this._wsUrl(baseUrl, params.workspace_id, "/jobs"),
-        this._headers(token, true),
+        this._workspaceHeaders(params, token, true),
         JSON.stringify(payload)
       );
       return this._handleResponse(resp, "start_job");
@@ -583,7 +610,7 @@ const wsdPlugin = {
     if (missing) return missing;
 
     try {
-      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/jobs"), this._headers(token, false));
+      const resp = host.http.get(this._wsUrl(baseUrl, params.workspace_id, "/jobs"), this._workspaceHeaders(params, token, false));
       return this._handleResponse(resp, "list_jobs");
     } catch (err) {
       return { success: false, error: `Error listing jobs: ${(err as Error).message}` };
@@ -600,8 +627,15 @@ const wsdPlugin = {
     const cursor = str(params.cursor);
     if (cursor) url += "?cursor=" + encodeURIComponent(cursor);
     try {
-      const resp = host.http.get(url, this._headers(token, false));
-      return this._handleResponse(resp, "get_job");
+      const resp = host.http.get(url, this._workspaceHeaders(params, token, false));
+      const handled = this._handleResponse(resp, "get_job");
+      if (handled.success && isObj(handled.result) && isObj(handled.result.workspace)) {
+        this._rememberWorkspaceToken(
+          handled.result.workspace.workspace_id,
+          handled.result.workspace.workspace_token
+        );
+      }
+      return handled;
     } catch (err) {
       return { success: false, error: `Error getting job: ${(err as Error).message}` };
     }
@@ -615,7 +649,7 @@ const wsdPlugin = {
 
     const url = this._wsUrl(baseUrl, params.workspace_id, "/jobs/" + encodeURIComponent(jobId));
     try {
-      const resp = host.http.delete(url, this._headers(token, false));
+      const resp = host.http.delete(url, this._workspaceHeaders(params, token, false));
       if (resp.status >= 200 && resp.status < 300) {
         return { success: true, result: `Job ${jobId} cancelled.` };
       }
