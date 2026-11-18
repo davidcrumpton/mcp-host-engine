@@ -373,6 +373,22 @@ func (c Config) AllowedHTTPMethodsFor(pluginName string) []string {
 	}
 }
 
+// PluginSource returns the JS module to instantiate for a config entry. It
+// defaults to the entry name when no "plugin:" alias is present. This is what
+// allows one plugin file to be exposed as multiple named tools, e.g.
+//
+//	plugins:
+//	  mcwsd-prod:    { plugin: mcwsd, options: {...} }
+//	  mcwsd-staging: { plugin: mcwsd, options: {...} }
+func (c Config) PluginSource(instanceName string) string {
+	if pCfg, ok := c.Plugins[instanceName]; ok {
+		if s, ok := pCfg["plugin"].(string); ok && s != "" {
+			return s
+		}
+	}
+	return instanceName
+}
+
 func (c Config) IsToolEnabled(name string) bool {
 	// New-style: presence in the plugins map enables a tool.
 	// An explicit  enabled: false  inside the plugin block disables it.

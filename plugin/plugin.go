@@ -66,21 +66,86 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 		return nil, fmt.Errorf("no JavaScript plugins found in %q", dir)
 	}
 
-	plugins := make([]*Plugin, 0, len(files))
-	byName := make(map[string]*Plugin, len(files))
-
+	// Phase 1: discover the exported name of every plugin file. The exported
+	// name is the "source" that config entries refer to via their optional
+	// "plugin:" alias. Duplicate exported names would silently collide in
+	// byName, so reject them up front.
+	type discoveredPlugin struct {
+		name   string
+		path   string
+		plugin *Plugin
+	}
+	discovered := make([]*discoveredPlugin, 0, len(files))
+	bySource := make(map[string]*discoveredPlugin, len(files))
 	for _, path := range files {
 		cfg.Logf(2, "Loading plugin %s", path)
 		plugin, err := loadPlugin(path, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("loading plugin %q: %w", path, err)
 		}
-		if !cfg.IsToolEnabled(plugin.Name) {
-			cfg.Logf(2, "Plugin %s disabled by config", plugin.Name)
+		if prev, ok := bySource[plugin.Name]; ok {
+			return nil, fmt.Errorf("duplicate plugin name %q exported by %q and %q", plugin.Name, prev.path, path)
+		}
+		d := &discoveredPlugin{name: plugin.Name, path: path, plugin: plugin}
+		discovered = append(discovered, d)
+		bySource[plugin.Name] = d
+	}
+
+	plugins := make([]*Plugin, 0, len(files))
+	byName := make(map[string]*Plugin, len(files))
+
+	// addInstance registers source plugin code under instanceName. When the
+	// instance name matches the exported name and this is the only user of the
+	// source, the discovery-time load is reused; aliased instances get a fresh
+	// VM so their state is independent.
+	addInstance := func(instanceName, source string) error {
+		d, ok := bySource[source]
+		if !ok {
+			return fmt.Errorf("plugin %q: source module %q not found", instanceName, source)
+		}
+		if instanceName == d.name {
+			plugins = append(plugins, d.plugin)
+			byName[instanceName] = d.plugin
+			return nil
+		}
+		cfg.Logf(2, "Instantiating plugin %s as %s", source, instanceName)
+		p, err := loadPluginAs(d.path, cfg, instanceName)
+		if err != nil {
+			return fmt.Errorf("loading plugin %q as %q: %w", d.path, instanceName, err)
+		}
+		plugins = append(plugins, p)
+		byName[instanceName] = p
+		return nil
+	}
+
+	// Phase 2a: every entry in the plugins map is an instance (or a disabled
+	// entry). The map key is the tool name; "plugin:" selects the source.
+	configuredSources := make(map[string]bool, len(cfg.Plugins))
+	for instanceName := range cfg.Plugins {
+		source := cfg.PluginSource(instanceName)
+		configuredSources[source] = true
+		if !cfg.IsToolEnabled(instanceName) {
+			cfg.Logf(2, "Plugin %s disabled by config", instanceName)
 			continue
 		}
-		plugins = append(plugins, plugin)
-		byName[plugin.Name] = plugin
+		if err := addInstance(instanceName, source); err != nil {
+			return nil, err
+		}
+	}
+
+	// Phase 2b: keep legacy auto-registration for plugins that have no entry
+	// in the plugins map (e.g. enabled via the old top-level tools map).
+	for _, d := range discovered {
+		if configuredSources[d.name] {
+			continue
+		}
+		if !cfg.IsToolEnabled(d.name) {
+			cfg.Logf(2, "Plugin %s disabled by config", d.name)
+			continue
+		}
+		if err := addInstance(d.name, d.name); err != nil {
+			return nil, err
+		}
 	}
 
 	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].Name < plugins[j].Name })
@@ -276,7 +341,16 @@ func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config) func(goj
 	}
 }
 
+// loadPlugin loads a plugin using its exported name as the tool name.
 func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
+	return loadPluginAs(path, cfg, "")
+}
+
+// loadPluginAs loads the JavaScript at path and registers it under instanceName.
+// When instanceName is empty the plugin's exported name is used. Supplying an
+// instance name is what allows the same plugin file to be loaded multiple
+// times under different tool names with independent configuration.
+func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		cfg.Logf(1, "Failed to read plugin file %s: %v", path, err)
@@ -290,10 +364,15 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 	// the call() function) see a properly initialised host object rather than
 	// undefined.
 	//
-	// We use a temporary plugin name derived from the file path here; the real
-	// name is extracted from the plugin's exports below and the host object is
-	// refreshed again on every CallTool invocation with the correct context.
-	tempName := filepath.Base(path)
+	// For unnamed (discovery) loads we use a temporary plugin name derived from
+	// the file path; the real name is extracted from the plugin's exports below
+	// and the host object is refreshed again on every CallTool invocation with
+	// the correct context. Instance loads use the instance name from the start
+	// so that per-instance config is visible at module-load time.
+	tempName := instanceName
+	if tempName == "" {
+		tempName = filepath.Base(path)
+	}
 	tempHost := host.MakeHostObject(cfg, context.Background(), tempName)
 	if err := vm.Set("host", tempHost); err != nil {
 		cfg.Logf(1, "Failed to set initial host API for plugin %s: %v", path, err)
@@ -329,9 +408,13 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 		return nil, fmt.Errorf("plugin %q missing name", path)
 	}
 
-	// Now that we know the real plugin name, refresh the host object so that
-	// plugin-specific config (allowed paths, domains, etc.) is applied correctly.
-	realHost := host.MakeHostObject(cfg, context.Background(), name)
+	// Now that we know the real plugin name (or have an explicit instance
+	// name), refresh the host object so that plugin-specific config (allowed
+	// paths, domains, etc.) is applied correctly.
+	if instanceName == "" {
+		instanceName = name
+	}
+	realHost := host.MakeHostObject(cfg, context.Background(), instanceName)
 	if err := vm.Set("host", realHost); err != nil {
 		cfg.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
 		return nil, err
@@ -350,7 +433,7 @@ func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
 	}
 
 	return &Plugin{
-		Name:        name,
+		Name:        instanceName,
 		Description: valueToString(obj.Get("description")),
 		Version:     valueToString(obj.Get("version")),
 		Meta:        safeExport(obj.Get("_meta")),

@@ -41,6 +41,18 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : v === undefined || v === null ? "" : String(v);
 }
 
+// envOr reads an environment variable, returning "" when access is denied by
+// the host's per-plugin allow-list or when the variable is unset. This lets
+// per-instance config (host.config.options) win over process-wide env vars,
+// which is required when the same plugin is loaded for multiple daemons.
+function envOr(key: string): string {
+  try {
+    return host.process.env(key) || "";
+  } catch (_err) {
+    return "";
+  }
+}
+
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -233,16 +245,20 @@ const wsdPlugin = {
     const self = module.exports as any;
     const CommandEvent = str(params.CommandEvent);
 
+    // Per-instance options take precedence over process-wide environment
+    // variables so that multiple daemons configured under different tool names
+    // do not collapse onto the same base URL / token.
+    const opts = (host.config as Record<string, any>).options;
     let baseUrl: string;
     let token: string;
     try {
       baseUrl =
-        host.process.env("MCWSD_BASE_URL") ||
-        str((host.config as Record<string, any>).options?.base_url) ||
+        str(opts?.base_url) ||
+        envOr("MCWSD_BASE_URL") ||
         "https://docker-vm.crumpton.org:9080";
       token =
-        host.process.env("MCWSD_TOKEN") ||
-        str((host.config as Record<string, any>).options?.token) ||
+        str(opts?.token) ||
+        envOr("MCWSD_TOKEN") ||
         "";
     } catch (err) {
       return { success: false, error: `Failed to load mcwsd configuration: ${(err as Error).message}` };

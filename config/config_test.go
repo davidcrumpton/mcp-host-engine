@@ -145,6 +145,33 @@ func TestLoadConfig_TransportInvalidReturnsError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PluginSource
+// ---------------------------------------------------------------------------
+
+func TestPluginSource(t *testing.T) {
+	cfg := Config{
+		Plugins: map[string]map[string]interface{}{
+			"mcwsd-prod":  {"plugin": "mcwsd"},
+			"plain":       {},
+			"empty-alias": {"plugin": ""},
+			"non-string":  {"plugin": 42},
+		},
+	}
+	tests := map[string]string{
+		"mcwsd-prod":  "mcwsd",
+		"plain":       "plain",
+		"empty-alias": "empty-alias",
+		"non-string":  "non-string",
+		"absent":      "absent",
+	}
+	for instance, want := range tests {
+		if got := cfg.PluginSource(instance); got != want {
+			t.Errorf("PluginSource(%q): got %q, want %q", instance, got, want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // IsToolEnabled
 // ---------------------------------------------------------------------------
 

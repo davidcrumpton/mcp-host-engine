@@ -207,6 +207,92 @@ func TestLoadPlugins_DisabledToolSkipped(t *testing.T) {
 	}
 }
 
+func TestLoadPlugins_MultipleInstances(t *testing.T) {
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "source",
+  description: "instance test",
+  call: function(args) { return host.config.options.label; }
+};
+`
+	writePlugin(t, dir, "source", js)
+
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins: map[string]map[string]interface{}{
+			"inst-a": {"plugin": "source", "options": map[string]interface{}{"label": "a"}},
+			"inst-b": {"plugin": "source", "options": map[string]interface{}{"label": "b"}},
+		},
+	}
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+	if len(pm.plugins) != 2 {
+		t.Fatalf("expected 2 instances, got %d", len(pm.plugins))
+	}
+	a, ok := pm.byName["inst-a"]
+	if !ok {
+		t.Fatal("missing instance inst-a")
+	}
+	b, ok := pm.byName["inst-b"]
+	if !ok {
+		t.Fatal("missing instance inst-b")
+	}
+	if a.VM == b.VM {
+		t.Error("instances must not share a goja VM")
+	}
+	if _, ok := pm.byName["source"]; ok {
+		t.Error("source plugin should not be registered when only aliases are configured")
+	}
+
+	for name, want := range map[string]string{"inst-a": "a", "inst-b": "b"} {
+		got, err := pm.CallTool(context.Background(), name, json.RawMessage(`{}`), cfg)
+		if err != nil {
+			t.Fatalf("CallTool(%s): %v", name, err)
+		}
+		if got != want {
+			t.Errorf("CallTool(%s): got %v, want %q", name, got, want)
+		}
+	}
+}
+
+func TestLoadPlugins_DuplicateExportedName(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "one", minimalJS("dup"))
+	writePlugin(t, dir, "two", minimalJS("dup"))
+	cfg := allEnabled("dup")
+	cfg.PluginDir = dir
+
+	_, err := LoadPlugins(cfg)
+	if err == nil {
+		t.Fatal("expected error for duplicate exported plugin name")
+	}
+	if !strings.Contains(err.Error(), "duplicate plugin name") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadPlugins_UnknownInstanceSource(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "real", minimalJS("real"))
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins: map[string]map[string]interface{}{
+			"ghost": {"plugin": "does_not_exist"},
+		},
+	}
+
+	_, err := LoadPlugins(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown plugin source")
+	}
+	if !strings.Contains(err.Error(), "does_not_exist") {
+		t.Errorf("expected error to mention the missing source, got: %v", err)
+	}
+}
+
 func TestLoadPlugins_PluginFields(t *testing.T) {
 	dir := t.TempDir()
 	js := `

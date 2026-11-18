@@ -46,6 +46,55 @@ describe("mcwsd plugin", () => {
     expect(res.error).toMatch(/token/i);
   });
 
+  it("prefers per-instance options over environment variables", () => {
+    const h = installMockHost({
+      allowedDomains: ["staging-vm.crumpton.org"],
+      allowedEnv: ["MCWSD_BASE_URL", "MCWSD_TOKEN"],
+      env: { MCWSD_BASE_URL: BASE, MCWSD_TOKEN: "env-token" },
+      pluginConfig: {
+        options: {
+          base_url: "https://staging-vm.crumpton.org:9080",
+          token: "instance-token",
+        },
+      },
+    });
+    vi.mocked(h.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ status: "running" }) })
+    );
+
+    const res = plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
+
+    expect(res.success).toBe(true);
+    expect(h.http.get).toHaveBeenCalledWith(
+      "https://staging-vm.crumpton.org:9080/workspaces/w1/status",
+      expect.objectContaining({ Authorization: "Bearer instance-token" })
+    );
+  });
+
+  it("uses options when env access is denied by the allow-list", () => {
+    const h = installMockHost({
+      allowedDomains: ["staging-vm.crumpton.org"],
+      allowedEnv: [],
+      pluginConfig: {
+        options: {
+          base_url: "https://staging-vm.crumpton.org:9080",
+          token: "instance-token",
+        },
+      },
+    });
+    vi.mocked(h.http.get).mockReturnValueOnce(
+      mockHTTPResponse({ body: JSON.stringify({ status: "running" }) })
+    );
+
+    const res = plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
+
+    expect(res.success).toBe(true);
+    expect(h.http.get).toHaveBeenCalledWith(
+      "https://staging-vm.crumpton.org:9080/workspaces/w1/status",
+      expect.objectContaining({ Authorization: "Bearer instance-token" })
+    );
+  });
+
   it("rejects an unknown CommandEvent", () => {
     const res = plugin.call({ CommandEvent: "nope" });
     expect(res).toEqual({ success: false, error: "Unknown CommandEvent: nope" });

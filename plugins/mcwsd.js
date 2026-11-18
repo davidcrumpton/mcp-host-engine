@@ -2,6 +2,13 @@
 function str(v) {
   return typeof v === "string" ? v : v === void 0 || v === null ? "" : String(v);
 }
+function envOr(key) {
+  try {
+    return host.process.env(key) || "";
+  } catch (_err) {
+    return "";
+  }
+}
 function isObj(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -172,14 +179,14 @@ const wsdPlugin = {
     required: ["CommandEvent"]
   },
   call(params) {
-    var _a, _b;
     const self = module.exports;
     const CommandEvent = str(params.CommandEvent);
+    const opts = host.config.options;
     let baseUrl;
     let token;
     try {
-      baseUrl = host.process.env("MCWSD_BASE_URL") || str((_a = host.config.options) == null ? void 0 : _a.base_url) || "https://docker-vm.crumpton.org:9080";
-      token = host.process.env("MCWSD_TOKEN") || str((_b = host.config.options) == null ? void 0 : _b.token) || "";
+      baseUrl = str(opts == null ? void 0 : opts.base_url) || envOr("MCWSD_BASE_URL") || "https://docker-vm.crumpton.org:9080";
+      token = str(opts == null ? void 0 : opts.token) || envOr("MCWSD_TOKEN") || "";
     } catch (err) {
       return { success: false, error: `Failed to load mcwsd configuration: ${err.message}` };
     }
