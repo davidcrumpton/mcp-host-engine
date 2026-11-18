@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="initial-scale=1.0">
   <title>MCP Host Engine Documentation</title>
   <style>
     body { font-family: system-ui, sans-serif; line-height: 1.6; padding: 2rem; background: #fafbfc; color: #2c3e50; }
@@ -14,6 +14,9 @@
     table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
     th, td { border: 1px solid #e5e7eb; padding: 0.75rem; text-align: left; }
     th { background: #f9fafb; }
+    .plugin-config-section { background: #f0fdf4; border-left: 4px solid #16a34a; padding: 1rem; margin: 1rem 0; }
+    .example-code { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
+    .example-code pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -118,6 +121,61 @@
       <tr><th>Method</th><th>Description</th></tr>
       <tr><td><code>sleep(ms)</code></td><td>Suspends execution for <code>ms</code> milliseconds.</td></tr>
     </table>
+
+    <h2>Multiple Plugins Configuration</h2>
+    <div class="plugin-config-section">
+      <p>The MCP Host Engine now supports loading multiple plugins simultaneously. Configure your plugins in the <code>config/plugins.json</code> file:</p>
+      
+      <h3>Configuration Example</h3>
+      <p>To enable multiple plugins, create a <code>config/plugins.json</code> file with an array of plugin paths or names:</p>
+      
+      <div class="example-code">
+<pre>{
+  "plugins": [
+    {
+      "name": "mcwsd",
+      "enabled": true,
+      "path": "./plugins/mcwsd.js"
+    },
+    {
+      "name": "weather-plugin",
+      "enabled": true,
+      "path": "./plugins/weather.js"
+    }
+  ]
+}</pre>
+      </div>
+      
+      <h3>Loading Plugins Automatically</h3>
+      <p>Plugins in the <code>plugin-devel/plugins/</code> directory are automatically detected and loaded if they meet these criteria:</p>
+      <ul>
+        <li><strong>Name matches pattern:</strong> The plugin name should match <code>mcp.*.js</code> or follow the naming convention for your project.</li>
+        <li><strong>Enabled:</strong> Set <code>"enabled": true</code> to include the plugin (default is <code>true</code>).</li>
+        <li><strong>Path:</strong> Specify the relative path to the plugin file, or leave empty for auto-detection.</li>
+      </ul>
+      
+      <h3>Using Different Plugin Names</h3>
+      <p>You can customize the name each plugin exposes through the MCP interface. For example:</p>
+      
+      <div class="example-code">
+<pre>{
+  "plugins": [
+    {
+      "name": "filesystem-plugin",
+      "enabled": true,
+      "path": "./plugins/mcwsd.js"
+    },
+    {
+      "name": "webhook-handler",
+      "enabled": true,
+      "path": "./plugins/wehbook.js"
+    }
+  ]
+}</pre>
+      </div>
+      
+      <p>This allows you to use the same plugin code with different MCP tool names in different contexts.</p>
+    </div>
 
     <h2>Legacy API</h2>
     <p>These methods are maintained for backward compatibility and are subject to future deprecation.</p>
