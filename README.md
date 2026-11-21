@@ -473,6 +473,29 @@ The tag must match the `VERSION` file. `make build` stamps `VERSION` into a loca
 
 `make snapshot` builds every artifact locally without publishing (it skips the image, SBOMs and signing, which need a registry and an OIDC identity).
 
+### After the release
+
+A green workflow does not mean the release works: `v0.5.82` published successfully and installed a binary that could not find a single plugin. Verify the artifacts, not just the pipeline.
+
+```bash
+# 1. the tap picked up the new version
+curl -sL https://raw.githubusercontent.com/davidcrumpton/homebrew-tap/main/Formula/mcphe.rb | grep '^  version'
+
+# 2. a clean install finds its plugins (force the untap, see TAP_GITHUB_TOKEN)
+brew uninstall --force mcphe
+brew untap --force davidcrumpton/tap
+brew install davidcrumpton/tap/mcphe
+grep '^plugin_dir' "$(brew --prefix)/etc/mcphe/config.yaml"   # must not contain Cellar
+ls "$(brew --prefix)/opt/mcphe/share/mcphe/plugins/"*.js | wc -l
+```
+
+Then start it and confirm the plugin count matches the tracked plugins:
+
+```bash
+"${EDITOR:-vi}" "$(brew --prefix)/etc/mcphe/config.yaml"   # set token_secret
+mcphe "$(brew --prefix)/etc/mcphe/config.yaml"
+```
+
 ### TAP_GITHUB_TOKEN
 
 The release pushes `Formula/mcphe.rb` into the separate **`davidcrumpton/homebrew-tap`** repository. The workflow's own `GITHUB_TOKEN` is scoped to this repository and cannot write to another one, so the tap needs a personal access token supplied as a secret named `TAP_GITHUB_TOKEN`.
@@ -503,10 +526,17 @@ Or by hand: this repo → **Settings** → **Secrets and variables** → **Actio
 
 **3. Confirm it took effect**
 
-On the next tagged release the log should *not* contain `TAP_GITHUB_TOKEN is not set; skipping the Homebrew formula`, and `Formula/mcphe.rb` should appear in the tap. To check without cutting a release:
+Confirmed working as of `v0.5.83`: the release log contains no `TAP_GITHUB_TOKEN is not set` warning and `Formula/mcphe.rb` appears in the tap. To check the secret exists without cutting a release:
 
 ```bash
 gh secret list --repo davidcrumpton/mcp-host-engine | grep TAP_GITHUB_TOKEN
+```
+
+Note that the tap clone on your machine is a cache. `brew untap` **silently does nothing** while a formula from that tap is installed, so re-installing can read a stale formula — the trap that made a `v0.5.83` install fetch the `v0.5.82` keg. Force it when you need a fresh read:
+
+```bash
+brew uninstall --force mcphe
+brew untap --force davidcrumpton/tap
 ```
 
 Notes:
