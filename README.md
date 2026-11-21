@@ -327,6 +327,15 @@ MCP Application support is currently in early stages and may not work with all a
 
 ## Development
 
-To build and deploy a Docker container, see `Dockerfile`.  To run the server locally, see `tests/README.md` for instructions on building and running the server locally.
+To build and deploy a container, see `deploy/README.md`. One image runs in both modes — `transport: http` (HTTP daemon on `/rpc`) or `transport: stdio` — chosen at run time by the config file it is given, so plugin changes never require a rebuild:
+
+```bash
+cp deploy/.env.example deploy/.env && $EDITOR deploy/.env   # secrets + per-plugin creds
+
+docker compose up -d --build            # HTTP daemon
+docker compose run --rm -T mcphe-stdio  # stdio, for an MCP client
+```
+
+Without compose (Apple `container` CLI), `./deploy/run.sh build|http|stdio|logs|stop` does the same thing with the same files. To run the server locally, see `tests/README.md` for instructions on building and running the server locally.
 
 ![MCP Inspector](./images/MCP_Inspector.png)

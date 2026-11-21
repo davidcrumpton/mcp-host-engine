@@ -1,7 +1,7 @@
 # Variables
 BINARY_NAME=mcphe
 
-.PHONY: all build run clean test help
+.PHONY: all build run clean test help image up down logs stdio env
 
 all: build
 
@@ -33,6 +33,38 @@ help:
 ## release: Build and publish release packages
 release:
 	goreleaser release --clean
+
+# ---------------------------------------------------------------------------
+# Containers. One image, two modes (see deploy/README.md). These wrap
+# deploy/run.sh, which uses Apple's `container` CLI; with docker or podman
+# installed, use `docker compose up -d --build` / `docker compose run --rm -T
+# mcphe-stdio` instead — same files, same variables.
+# ---------------------------------------------------------------------------
+
+## image: Build the container image
+image:
+	./deploy/run.sh build
+
+## env: Create deploy/.env from deploy/.env.example (never overwrites)
+env:
+	@test -f deploy/.env || cp deploy/.env.example deploy/.env
+	@echo "deploy/.env ready — add your plugin credentials"
+
+## up: Start the HTTP daemon container (detached)
+up:
+	./deploy/run.sh http
+
+## down: Stop and remove the daemon container
+down:
+	./deploy/run.sh stop
+
+## logs: Follow daemon container logs
+logs:
+	./deploy/run.sh logs
+
+## stdio: Run stdio mode in a container (writes protocol to this terminal)
+stdio:
+	./deploy/run.sh stdio
 
 
 ## Build TypeScript plugins and run tests

@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# mcphe — stdio profile (JSON-RPC over stdin/stdout, for a local MCP client)
+#
+# Mounted at /etc/mcphe/config.yaml when running stdio mode. Differences from
+# the HTTP profile that actually matter:
+#
+#   transport: stdio   no host/port, no CORS, no bearer token (there is no
+#                      network surface — the client owns the pipe)
+#   verbosity 1        stdout must carry protocol frames ONLY. mcphe already
+#                      logs to stderr, but keep noise low anyway.
+#
+# The container must run with stdin attached and *without* a TTY
+# (`container run -i`, `docker compose run --rm -T`): a TTY turns the stream
+# into a line-buffered terminal and corrupts the framing.
+# ---------------------------------------------------------------------------
+---
+version: "1.0.0"
+transport: stdio
+run_as_root: false
+plugin_dir: /app/plugins
+logs_as_json: true
+verbosity_level: 1
+
+plugins:
+  get_datetime:
+  get_ip:
+    allowed_domains: ["ifconfig.io"]
+    allowed_http_methods: ["GET"]
+  ping:
+  wikipedia_search:
+    allowed_domains: ["en.wikipedia.org"]
+  websearch:
+    allowed_domains: ["duckduckgo.com", "duck.ai"]
+  http_request_get:
+    allowed_domains:
+      - "reddit.com"
+      - "github.com"
+      - "stackoverflow.com"
+      - "news.ycombinator.com"
+    allowed_env_vars: []
+
+  memory:
+    enabled: true
+    allowed_read_file_paths: ["/var/lib/mcphe/"]
+    allowed_write_file_paths: ["/var/lib/mcphe/"]
+    allowed_http_headers:
+      - "mcp-request-id"
+      - "mcp-session-id"
+    options:
+      data_dir: "/var/lib/mcphe/memory"
+
+  # stdio clients often run as a subprocess of an IDE/agent, so keep the
+  # credential-bearing plugins behind allowed_env_vars exactly like HTTP mode.
+  # gitlab:
+  #   options:
+  #     gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
+  #     gitlabBaseUrl: "https://gitlab.crumpton.org"
+  #   allowed_domains: ["gitlab.crumpton.org"]
+  #   allowed_env_vars: ["GITLAB_API_KEY"]

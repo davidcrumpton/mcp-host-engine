@@ -1,0 +1,24 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+.gitlab-ci.yml
+.vscode
+.claude
+
+# Never bake runtime secrets into an image.
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+deploy/state
+revocations.yaml
+*.pem
+*.key
+
+# Build artifacts / editor noise
+mcphe
+plugin-devel
+tests/results
+tls
+docs
+images
+*.swp

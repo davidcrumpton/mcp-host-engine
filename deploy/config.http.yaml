@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# mcphe — HTTP daemon profile (streamable HTTP + SSE on /rpc)
+#
+# Mounted at /etc/mcphe/config.yaml by compose.yaml and deploy/run.sh.
+# This is the container equivalent of the repo-root config.yaml; the only
+# differences are the things that must change inside a container:
+#
+#   host       0.0.0.0         (127.0.0.1 is unreachable through a published port)
+#   plugin_dir /app/plugins    (baked into the image)
+#   paths      /var/lib/mcphe  (bind-mounted state dir, writable by the user)
+#   secrets    env:// refs     (never baked into the image)
+#
+# NOTE: an env:// reference is FATAL at startup if the variable is unset, so
+# every var named below must exist in deploy/.env — see deploy/.env.example.
+# ---------------------------------------------------------------------------
+---
+version: "1.0.0"
+transport: http
+host: "0.0.0.0"
+port: "8001"
+use_https: false
+cors_origin: ""
+run_as_root: false
+plugin_dir: /app/plugins
+
+# Structured logs on stderr — keeps stdout clean and `container logs` parseable.
+logs_as_json: true
+verbosity_level: 2
+
+# Auth: mint tokens on the host with `mcphe token create` against the same
+# secret, then send `Authorization: Bearer <token>`.
+token_secret: "env://MCPHE_TOKEN_SECRET"
+token_revocation_file: "env://MCPHE_REVOKE_FILE"
+
+plugins:
+  # --- plugins that need no credentials ------------------------------------
+  get_datetime:
+  get_ip:
+    allowed_domains: ["ifconfig.io"]
+    allowed_http_methods: ["GET"]
+  ping:
+  wikipedia_search:
+    allowed_domains: ["en.wikipedia.org"]
+
+  # --- stateful plugin: data_dir must live on the mounted volume -----------
+  memory:
+    enabled: true
+    allowed_read_file_paths: ["/var/lib/mcphe/"]
+    allowed_write_file_paths: ["/var/lib/mcphe/"]
+    allowed_http_headers:
+      - "mcp-request-id"
+      - "mcp-session-id"
+    options:
+      data_dir: "/var/lib/mcphe/memory"
+
+  # --- plugins whose credentials arrive as environment variables -----------
+  # Only vars listed in allowed_env_vars are visible to the plugin; everything
+  # else in the env file stays invisible to it.
+  gitlab:
+    options:
+      gitlabApiKeyFromEnvVar: "GITLAB_API_KEY"
+      gitlabBaseUrl: "https://gitlab.crumpton.org"
+    allowed_domains: ["gitlab.crumpton.org"]
+    allowed_env_vars: ["GITLAB_API_KEY"]
+
+  # --- plugins that call services on the host ------------------------------
+  # Apple `container` puts the Mac at 192.168.64.1 (the `default` network
+  # gateway); docker/podman users would use host.docker.internal instead.
+  home_assistant:
+    allowed_domains: ["homeassistant.local", "192.168.64.1"]
+    allowed_env_vars: ["HASS_URL", "HASS_TOKEN"]
+    options:
+      # env:// is only resolved at the top level of a plugin block, NOT inside
+      # options: — the plugin itself prefers HASS_URL/HASS_TOKEN from the
+      # environment and falls back to these literals.
+      ApiUrl: "http://homeassistant.local:8123"
+
+  # --- anything reading config via file:// must see the *container* path ---
+  # proxmox_api:
+  #   allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
+  #   allowed_domains: ["pve02.crumpton.org"]
+  #   invocation_user: "env://USER"
+  #   config: "file:///etc/mcphe/config.yaml"

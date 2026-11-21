@@ -1,0 +1,106 @@
+# ---------------------------------------------------------------------------
+# mcphe — Compose Specification file
+#
+# ONE image, TWO modes. The image is byte-identical in both cases: the
+# transport is chosen at *runtime* by which config file is mounted as
+# /etc/mcphe/config.yaml (see Dockerfile for why). Nothing about the mode is
+# baked into the build.
+#
+#   docker compose up -d --build                 # HTTP daemon on :8001
+#   docker compose run --rm -T mcphe-stdio       # stdio, for an MCP client
+#   docker compose --profile stdio run --rm -T mcphe-stdio
+#
+# Per-plugin environment (API keys, service URLs) comes from an env file, so
+# adding or removing plugins means editing config + .env, never rebuilding:
+#
+#   cp deploy/.env.example deploy/.env
+#
+# Works with `docker compose` (v2), `podman compose`, and the community
+# `container-compose` plugin for Apple's `container`. On a Mac that has only
+# Apple's CLI, use deploy/run.sh instead — same variables, same mounts, no
+# compose required.
+# ---------------------------------------------------------------------------
+
+name: mcphe
+
+# Shared build so both services produce (and reuse) the same tagged image.
+x-mcphe-build: &mcphe-build
+  image: ${MCPHE_IMAGE:-mcphe:local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      VERSION: ${MCPHE_VERSION:-dev}
+      COMMIT: ${MCPHE_COMMIT:-none}
+      # Match the host user so the bind-mounted state dir stays writable.
+      UID: ${MCPHE_UID:-10001}
+      GID: ${MCPHE_GID:-10001}
+
+x-mcphe-common: &mcphe-common
+  <<: *mcphe-build
+  # Every variable in this file is injected into the container; each plugin can
+  # still only read the ones named in its own allowed_env_vars list.
+  env_file:
+    - ${MCPHE_ENV_FILE:-deploy/.env}
+  # Reap zombies / forward signals from plugins that shell out (run_command).
+  init: true
+
+services:
+  # -------------------------------------------------------------------------
+  # HTTP daemon (streamable HTTP + SSE on /rpc). Default profile, so a bare
+  # `docker compose up -d` does the obvious thing.
+  # -------------------------------------------------------------------------
+  mcphe:
+    <<: *mcphe-common
+    container_name: ${MCPHE_CONTAINER_NAME:-mcphe}
+    command: ["/etc/mcphe/config.yaml"]
+    environment:
+      TZ: ${TZ:-UTC}
+    ports:
+      # Bind to loopback by default: the container has no auth unless
+      # MCPHE_TOKEN_SECRET is set. Use MCPHE_BIND_IP=0.0.0.0 to expose it.
+      - "${MCPHE_BIND_IP:-127.0.0.1}:${MCPHE_PORT:-8001}:${MCPHE_PORT:-8001}"
+    volumes:
+      # The mounted file is the mode switch. Point MCPHE_CONFIG_HTTP at your
+      # own config to bring your full plugin set.
+      - ${MCPHE_CONFIG_HTTP:-./deploy/config.http.yaml}:/etc/mcphe/config.yaml:ro
+      # Writable state: revocation list, memory plugin data, pid file.
+      - ${MCPHE_STATE_DIR:-./deploy/state}:/var/lib/mcphe
+      # Live plugin edits without a rebuild (optional):
+      # - ./plugins:/app/plugins:ro
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      # /rpc/openapi.json is served outside the auth middleware, so it answers
+      # 200 even when a token is required. (Busybox wget ships with the image.)
+      # Change http -> https if you set use_https: true in the config.
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null "http://127.0.0.1:${MCPHE_PORT:-8001}/rpc/openapi.json"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # -------------------------------------------------------------------------
+  # stdio server. There is nothing to "up": the client owns stdin/stdout, so
+  # this service is only ever started with `run`. The profile keeps it out of
+  # `docker compose up`.
+  # -------------------------------------------------------------------------
+  mcphe-stdio:
+    <<: *mcphe-common
+    profiles: ["stdio"]
+    container_name: ${MCPHE_CONTAINER_NAME:-mcphe}-stdio
+    command: ["/etc/mcphe/config.yaml"]
+    environment:
+      TZ: ${TZ:-UTC}
+    # stdin must stay open (the client writes JSON-RPC frames into it)...
+    stdin_open: true
+    # ...and there must be NO TTY: a pty line-buffers and rewrites the stream,
+    # which corrupts MCP framing. Use `run --rm -T` for the same reason.
+    tty: false
+    volumes:
+      - ${MCPHE_CONFIG_STDIO:-./deploy/config.stdio.yaml}:/etc/mcphe/config.yaml:ro
+      - ${MCPHE_STATE_DIR:-./deploy/state}:/var/lib/mcphe
+      # - ./plugins:/app/plugins:ro
+    restart: "no"
