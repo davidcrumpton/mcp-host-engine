@@ -460,6 +460,18 @@ MCP Application support is currently in early stages and may not work with all a
 
 Releases are cut from a tag, and only from a tag. `.github/workflows/go.yml` builds and tests on every push; `.github/workflows/release.yml` publishes, and it runs only for `v*`.
 
+### What gets its own release
+
+A release is for something a user installs and runs — code, packaging, the formula. **Documentation-only changes do not get their own tag**; they sit on `main` and ship with the next code release. Every tag costs a version number and a build, and a docs-only tag tells users "upgrade" when nothing they run has changed.
+
+So `main` being ahead of the newest tag is normal, as long as the only commits in between touch Markdown. Check before tagging:
+
+```bash
+git diff --name-only "$(git describe --tags --abbrev=0)"..HEAD   # all *.md? then don't tag
+```
+
+If you do need to release docs on their own (a wrong install instruction is a real defect — `v0.5.84` was this case, once), say so and accept that the number is spent.
+
 ```bash
 echo 0.5.81 > VERSION
 git commit -am "chore: release 0.5.81"
