@@ -136,9 +136,14 @@ brews:
         # Apple Silicon, /usr/local on Intel, .linuxbrew on Linuxbrew). Rewrite
         # it to wherever the plugins were just installed, so a fresh install
         # finds its plugins without the user having to edit anything.
+        #
+        # opt_share, not share: during install `share` resolves inside the keg
+        # (Cellar/mcphe/<version>/share), so the config would pin a path that
+        # vanishes on the next `brew upgrade`. Homebrew never rewrites an
+        # existing config, so that would break silently and permanently.
         inreplace etc/"mcphe/config.yaml",
                   "plugin_dir: /usr/share/mcphe/plugins",
-                  "plugin_dir: #{share}/mcphe/plugins"
+                  "plugin_dir: #{opt_share}/mcphe/plugins"
       end
     caveats: |
       Set a token_secret in #{etc}/mcphe/config.yaml, then mint a token:
