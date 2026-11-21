@@ -70,28 +70,13 @@ signs:
       - "--yes"
     output: true
 
-dockers_v2:
-  - id: mcphe
-    images:
-      - ghcr.io/davidcrumpton/mcp-host-engine
-    tags:
-      - "{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
-    dockerfile: Dockerfile
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    build_args:
-      VERSION: "{{ .Version }}"
-      COMMIT: "{{ .Commit }}"
-    labels:
-      "org.opencontainers.image.title": "{{ .ProjectName }}"
-      "org.opencontainers.image.description": "MCP host engine with a V8-powered JavaScript plugin architecture"
-      "org.opencontainers.image.url": "https://github.com/davidcrumpton/mcp-host-engine"
-      "org.opencontainers.image.source": "https://github.com/davidcrumpton/mcp-host-engine"
-      "org.opencontainers.image.version": "{{ .Version }}"
-      "org.opencontainers.image.revision": "{{ .Commit }}"
-      "org.opencontainers.image.licenses": "MIT"
+# NOTE: no `dockers_v2` here on purpose. GoReleaser builds the image from a
+# minimal temporary context that contains only the compiled binary, so a
+# Dockerfile that builds from source (`COPY go.mod`, `COPY plugins/`) fails with
+# "failed to compute cache key: /plugins: not found" — and `dockers_v2` has no
+# `context` field to override it. The image is built in release.yml with
+# docker/build-push-action against the repository root instead, which also means
+# the published image is built from the same Dockerfile users build locally.
 
 nfpms:
   - id: packages

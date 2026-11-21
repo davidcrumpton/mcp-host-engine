@@ -3,13 +3,13 @@ name: Release
 # Tag-driven release. Push a tag to the GitHub remote:
 #   git tag v0.5.80 && git push github v0.5.80
 #
-# One GoReleaser run produces:
-#   * tarballs for linux/darwin + zips for windows (amd64, arm64)
-#   * .deb / .rpm / .apk packages
-#   * a multi-arch image on ghcr.io (linux/amd64, linux/arm64)
-#   * a Homebrew formula -> davidcrumpton/homebrew-tap (if TAP_GITHUB_TOKEN is set)
-#   * checksums.txt + SPDX SBOMs + keyless cosign signature
-#   * SLSA build provenance attestations
+# Two jobs, because the image cannot be built by GoReleaser (see the note in
+# .goreleaser.yaml — its docker context holds only the compiled binary, and a
+# source-building Dockerfile needs the whole repo):
+#   goreleaser      -> tarballs/zips, .deb/.rpm/.apk, Homebrew formula,
+#                      checksums, SPDX SBOMs, keyless cosign signature,
+#                      SLSA build provenance
+#   container-image -> ghcr.io/davidcrumpton/mcp-host-engine (amd64 + arm64)
 on:
   push:
     tags:
@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: write # create the release and upload assets
-  packages: write # push the image to ghcr.io
   id-token: write # cosign keyless signing + provenance attestation
   attestations: write
 
@@ -56,18 +55,6 @@ jobs:
             echo "Bump VERSION to ${tag}, or tag ${ver}."
             exit 1
           fi
-
-      # The image is built for arm64 as well as amd64; without QEMU the arm64
-      # stage cannot run its `go build`.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -132,3 +119,62 @@ jobs:
             echo "  checksums.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  container-image:
+    name: Container image (ghcr.io)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      # The arm64 stage runs its own RUN steps (apk add, addgroup, the Go
+      # build), so it needs QEMU. The Go build cross-compiles via TARGETARCH,
+      # but the alpine setup steps still execute for the target platform.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          echo "version=${v}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<TAGS"
+            echo "ghcr.io/davidcrumpton/mcp-host-engine:${v}"
+            # Only move `latest` for a stable tag, never for a prerelease.
+            case "$v" in
+            *-*) ;;
+            *) echo "ghcr.io/davidcrumpton/mcp-host-engine:latest" ;;
+            esac
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=mcp-host-engine
+            org.opencontainers.image.description=MCP host engine with a V8-powered JavaScript plugin architecture
+            org.opencontainers.image.url=https://github.com/davidcrumpton/mcp-host-engine
+            org.opencontainers.image.source=https://github.com/davidcrumpton/mcp-host-engine
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

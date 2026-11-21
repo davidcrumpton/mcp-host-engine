@@ -19,6 +19,7 @@ config.yaml
 
 # Build artifacts / editor noise
 mcphe
+dist
 plugin-devel
 tests/results
 tls
