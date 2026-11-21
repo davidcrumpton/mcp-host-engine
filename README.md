@@ -539,6 +539,8 @@ brew uninstall --force mcphe
 brew untap --force davidcrumpton/tap
 ```
 
+`untap --force` also **uninstalls every other formula from that tap** — currently `tokenmgr` and `mcwsd`. Reinstall them afterwards, or use a scratch tap for the check instead.
+
 Notes:
 
 - **If the secret is absent** the release still succeeds and logs a warning; only the formula is skipped. That is why `v0.5.80` shipped without one.
