@@ -148,6 +148,10 @@ func runTokenCommand(args []string) {
 
 		// Create token and purge from revocation list
 		token, err := auth.Create("mcphe", config.Version, username, label, ttl, cfg.TokenSecret)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create token: %v\n", err)
+			os.Exit(1)
+		}
 		r, err := auth.NewRevoker(cfg.TokenRevocationFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to open revocation file %q: %v\n", cfg.TokenRevocationFile, err)

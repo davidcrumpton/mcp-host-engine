@@ -11,7 +11,130 @@ This repository contains a Go-based MCP server that runs tools as JavaScript plu
 - Configurable host, port, bearer auth, allowed domains, and enabled tools
 - Built-in host APIs exposed to plugins (Namespaced modules: `host.fs`, `host.http` (with PATCH support), `host.exec`, `host.process`, `host.path`, `host.crypto`, `host.console`, `host.sleep`, `host.url`, `host.utils`)
 
-## Run
+## Install
+
+Every release publishes the same artifacts from a single build, so use whichever suits your platform. The examples below use `0.5.80`; substitute the version you want. All of them download from:
+
+```text
+https://github.com/davidcrumpton/mcp-host-engine/releases/download/v<version>/
+```
+
+| Artifact | For |
+| :--- | :--- |
+| `mcphe_<version>_linux_<arch>.deb` / `.rpm` / `.apk` | Debian/Ubuntu, Fedora/RHEL, Alpine |
+| `mcp-host-engine_<version>_linux_<arch>.tar.gz` | any Linux |
+| `mcp-host-engine_<version>_darwin_<arch>.tar.gz` | macOS (amd64, arm64) |
+| `mcp-host-engine_<version>_windows_<arch>.zip` | Windows |
+| `*.sbom.json` | SPDX SBOM for the matching archive |
+| `checksums.txt` + `checksums.txt.sigstore.json` | verify what you downloaded |
+| `ghcr.io/davidcrumpton/mcp-host-engine:<version>` | container image, amd64 + arm64 |
+
+Packages install the binary to `/usr/local/bin/mcphe`, the plugins to `/usr/share/mcphe/plugins/`, and an example config to `/etc/mcphe/config.yaml` (registered as a conffile, so upgrades will not overwrite your edits).
+
+### Homebrew (macOS and Linuxbrew)
+
+```bash
+brew install davidcrumpton/tap/mcphe
+```
+
+> The formula is pushed to the tap by the release workflow, which needs the `TAP_GITHUB_TOKEN` secret — see [Releasing](#releasing). Until that secret is set the release skips Homebrew, and the formula is not in the tap yet.
+
+### Debian / Ubuntu
+
+```bash
+ver=0.5.80; arch=amd64            # or arm64
+curl -LO "https://github.com/davidcrumpton/mcp-host-engine/releases/download/v${ver}/mcphe_${ver}_linux_${arch}.deb"
+sudo apt install "./mcphe_${ver}_linux_${arch}.deb"
+```
+
+### Fedora / RHEL
+
+```bash
+ver=0.5.80; arch=amd64
+curl -LO "https://github.com/davidcrumpton/mcp-host-engine/releases/download/v${ver}/mcphe_${ver}_linux_${arch}.rpm"
+sudo dnf install "./mcphe_${ver}_linux_${arch}.rpm"
+```
+
+### Alpine
+
+```bash
+ver=0.5.80; arch=amd64
+curl -LO "https://github.com/davidcrumpton/mcp-host-engine/releases/download/v${ver}/mcphe_${ver}_linux_${arch}.apk"
+sudo apk add --allow-untrusted "./mcphe_${ver}_linux_${arch}.apk"
+```
+
+> The `.apk` is not signed by an Alpine key, hence `--allow-untrusted`. Verify the download with `checksums.txt` (below) before installing if that matters to you.
+
+### Tarball / zip (any platform)
+
+```bash
+ver=0.5.80
+curl -LO "https://github.com/davidcrumpton/mcp-host-engine/releases/download/v${ver}/mcp-host-engine_${ver}_linux_amd64.tar.gz"
+mkdir -p "mcphe-${ver}" && tar -xzf "mcp-host-engine_${ver}_linux_amd64.tar.gz" -C "mcphe-${ver}"
+cd "mcphe-${ver}"    # the archive is flat: mcphe, plugins/, config.example.yaml, README.md, LICENSE
+
+# either run it in place...
+./mcphe config.example.yaml
+# ...or install it system-wide, matching the layout the packages use
+sudo install -m 0755 mcphe /usr/local/bin/
+sudo mkdir -p /usr/share/mcphe && sudo cp -r plugins /usr/share/mcphe/
+sudo mkdir -p /etc/mcphe && sudo cp config.example.yaml /etc/mcphe/config.yaml
+```
+
+The shipped `config.example.yaml` sets `plugin_dir: /usr/share/mcphe/plugins`, which matches the package layout. Running from the extracted directory instead? Change it to `plugin_dir: plugins`.
+
+### Container image
+
+```bash
+docker run --rm -p 8001:8001 \
+  -e MCPHE_TOKEN_SECRET="$(openssl rand -hex 32)" \
+  -e MCPHE_REVOKE_FILE=/tmp/revocations.yaml \
+  ghcr.io/davidcrumpton/mcp-host-engine:0.5.80
+```
+
+Both `-e` variables are **required** by the image's default config: they are `env://` references, and an unresolved `env://` is fatal at startup. Omit them and the container exits with `Failed to load config: resolving field "TokenSecret"`. The revocation file does not have to exist — a missing file means "nothing revoked".
+
+For stdio mode (MCP clients that spawn a process), pass the stdio config instead; it needs neither variable:
+
+```bash
+docker run -i --rm ghcr.io/davidcrumpton/mcp-host-engine:0.5.80 /etc/mcphe/config.stdio.yaml
+```
+
+See `deploy/README.md` for compose, bind-mounting plugins, and building your own image.
+
+### Verify a download
+
+`checksums.txt` covers every asset, and it is signed with keyless cosign, so you can check both integrity and provenance without a public key to manage:
+
+```bash
+# 1. Checksums (only the files you actually downloaded need to be present)
+sha256sum --ignore-missing -c checksums.txt      # Linux
+shasum -a 256 -c --ignore-missing checksums.txt  # macOS
+
+# 2. Signature over checksums.txt
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/davidcrumpton/mcp-host-engine/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+
+# 3. Build provenance (SLSA), if you use the GitHub CLI
+gh attestation verify mcphe_0.5.80_linux_amd64.deb \
+  --repo davidcrumpton/mcp-host-engine
+```
+
+### First run after installing
+
+The packages and tarball ship with an empty `token_secret` so that no credential is baked into a downloadable artifact. Set one, then mint a token:
+
+```bash
+sudo "${EDITOR:-vi}" /etc/mcphe/config.yaml     # set token_secret
+mcphe token create alice 30d                     # prints a bearer token
+mcphe /etc/mcphe/config.yaml                     # start on 127.0.0.1:8001
+```
+
+`token create` takes positional arguments (`<username> <duration> [label]`), and any flags must come before them. To avoid keeping the secret on disk, point `token_secret` at `env://MCPHE_TOKEN_SECRET` or a `vault://` path instead — see [Resolving YAML Config Values](#resolving-yaml-config-values).
+
+## Run from source
 
 1. Install dependencies and build:
 
@@ -324,6 +447,66 @@ I have had no issues with MCP HE working with OpenWebUI 0.9.X editions or later,
 The n8n platform does not work at this time. It can login and see tools but fails to call them, for unknown reasons.
 
 MCP Application support is currently in early stages and may not work with all applications. It functions well in MCP Inspector as pictured below.
+
+## Releasing
+
+Releases are cut from a tag, and only from a tag. `.github/workflows/go.yml` builds and tests on every push; `.github/workflows/release.yml` publishes, and it runs only for `v*`.
+
+```bash
+echo 0.5.81 > VERSION
+git commit -am "chore: release 0.5.81"
+git push github main
+
+git tag v0.5.81
+git push github v0.5.81        # <- this triggers the release
+```
+
+The tag must match the `VERSION` file. `make build` stamps `VERSION` into a local binary while GoReleaser stamps the tag, so if they disagree a locally built binary reports a different version than the release it came from. The workflow checks this first and fails before building anything.
+
+`make snapshot` builds every artifact locally without publishing (it skips the image, SBOMs and signing, which need a registry and an OIDC identity).
+
+### TAP_GITHUB_TOKEN
+
+The release pushes `Formula/mcphe.rb` into the separate **`davidcrumpton/homebrew-tap`** repository. The workflow's own `GITHUB_TOKEN` is scoped to this repository and cannot write to another one, so the tap needs a personal access token supplied as a secret named `TAP_GITHUB_TOKEN`.
+
+**1. Create a fine-grained token**
+
+Open <https://github.com/settings/personal-access-tokens/new> and set:
+
+| Field | Value |
+| :--- | :--- |
+| Token name | `mcphe release -> homebrew-tap` |
+| Resource owner | `davidcrumpton` |
+| Expiration | anything you will remember to renew |
+| Repository access | **Only select repositories** → `davidcrumpton/homebrew-tap` |
+| Repository permissions → **Contents** | **Read and write** |
+| Repository permissions → Metadata | *Read-only* (added automatically) |
+
+Nothing else is required — no Actions, no Workflows, no admin. Restricting it to the tap means a leaked token cannot touch this repository.
+
+**2. Add it to this repository**
+
+```bash
+gh secret set TAP_GITHUB_TOKEN --repo davidcrumpton/mcp-host-engine
+# paste the token (github_pat_...) at the prompt
+```
+
+Or by hand: this repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, name `TAP_GITHUB_TOKEN`, value = the token.
+
+**3. Confirm it took effect**
+
+On the next tagged release the log should *not* contain `TAP_GITHUB_TOKEN is not set; skipping the Homebrew formula`, and `Formula/mcphe.rb` should appear in the tap. To check without cutting a release:
+
+```bash
+gh secret list --repo davidcrumpton/mcp-host-engine | grep TAP_GITHUB_TOKEN
+```
+
+Notes:
+
+- **If the secret is absent** the release still succeeds and logs a warning; only the formula is skipped. That is why `v0.5.80` shipped without one.
+- **If the secret is present but invalid or expired** the release fails at the Homebrew step, because GoReleaser treats a failed push as fatal. Rotate it before it expires.
+- A classic PAT with `repo` scope also works, but that grants write access to *every* repository you own. Prefer the fine-grained token above.
+- The container image needs no extra secret: it pushes to `ghcr.io` with `GITHUB_TOKEN` and the workflow's `packages: write` permission.
 
 ## Development
 

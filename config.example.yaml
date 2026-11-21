@@ -33,11 +33,14 @@ logs_as_json: false
 verbosity_level: 2
 
 # Authentication. Generate a secret, then mint tokens against it:
-#   mcphe token create --username you
+#   mcphe token create <username> <duration>     e.g. mcphe token create alice 30d
 # Prefer the env:// or vault:// form in production so the value is not on disk.
 token_secret: ""
 # token_secret: "env://MCPHE_TOKEN_SECRET"
-# token_revocation_file: "env://MCPHE_REVOKE_FILE"
+
+# Optional. Revocation is opt-in: leave this unset and nothing is written to
+# disk. Set it to revoke tokens without restarting the server.
+# token_revocation_file: "/var/lib/mcphe/revocations.yaml"
 
 plugins:
   # Plugins needing no credentials.

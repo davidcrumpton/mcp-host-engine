@@ -29,7 +29,7 @@ if [ -f /etc/mcphe/config.yaml ] &&
 mcphe installed. Before starting the HTTP daemon, set a token_secret in
 /etc/mcphe/config.yaml, then mint a token:
 
-    mcphe token create --username <you>
+    mcphe token create <username> <duration>        e.g. mcphe token create alice 30d
 
 Without a token_secret the engine refuses to authenticate anyone, and it will
 only listen on loopback. The plugins live in /usr/share/mcphe/plugins.

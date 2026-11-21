@@ -242,6 +242,18 @@ func (r *Revoker) writeEntries(entries map[string]int64) error {
 		b.WriteByte('\n')
 	}
 
+	// An empty path means no revocation file was configured. Revocation is
+	// opt-in (see NewRevoker), so there is nothing to persist: just keep the
+	// in-memory set in sync. Falling through would write a bare ".tmp" into the
+	// working directory and then fail to rename it to "", which is what made
+	// `mcphe token create` fail outright when token_revocation_file was unset.
+	if r.path == "" {
+		r.mu.Lock()
+		r.revoked = entries
+		r.mu.Unlock()
+		return nil
+	}
+
 	tmp := r.path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
 		return err
