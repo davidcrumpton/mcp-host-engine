@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# mcphe — example configuration for a package install (.deb / .rpm / .apk)
+# and for tarball installs.
+#
+# Installed as /etc/mcphe/config.yaml by the packages. It is deliberately
+# different from the repo-root config.yaml, which is a local development file:
+#
+#   * token_secret is empty, so no credential is baked into a downloadable
+#     artifact. Set it before minting tokens, or point it at a secret store
+#     (vault://...) or an environment variable (env://MCPHE_TOKEN_SECRET).
+#   * plugin_dir points at where the packages install the plugins.
+#   * host stays on loopback. With no token_secret, listening on a public
+#     interface would leave the API unauthenticated — main.go warns about this,
+#     and the default here is chosen so that warning never fires.
+#
+# See README.md for the plugin options this engine understands.
+# ---------------------------------------------------------------------------
+---
+version: "1.0.0"
+transport: http
+host: "127.0.0.1"
+port: "8001"
+use_https: false
+cors_origin: ""
+run_as_root: false
+
+# Where the plugins live. The packages install them to the absolute path below.
+# If you are running from a tarball instead, the plugins sit next to the binary,
+# so set this to "plugins".
+plugin_dir: /usr/share/mcphe/plugins
+
+logs_as_json: false
+verbosity_level: 2
+
+# Authentication. Generate a secret, then mint tokens against it:
+#   mcphe token create --username you
+# Prefer the env:// or vault:// form in production so the value is not on disk.
+token_secret: ""
+# token_secret: "env://MCPHE_TOKEN_SECRET"
+# token_revocation_file: "env://MCPHE_REVOKE_FILE"
+
+plugins:
+  # Plugins needing no credentials.
+  get_datetime:
+  ping:
+  wikipedia_search:
+    allowed_domains: ["en.wikipedia.org"]
+
+  # Stateful plugin: data_dir must be writable by the user running mcphe.
+  # /var/lib/mcphe is created by the package's postinstall script.
+  # memory:
+  #   enabled: true
+  #   options:
+  #     data_dir: "/var/lib/mcphe/memory"

@@ -1,0 +1,25 @@
+mcp-server
+# GoReleaser output: built artifacts, never source.
+dist/
+FAIL-wikipedia.md
+config/config-8000.yaml
+configuration/
+mcphe
+tests/results
+*.swp
+tls/
+plugins/microsoft_outlook.js
+plugins/README for agentic AI to rapidly build.js
+plugins/elastic7.js
+plugins/elastic8.js
+plugins/AGENT.md
+plugins/README for agentic AI to rapidly build.md
+plugin-devel/plugins/README for agentic AI to rapidly build
+plugin-devel/node_modules/
+plugin-devel/dist 
+
+# Container deployment: runtime secrets and state, never committed
+deploy/.env
+deploy/state/
+AGENTS.md
+CLAUDE.md

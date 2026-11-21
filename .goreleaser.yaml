@@ -1,15 +1,26 @@
 version: 2
 
+project_name: mcp-host-engine
+
 before:
   hooks:
+    # A dirty plugins/ tree would be copied into packages and the image, so
+    # refuse to release rather than publish files that are not in git.
+    - ./scripts/check-release-inputs.sh
     - go mod tidy
 
 builds:
-  - main: ./main.go
+  - id: mcphe
+    main: ./main.go
     binary: mcphe
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
     ldflags:
-      - -X mcphe/config.Version={{.Version}}
-      - -X mcphe/config.Commit={{.Commit}}
+      - -s -w
+      - -X mcphe/config.Version={{ .Version }}
+      - -X mcphe/config.Commit={{ .Commit }}
     goos:
       - linux
       - darwin
@@ -18,19 +29,127 @@ builds:
       - amd64
       - arm64
 
-checksum:
-  name_template: checksums.txt
-
 archives:
-  - formats: [tar.gz]
-    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+  - id: default
+    ids:
+      - mcphe
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE
+      # The engine is useless without its plugins, and a tarball install has no
+      # other copy of them.
+      - config.example.yaml
+      - plugins/
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# SPDX SBOM per archive, so consumers can check what went into a build.
+sboms:
+  - id: archive-sbom
+    artifacts: archive
+
+# Keyless cosign signature over the checksums, verifiable without a public key
+# via the workflow's OIDC identity. One signature covers every artifact, because
+# checksums.txt covers them.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    output: true
+
+dockers_v2:
+  - id: mcphe
+    images:
+      - ghcr.io/davidcrumpton/mcp-host-engine
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    build_args:
+      VERSION: "{{ .Version }}"
+      COMMIT: "{{ .Commit }}"
+    labels:
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.description": "MCP host engine with a V8-powered JavaScript plugin architecture"
+      "org.opencontainers.image.url": "https://github.com/davidcrumpton/mcp-host-engine"
+      "org.opencontainers.image.source": "https://github.com/davidcrumpton/mcp-host-engine"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.revision": "{{ .Commit }}"
+      "org.opencontainers.image.licenses": "MIT"
+
+nfpms:
+  - id: packages
+    package_name: mcphe
+    vendor: David Crumpton
+    homepage: https://github.com/davidcrumpton/mcp-host-engine
+    maintainer: David Crumpton <davidmcrumpton@gmail.com>
+    description: |-
+      MCP Host Engine: a Model Context Protocol host written in Go, with a
+      V8-powered JavaScript plugin architecture.
+    license: MIT
+    section: net
+    priority: optional
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/local/bin
+    contents:
+      - src: plugins/
+        dst: /usr/share/mcphe/plugins
+        type: tree
+      # config.example.yaml, never the repo-root config.yaml: the latter is a
+      # local development file and has carried a token_secret.
+      - src: config.example.yaml
+        dst: /etc/mcphe/config.yaml
+        type: config|noreplace
+    scripts:
+      postinstall: scripts/postinstall.sh
+
+brews:
+  # NOTE: `brews` is deprecated in GoReleaser 2.x in favour of
+  # `homebrew_casks`, but casks are macOS-only and this formula is meant to work
+  # under Linuxbrew too, so the deprecated-but-supported pipe stays. As a result
+  # `goreleaser check` reports a deprecation warning (it still exits 0 for that
+  # reason alone on 2.20). Revisit if formula support is dropped.
+  - name: mcphe
+    # Pinned: the `origin` remote is GitLab (crumptonorg), so GoReleaser's
+    # default would write github.com/crumptonorg/... into the formula and every
+    # `brew install` would 404.
+    url_template: "https://github.com/davidcrumpton/mcp-host-engine/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    repository:
+      owner: davidcrumpton
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/davidcrumpton/mcp-host-engine
+    description: MCP host engine with a JavaScript plugin architecture
+    license: MIT
+    install: |
+      bin.install "mcphe"
+      (share/"mcphe/plugins").install Dir["plugins/*"]
+      (etc/"mcphe").install "config.example.yaml" => "config.yaml" unless (etc/"mcphe/config.yaml").exist?
 
 release:
   draft: false
   prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Version }}"
 
 changelog:
   sort: asc
@@ -38,32 +157,4 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
-
-nfpms:
-  - package_name: mcphe
-    homepage: https://github.com/davidcrumpton/mcp-host-engine
-    maintainer: David Crumpton <davidmcrumpton@gmail.com>
-    description: MCP Host Engine - Go MCP server with JavaScript plugins
-    license: MIT
-    formats:
-      - deb
-      - rpm
-    bindir: /usr/local/bin
-    contents:
-      - src: plugins/
-        dst: /usr/share/mcphe/plugins
-        type: tree
-      - src: config.yaml
-        dst: /etc/mcphe/config.yaml
-        type: config|noreplace
-    scripts:
-      postinstall: scripts/postinstall.sh
-
-brews:
-  - name: mcphe
-    repository:
-      owner: davidcrumpton
-      name: homebrew-mcphe
-    homepage: https://github.com/davidcrumpton/mcp-host-engine
-    description: MCP Host Engine
-
+      - "^chore:"

@@ -1,9 +1,16 @@
 image: golang:1.25.4
 
+# GitLab is a mirror: it builds and tests, but it does not publish.
+#
+# Publishing deliberately lives only in .github/workflows/release.yml. The
+# Homebrew tap push, the ghcr.io image, the keyless cosign signature and the
+# provenance attestation all depend on a GitHub OIDC identity and GITHUB_TOKEN.
+# A GoReleaser run here would have no token to publish with — it would either
+# fail or, worse, silently produce unsigned artifacts that look releasable.
+
 stages:
   - build
   - test
-  - release
 
 build:
   stage: build
@@ -17,20 +24,13 @@ test:
   stage: test
   script:
     - make test
-    # need to install npm and nodejs and tsc and npm test
-    - apt-get update && apt-get install -y curl
+    # The plugins are JavaScript, so they need node and tsc.
+    - apt-get update && apt-get install -y curl git
     - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     - apt-get install -y nodejs
     - npm install -g typescript@5.8.3
     - cd plugin-devel && npm install
     - npm test
-
-release:
-  stage: release
-  script:
-    - make release
-  artifacts:
-    paths:
-      - mcphe
-  only:
-    - tags
+    # Packages and the image copy plugins/ from the working tree, so a
+    # gitignored plugin would ship. Catch that before anyone tags a release.
+    - cd "$CI_PROJECT_DIR" && ./scripts/check-release-inputs.sh

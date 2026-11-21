@@ -1,39 +1,59 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+name: CI
 
-name: Go
-
+# Build and test on every change. Releasing is NOT done here — it lives in
+# release.yml and only runs for a v* tag, so a push to main can never publish a
+# release by accident.
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
-
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.25.0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
-    - name: Build
-      run: make
+      - name: Build
+        run: make build
 
-    - name: Test
-      run: go test -v ./...
+      - name: Vet
+        run: go vet ./...
 
-    - name: Set up GoReleaser
-      uses: goreleaser/goreleaser-action@v6
-      with:
-        version: latest
-        install-only: true
+      - name: Test
+        run: go test ./...
 
-    - name: Release
-      run: make release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Packages and the image copy plugins/ from the working tree, so a file
+      # that is gitignored would be shipped. Catching it here means a bad tree
+      # fails before a tag is ever cut.
+      - name: Release inputs are clean
+        run: ./scripts/check-release-inputs.sh
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          install-only: true
+
+      - name: GoReleaser config is valid
+        run: |
+          set +e
+          out=$(goreleaser check 2>&1)
+          rc=$?
+          printf '%s\n' "$out"
+          # `brews` is deprecated in GoReleaser 2.x but deliberate here: casks
+          # are macOS-only and this formula has to work under Linuxbrew. That
+          # one warning is tolerated; any other problem fails the build.
+          if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q 'uses deprecated properties'; then
+            exit "$rc"
+          fi

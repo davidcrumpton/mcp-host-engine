@@ -1,0 +1,134 @@
+name: Release
+
+# Tag-driven release. Push a tag to the GitHub remote:
+#   git tag v0.5.80 && git push github v0.5.80
+#
+# One GoReleaser run produces:
+#   * tarballs for linux/darwin + zips for windows (amd64, arm64)
+#   * .deb / .rpm / .apk packages
+#   * a multi-arch image on ghcr.io (linux/amd64, linux/arm64)
+#   * a Homebrew formula -> davidcrumpton/homebrew-tap (if TAP_GITHUB_TOKEN is set)
+#   * checksums.txt + SPDX SBOMs + keyless cosign signature
+#   * SLSA build provenance attestations
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload assets
+  packages: write # push the image to ghcr.io
+  id-token: write # cosign keyless signing + provenance attestation
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  goreleaser:
+    name: GoReleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the changelog can be generated
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The tag is what GoReleaser stamps into the binary, but the VERSION file
+      # is what `make build` uses locally. If they disagree, a locally built
+      # binary reports a different version than the release it came from.
+      - name: Check tag matches the VERSION file
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(tr -d '[:space:]' < VERSION)"
+          echo "tag: ${GITHUB_REF_NAME}   VERSION file: ${ver}"
+          if [ -z "$ver" ]; then
+            echo "::error::VERSION file is empty"
+            exit 1
+          fi
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION (${ver})"
+            echo "Bump VERSION to ${tag}, or tag ${ver}."
+            exit 1
+          fi
+
+      # The image is built for arm64 as well as amd64; without QEMU the arm64
+      # stage cannot run its `go build`.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft (SBOMs)
+        uses: anchore/sbom-action/download-syft@v0
+
+      # The workflow's own GITHUB_TOKEN cannot push to a different repository,
+      # so the tap needs a PAT. Skip the pipe rather than fail the whole release
+      # when it is not configured.
+      - name: Decide whether the Homebrew tap is reachable
+        id: tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -n "${TAP_TOKEN}" ]; then
+            echo "extra=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::TAP_GITHUB_TOKEN is not set; skipping the Homebrew formula"
+            echo "extra=--skip=homebrew" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean ${{ steps.tap.outputs.extra }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+
+      - name: Release summary
+        run: |
+          {
+            echo "## Release ${GITHUB_REF_NAME}"
+            echo
+            echo "| Artifact | Size |"
+            echo "| --- | --- |"
+            find dist -maxdepth 1 -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.deb' \
+                 -o -name '*.rpm' -o -name '*.apk' -o -name 'checksums.txt' \) \
+              -exec du -h {} + | sort -k2 | awk '{printf "| `%s` | %s |\n", $2, $1}'
+            echo
+            echo "Image: \`ghcr.io/davidcrumpton/mcp-host-engine:${GITHUB_REF_NAME#v}\`"
+            echo
+            echo "Signed with cosign (keyless). Verify:"
+            echo '```'
+            echo "cosign verify-blob --bundle checksums.txt.sigstore.json \\"
+            echo "  --certificate-identity-regexp '^https://github.com/${GITHUB_REPOSITORY}/' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  checksums.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

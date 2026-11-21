@@ -22,10 +22,20 @@ COPY . .
 ARG VERSION=dev
 ARG COMMIT=none
 
+# BuildKit sets this automatically when building a multi-platform image, which is
+# how GoReleaser produces the arm64 one. Cross-compiling is safe here because
+# CGO_ENABLED=0, and it avoids running the entire Go toolchain under QEMU — that
+# turns a multi-minute emulated build into a native one. Builders that do not
+# define it (Apple `container`, podman) leave it empty and get a native build,
+# which is what they want anyway.
+ARG TARGETARCH
+
 ENV CGO_ENABLED=0 \
     GOOS=linux
 
-RUN go build \
+RUN set -eux; \
+    if [ -n "${TARGETARCH}" ]; then export GOARCH="${TARGETARCH}"; fi; \
+    go build \
       -trimpath \
       -ldflags "-s -w -X mcphe/config.Version=${VERSION} -X mcphe/config.Commit=${COMMIT}" \
       -o /out/mcphe .

@@ -1,7 +1,7 @@
 # Variables
 BINARY_NAME=mcphe
 
-.PHONY: all build run clean test help image up down logs stdio env
+.PHONY: all build run clean test help image up down logs stdio env release snapshot check-inputs
 
 all: build
 
@@ -30,9 +30,18 @@ help:
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## ";} {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-## release: Build and publish release packages
+## release: Build and publish release packages (CI only — needs a token)
 release:
 	goreleaser release --clean
+
+## snapshot: Build every artifact locally, publishing nothing
+## (docker/sbom/sign are skipped: they need a registry, syft and an OIDC identity)
+snapshot:
+	goreleaser release --snapshot --clean --skip=publish,sbom,sign,docker
+
+## check-inputs: Verify nothing gitignored under plugins/ would be packaged
+check-inputs:
+	./scripts/check-release-inputs.sh
 
 # ---------------------------------------------------------------------------
 # Containers. One image, two modes (see deploy/README.md). These wrap

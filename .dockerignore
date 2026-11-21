@@ -13,6 +13,9 @@ deploy/state
 revocations.yaml
 *.pem
 *.key
+# The repo-root config.yaml is a local development file. The image ships
+# deploy/config.*.yaml instead, so this must not reach the build context.
+config.yaml
 
 # Build artifacts / editor noise
 mcphe
