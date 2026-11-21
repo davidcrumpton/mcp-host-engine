@@ -37,7 +37,15 @@ Packages install the binary to `/usr/local/bin/mcphe`, the plugins to `/usr/shar
 brew install davidcrumpton/tap/mcphe
 ```
 
-> The formula is pushed to the tap by the release workflow, which needs the `TAP_GITHUB_TOKEN` secret — see [Releasing](#releasing). Until that secret is set the release skips Homebrew, and the formula is not in the tap yet.
+The formula installs the binary, the plugins to `$(brew --prefix)/share/mcphe/plugins`, and a config to `$(brew --prefix)/etc/mcphe/config.yaml` whose `plugin_dir` is rewritten to match. Homebrew never overwrites an existing config, so your edits survive upgrades.
+
+```bash
+"${EDITOR:-vi}" "$(brew --prefix)/etc/mcphe/config.yaml"   # 1. set token_secret
+mcphe token create alice 30d                              # 2. mint a bearer token
+mcphe "$(brew --prefix)/etc/mcphe/config.yaml"            # 3. start on 127.0.0.1:8001
+```
+
+The formula is pushed to the tap by the release workflow, which needs the `TAP_GITHUB_TOKEN` secret — see [Releasing](#releasing). If that secret is missing the release still succeeds and only the formula is skipped.
 
 ### Debian / Ubuntu
 

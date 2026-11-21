@@ -37,7 +37,7 @@ release:
 ## snapshot: Build every artifact locally, publishing nothing
 ## (docker/sbom/sign are skipped: they need a registry, syft and an OIDC identity)
 snapshot:
-	goreleaser release --snapshot --clean --skip=publish,sbom,sign,docker
+	MCPHE_RELEASE_DRY_RUN=1 goreleaser release --snapshot --clean --skip=publish,sbom,sign,docker
 
 ## check-inputs: Verify nothing gitignored under plugins/ would be packaged
 check-inputs:

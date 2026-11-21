@@ -129,7 +129,23 @@ brews:
     install: |
       bin.install "mcphe"
       (share/"mcphe/plugins").install Dir["plugins/*"]
-      (etc/"mcphe").install "config.example.yaml" => "config.yaml" unless (etc/"mcphe/config.yaml").exist?
+      unless (etc/"mcphe/config.yaml").exist?
+        (etc/"mcphe").install "config.example.yaml" => "config.yaml"
+        # The example config points at the package layout (/usr/share/mcphe),
+        # which does not exist under a Homebrew prefix (it is /opt/homebrew on
+        # Apple Silicon, /usr/local on Intel, .linuxbrew on Linuxbrew). Rewrite
+        # it to wherever the plugins were just installed, so a fresh install
+        # finds its plugins without the user having to edit anything.
+        inreplace etc/"mcphe/config.yaml",
+                  "plugin_dir: /usr/share/mcphe/plugins",
+                  "plugin_dir: #{share}/mcphe/plugins"
+      end
+    caveats: |
+      Set a token_secret in #{etc}/mcphe/config.yaml, then mint a token:
+        mcphe token create <username> <duration>     e.g. mcphe token create alice 30d
+      Start the server with:
+        mcphe #{etc}/mcphe/config.yaml
+      Plugins are installed in #{share}/mcphe/plugins.
 
 release:
   draft: false

@@ -19,14 +19,25 @@ cd "$(dirname "$0")/.."
 fail=0
 
 # 1. Anything ignored or untracked under plugins/ would be shipped.
+#
+# A snapshot (MCPHE_RELEASE_DRY_RUN=1) builds locally and publishes nothing, so
+# a dirty tree cannot leak there — warn instead of failing, otherwise
+# `make snapshot` is unusable on a machine that keeps gitignored plugin
+# variants around. A real release still fails hard.
 extra=$(git status --porcelain --ignored -- plugins/ 2>/dev/null || true)
 if [ -n "$extra" ]; then
-    echo "refusing to package: plugins/ contains files that are not in git:" >&2
-    printf '%s\n' "$extra" >&2
-    echo >&2
-    echo "Packages and the image copy plugins/ from the working tree, so these" >&2
-    echo "would be published. Move them aside, or release from a clean clone." >&2
-    fail=1
+    if [ "${MCPHE_RELEASE_DRY_RUN:-0}" = "1" ]; then
+        echo "warning: plugins/ contains files that are not in git; they are" >&2
+        echo "included in this snapshot build only, which is never published:" >&2
+        printf '%s\n' "$extra" >&2
+    else
+        echo "refusing to package: plugins/ contains files that are not in git:" >&2
+        printf '%s\n' "$extra" >&2
+        echo >&2
+        echo "Packages and the image copy plugins/ from the working tree, so these" >&2
+        echo "would be published. Move them aside, or release from a clean clone." >&2
+        fail=1
+    fi
 fi
 
 # 2. The config baked into packages must never carry a credential. The
@@ -48,4 +59,8 @@ if [ "$fail" -ne 0 ]; then
     exit 1
 fi
 
-echo "release inputs are clean"
+if [ "${MCPHE_RELEASE_DRY_RUN:-0}" = "1" ]; then
+    echo "release inputs checked (dry run; see warnings above)"
+else
+    echo "release inputs are clean"
+fi
