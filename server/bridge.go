@@ -28,69 +28,129 @@ func marshalNoEscape(v interface{}) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Config) {
-	for _, plugin := range pm.ListTools(cfg) {
-		name := plugin["name"].(string)
-		if !cfg.IsToolEnabled(name) {
-			continue
+// RegisterPlugins registers every enabled plugin as an MCP tool.
+//
+// It returns an error rather than letting a bad plugin take the process down:
+// mcp.AddTool reports a malformed tool by panicking, and a plugin must not be
+// able to crash the server with a nil or invalid inputSchema. Plugins are
+// validated when they are loaded, so reaching the error paths here means the
+// tool list was built some other way -- the guard is cheap insurance against a
+// startup segfault either way.
+func RegisterPlugins(server *mcp.Server, pm *plugin.PluginManager, cfg config.Config) error {
+	for _, toolInfo := range pm.ListTools(cfg) {
+		if err := registerToolInfo(server, toolInfo, pm, cfg); err != nil {
+			cfg.Logf(1, "Cannot register tool: %v", err)
+			return err
 		}
-
-		// Convert inputSchema to map[string]interface{} for the SDK
-		inputSchemaBytes, err := json.Marshal(plugin["inputSchema"])
-		if err != nil {
-			cfg.Logf(1, "Failed to marshal inputSchema for plugin %s: %v", name, err)
-			continue
-		}
-		var inputSchema map[string]interface{}
-		if err := json.Unmarshal(inputSchemaBytes, &inputSchema); err != nil {
-			cfg.Logf(1, "Failed to unmarshal inputSchema for plugin %s: %v", name, err)
-			continue
-		}
-
-		// Create tool with the correct API
-		tool := &mcp.Tool{
-			Name:        name,
-			Description: plugin["description"].(string),
-			InputSchema: inputSchema,
-			Annotations: pluginAnnotationsToMCP(plugin["annotations"]),
-		}
-
-		// Use AddTool with generic types - we'll use "any" for both input and output
-		// to pass through the raw parameters and results as-is
-		mcp.AddTool(server, tool, func(ctx context.Context, request *mcp.CallToolRequest, input any) (*mcp.CallToolResult, any, error) {
-			// Convert the raw parameters to a map
-			var params map[string]interface{}
-			if request.Params.Arguments != nil {
-				if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
-					cfg.Logf(1, "Failed to unmarshal arguments for tool %s: %v", name, err)
-					result := &mcp.CallToolResult{}
-					result.SetError(fmt.Errorf("invalid arguments: %w", err))
-					return result, nil, nil
-				}
-			} else {
-				params = make(map[string]interface{})
-			}
-
-			// Convert params back to raw JSON for plugin call
-			rawArgs, err := marshalNoEscape(params)
-			if err != nil {
-				result := &mcp.CallToolResult{}
-				result.SetError(err)
-				return result, nil, nil
-			}
-
-			result, err := pm.CallTool(ctx, name, rawArgs, cfg)
-			if err != nil {
-				result := &mcp.CallToolResult{}
-				result.SetError(err)
-				return result, nil, nil
-			}
-
-			// Convert result to SDK format
-			sdkResult := ResultToSDK(result)
-			return sdkResult, nil, nil
-		})
 	}
+	return nil
+}
+
+// registerToolInfo registers one entry of the tool list returned by ListTools.
+func registerToolInfo(server *mcp.Server, toolInfo map[string]interface{}, pm *plugin.PluginManager, cfg config.Config) error {
+	name, _ := toolInfo["name"].(string)
+	if name == "" {
+		return fmt.Errorf("plugin with no name cannot be registered as a tool")
+	}
+	if !cfg.IsToolEnabled(name) {
+		return nil
+	}
+	description, _ := toolInfo["description"].(string)
+
+	inputSchema, err := schemaForSDK(toolInfo["inputSchema"])
+	if err != nil {
+		return fmt.Errorf("tool %q: %w", name, err)
+	}
+
+	// Create tool with the correct API
+	tool := &mcp.Tool{
+		Name:        name,
+		Description: description,
+		InputSchema: inputSchema,
+		Annotations: pluginAnnotationsToMCP(toolInfo["annotations"]),
+	}
+
+	// Use AddTool with generic types - we'll use "any" for both input and output
+	// to pass through the raw parameters and results as-is
+	if err := addTool(server, tool, name, pm, cfg); err != nil {
+		return fmt.Errorf("tool %q: %w", name, err)
+	}
+	return nil
+}
+
+// schemaForSDK converts a plugin's inputSchema into the map the SDK expects.
+//
+// A nil schema, or one that is not a JSON object, becomes an empty object
+// schema instead of a nil map: a nil map inside a non-nil interface is what
+// made the SDK dereference a nil *jsonschema.Schema and crash.
+func schemaForSDK(raw interface{}) (map[string]interface{}, error) {
+	if raw == nil {
+		return map[string]interface{}{"type": "object"}, nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling inputSchema: %w", err)
+	}
+	var schema map[string]interface{}
+	if err := json.Unmarshal(encoded, &schema); err != nil {
+		return nil, fmt.Errorf("inputSchema must be a JSON object: %w", err)
+	}
+	if schema == nil {
+		return map[string]interface{}{"type": "object"}, nil
+	}
+	if _, ok := schema["type"]; !ok {
+		schema["type"] = "object"
+	}
+	return schema, nil
+}
+
+// addTool registers one tool, converting an SDK panic into an error.
+//
+// mcp.AddTool's only failure channel is panic (see its implementation: it wraps
+// toolForErr's error in a panic), so recovering is the documented way to handle
+// a schema the SDK rejects. Without this a single malformed plugin schema
+// aborts the process with a stack trace instead of a message naming the plugin.
+func addTool(server *mcp.Server, tool *mcp.Tool, name string, pm *plugin.PluginManager, cfg config.Config) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("MCP SDK rejected the tool definition: %v", r)
+		}
+	}()
+
+	mcp.AddTool(server, tool, func(ctx context.Context, request *mcp.CallToolRequest, input any) (*mcp.CallToolResult, any, error) {
+		// Convert the raw parameters to a map
+		var params map[string]interface{}
+		if request.Params.Arguments != nil {
+			if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+				cfg.Logf(1, "Failed to unmarshal arguments for tool %s: %v", name, err)
+				result := &mcp.CallToolResult{}
+				result.SetError(fmt.Errorf("invalid arguments: %w", err))
+				return result, nil, nil
+			}
+		} else {
+			params = make(map[string]interface{})
+		}
+
+		// Convert params back to raw JSON for plugin call
+		rawArgs, err := marshalNoEscape(params)
+		if err != nil {
+			result := &mcp.CallToolResult{}
+			result.SetError(err)
+			return result, nil, nil
+		}
+
+		result, err := pm.CallTool(ctx, name, rawArgs, cfg)
+		if err != nil {
+			result := &mcp.CallToolResult{}
+			result.SetError(err)
+			return result, nil, nil
+		}
+
+		// Convert result to SDK format
+		sdkResult := ResultToSDK(result)
+		return sdkResult, nil, nil
+	})
+	return nil
 }
 
 // boolPtr returns a pointer to the given bool value.

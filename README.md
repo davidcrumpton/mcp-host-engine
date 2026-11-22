@@ -10,6 +10,7 @@ This repository contains a Go-based MCP server that runs tools as JavaScript plu
 - Pluggable tool support via `plugins/*.js`
 - Configurable host, port, bearer auth, allowed domains, and enabled tools
 - Built-in host APIs exposed to plugins (Namespaced modules: `host.fs`, `host.http` (with PATCH support), `host.exec`, `host.process`, `host.path`, `host.crypto`, `host.console`, `host.sleep`, `host.url`, `host.utils`)
+- Optional checksum pinning for both the plugins (`checksum:`, `plugin_checksum_manifest`) and the config file that permits them (`-config-checksum`, `require_config_checksum`)
 
 ## Install
 
@@ -264,6 +265,10 @@ These settings control which plugins are available and what level of access they
 | :--- | :--- | :--- | :--- |
 | `plugin_dir` | `string` | `"plugins"` | The local directory where the engine expects to find all JavaScript plugin files. |
 | `plugins` | `map[string]map[string]interface{}` | *See Example* | Provides fine-grained, plugin-specific security and domain restrictions. The top-level key is the plugin name. |
+| `require_plugin_checksums` | `bool` | `false` | When `true`, every plugin that is actually loaded must declare a `checksum`. A missing one aborts startup. See [Plugin Integrity](#plugin-integrity-checksums). |
+| `plugin_checksum_manifest` | `string` | *(none)* | Path to a coreutils-style checksum file covering **every** file the loader may read from `plugin_dir`, including files pulled in by `require()`. Generate it with `mcphe digest -format manifest -o checksums.txt`. |
+
+The config file itself can be pinned too — see [Config Integrity](#config-integrity-configyaml-itself).
 
 ### Security and Logging
 
@@ -360,6 +365,89 @@ plugins:
             allowed_env_vars: ["API_KEY", "USER_ID"]
         ```
 
+7. **`checksum`**:
+    * **Type:** `string` (`sha256:<hex>`, `sha512:<hex>`, or bare hex)
+    * **Purpose:** Content digest of the plugin's `.js` file. When set, the engine refuses to start if the file on disk does not match. See [Plugin Integrity](#plugin-integrity-checksums).
+    * **Example:**
+
+        ```yaml
+        plugins:
+          ping:
+            checksum: "sha256:708c66dc145c906505b3d3e881082991482eba98950947f149b46ffade7a9991"
+        ```
+
+### Plugin Integrity (`checksums`)
+
+A plugin is code the engine executes with the privileges of the engine process. The sandbox limits what that code can *reach*, but says nothing about whether the file itself is the one you reviewed. Checksums close that gap: they pin a plugin file to an exact byte sequence and refuse to start when it differs.
+
+Two independent mechanisms are available, and they compose:
+
+**1. Per-plugin `checksum:`** — covers the plugin's own `.js` entry file.
+
+```yaml
+plugins:
+  ping:
+    checksum: "sha256:708c66dc…a9991"
+  mcwsd-prod:
+    plugin: mcwsd          # instantiates mcwsd.js
+    # no checksum here: it inherits the one declared on the "mcwsd" entry
+```
+
+* Accepted forms: `sha256:<hex>`, `sha512:<hex>`, or bare hex (64 chars = sha256, 128 = sha512).
+* A checksum describes a **file**, so an entry that instantiates another via `plugin:` inherits that entry's checksum when it declares none. Two entries that disagree about the same module are a config error.
+* A malformed checksum is a startup error even on a **disabled** entry — a typo must not lie dormant until the plugin is re-enabled.
+* The digest is taken over the exact bytes handed to the JavaScript runtime, so there is no window between "verified" and "executed".
+
+**2. `plugin_checksum_manifest`** — covers **every** file the loader reads, including modules pulled in by `require()`.
+
+`require()` reads other files from `plugin_dir` (for example `plugins/lib/helper.js`) at *call* time, long after the entry file was verified. A per-plugin checksum alone would not cover them. A manifest does:
+
+```bash
+mcphe digest -format manifest -o checksums.txt     # generate
+```
+
+```yaml
+plugin_checksum_manifest: checksums.txt
+```
+
+With a manifest configured, any file the loader reads must be listed and must match. A file that is *not* listed is refused rather than silently trusted, so a plugin dropped in after the manifest was generated cannot load either.
+
+**Making coverage mandatory:** set `require_plugin_checksums: true` to abort startup when a loaded plugin declares no checksum. Disabled plugins are exempt, and the default is `false` so existing deployments keep working unchanged.
+
+**Failure behaviour:** a mismatch is a startup failure, exactly like a missing plugin directory or a syntax error in a plugin — the process prints the expected and actual digests to stderr and exits with status 1. It never serves a plugin it could not verify.
+
+**What this does not do:** a checksum is not a signature. It proves the file matches the value in your config; it does not prove who wrote it. Anyone who can edit both the plugin and `config.yaml` can update both. Keep `config.yaml` under the same access control you apply to the binary (and prefer `vault://`/`env://` sources if you want the expected digests out of a world-readable file — any config value supports those schemes, so `checksum: "env://PING_CHECKSUM"` works).
+
+### Config Integrity (`config.yaml` itself)
+
+The plugin checksums above protect the *plugins*. This protects the file that grants them their powers — the config file is what decides which plugins load, which domains they may reach, and which token secret they run under. A checksum pins it the same way:
+
+| Key | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `require_config_checksum` | `bool` | `false` | When `true`, the process refuses to start (exit 1) unless `config.yaml` was verified against a checksum supplied from **outside** the file via `-config-checksum`. |
+
+```bash
+mcphe config verify -config /etc/mcphe/config.yaml        # prints the current digest + how to pin it
+mcphe -config-checksum sha256:57af07b2…660a11 /etc/mcphe/config.yaml
+```
+
+* The expected digest never comes from the file it describes. A config that stated its own checksum would prove nothing — whoever edits the config edits the expected value too — so it is supplied on the command line, or via `env://VAR` / `file://path` so it can live in an EnvironmentFile or a root-owned file instead of argv.
+* The digest covers the **bytes on disk**, not the resolved config. `env://` and `vault://` references stay as written, so rotating a secret does not invalidate the pin; editing a comment does.
+* A file that fails the check is never parsed: no vault client, no `env://` expansion, no plugin config. The mismatch is reported with both digests and exit status 1.
+* The digest covers content, not ownership or permissions. A checksum is not a signature: it proves the file matches the value you supplied, not who wrote it.
+
+**What `require_config_checksum` is and isn't.** It is a **hygiene** control, not a security boundary. Whoever can edit the config can also set it back to `false`, so it does not stop an attacker with write access to the file — access control does that. What it stops is the accident: a service unit that lost its flags, a shell history that dropped the argument, a colleague running `./mcphe` by hand on a host where the policy is "always pinned". For a control an editor of the file cannot lift, put both halves in the service unit, where they are outside the config's reach:
+
+```ini
+ExecStart=/usr/bin/mcphe -require-config-checksum \
+          -config-checksum file:///etc/mcphe/config.sha256 \
+          /etc/mcphe/config.yaml
+```
+
+With `-require-config-checksum` the requirement itself comes from the unit file, and `require_config_checksum` in the config becomes a second lock on the same door rather than the only one.
+
+**Where this fits:** the config checksum is checked first, at startup, before any plugin is read. Plugin checksums then gate each plugin file. Neither replaces the other: the config decides *what is allowed*, the plugin checksums decide *what is running*.
+
 ### Plugin Required Modules
 
 Available built-in modules:
@@ -422,6 +510,8 @@ plugins:
 Create a JavaScript plugin in `plugins/` with `module.exports = { name, description, inputSchema, call }`.
 The `call` function receives the JSON arguments object and may return a string, object, array, or primitive.
 
+`inputSchema` describes the tool's arguments and is what clients see when they list tools. If you omit it, the engine substitutes `{ type: "object" }`, which accepts any arguments — fine for a tool that takes none, but a schema is what lets a model call your tool correctly. If you supply one it must be a JSON Schema object with `type: "object"`; a missing `type` is filled in for you, and anything else (a string, an array, `type: "string"`) is rejected when the plugin loads, naming the file, rather than at registration time.
+
 Example tool:
 
 ```js
@@ -440,12 +530,76 @@ module.exports = {
 ```bash
 ❯ mcphe token 
 Usage:
-  mcphe token create [-config path] <username> <duration> [label]
-  mcphe token revoke [-config path] <username>[:<label>] [ttl]
+  mcphe token create [-config path] [-config-checksum <sha256:hex>] <username> <duration> [label]
+  mcphe token revoke [-config path] [-config-checksum <sha256:hex>] <username>[:<label>] [ttl]
   duration/ttl examples: 12h, 30d, 1y  (flags must come before positional args)
 ```
 
 Combine with `token_secret` for signing and revoking tokens.  Output a token to be used in the MCP Server's `Authorization: Bearer <token>` header field.
+
+## Plugin Checksums (`digest`)
+
+`mcphe digest` produces the checksums used by the `checksum:` plugin key and by `plugin_checksum_manifest`. It never executes plugin code, so it is safe to run before you have decided to trust the files.
+
+```bash
+❯ mcphe digest
+Usage:
+  mcphe digest [-config path] [-algo sha256|sha512] [-format text|yaml|json|manifest] [-o file] [path ...]
+  mcphe digest -verify [-config path]
+
+With no paths, plugin_dir from the config is scanned recursively for *.js.
+  text      "algo:hex  path" lines (use as a plugin's checksum: value)
+  yaml      a plugins: block keyed by exported plugin name
+  manifest  coreutils-style "hex  path" lines for plugin_checksum_manifest
+  json      JSON object keyed by path
+```
+
+```bash
+# 1. generate a paste-ready plugins: block
+mcphe digest -format yaml
+
+# 2. or write a manifest covering every file, then point the config at it
+mcphe digest -format manifest -o checksums.txt
+#    plugin_checksum_manifest: checksums.txt
+
+# 3. check what is configured, without starting the server (CI / pre-deploy gate)
+mcphe digest -verify
+```
+
+`-verify` prints one line per file — `ok`, `mismatch`, `missing` or `unchecked` — plus a summary, and exits 1 if anything failed, so it drops straight into a pipeline. `-format yaml` keys entries by the name the plugin *exports*, not its file name (`date_time.js` exports `get_datetime`), because that is the key `config.yaml` uses; each entry carries its source file as a comment.
+
+Note that `digest` scans recursively while the loader only globs the top level: files under `plugins/lib/` are reachable through `require()` and belong in a manifest.
+
+## Config Checksum (`config verify`)
+
+`mcphe config verify` compares the bytes of a config file with a checksum you supply and nothing else — it does not parse the config, load plugins, or contact anything. Exit status is 0 on a match and 1 otherwise, so it drops into a deployment pipeline or a `systemd` `ExecStartPre`.
+
+```bash
+❯ mcphe config verify
+Usage:
+  mcphe config verify [-config path] -checksum <sha256:hex|env://VAR|file://path>
+
+Compares the bytes of the config file with an expected checksum and exits 0 on a
+match, 1 otherwise. The file is not parsed, so this checks integrity only.
+
+Omit -checksum to print the file's current digest and the command that pins it.
+```
+
+```bash
+# 1. pin a config you are about to deploy
+mcphe config verify -config /etc/mcphe/config.yaml
+#    /etc/mcphe/config.yaml is sha256:57af07b2…660a11
+#    pin it with: mcphe config verify -checksum sha256:57af07b2…660a11 -config /etc/mcphe/config.yaml
+
+# 2. store the expected value outside the service unit
+printf '%s\n' sha256:57af07b2…660a11 > /etc/mcphe/config.sha256
+mcphe -config-checksum file:///etc/mcphe/config.sha256 /etc/mcphe/config.yaml
+
+# 3. or check it as a pre-flight step and let the server start unverified
+mcphe config verify -checksum file:///etc/mcphe/config.sha256 && mcphe /etc/mcphe/config.yaml
+```
+
+`sha256sum`/`shasum -a 256` produce the same digest for the same file, so the pin can be checked with ordinary tooling as well. The flags are accepted by the server, `token` and `digest`, so every command that reads a config can be held to the same gate. See [Config Integrity](#config-integrity-configyaml-itself) for the policy side.
 
 ## Caveats
 

@@ -43,6 +43,12 @@ type Plugin struct {
 type PluginManager struct {
 	plugins []*Plugin
 	byName  map[string]*Plugin
+
+	// manifest, when non-nil, is the whole-directory checksum manifest from
+	// config. Every plugin's entry file is verified at load time; this covers
+	// the other files require() can pull in from plugin_dir, which are read at
+	// call time and would otherwise never be checked.
+	manifest *Manifest
 }
 
 func LoadPlugins(cfg config.Config) (*PluginManager, error) {
@@ -54,6 +60,17 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 	if _, err := os.Stat(dir); err != nil {
 		cfg.Logf(1, "Plugin directory %q missing: %v", dir, err)
 		return nil, fmt.Errorf("plugin directory %q missing: %w", dir, err)
+	}
+
+	// Build the integrity policy before touching any plugin file, so a malformed
+	// checksum or unreadable manifest is reported as a config error rather than
+	// after some plugin code has already run.
+	policy, err := newChecksumPolicy(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if policy.manifest != nil {
+		cfg.Logf(2, "Verifying plugin files against checksum manifest %s (%d entries)", policy.manifest.Path, policy.manifest.Len())
 	}
 
 	files, err := filepath.Glob(filepath.Join(dir, "*.js"))
@@ -79,7 +96,7 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 	bySource := make(map[string]*discoveredPlugin, len(files))
 	for _, path := range files {
 		cfg.Logf(2, "Loading plugin %s", path)
-		plugin, err := loadPlugin(path, cfg)
+		plugin, err := loadPlugin(path, cfg, policy)
 		if err != nil {
 			return nil, fmt.Errorf("loading plugin %q: %w", path, err)
 		}
@@ -103,13 +120,18 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 		if !ok {
 			return fmt.Errorf("plugin %q: source module %q not found", instanceName, source)
 		}
+		// Only plugins that are actually being loaded are subject to
+		// require_plugin_checksums; a disabled entry never reaches here.
+		if err := policy.requireDeclared(instanceName); err != nil {
+			return err
+		}
 		if instanceName == d.name {
 			plugins = append(plugins, d.plugin)
 			byName[instanceName] = d.plugin
 			return nil
 		}
 		cfg.Logf(2, "Instantiating plugin %s as %s", source, instanceName)
-		p, err := loadPluginAs(d.path, cfg, instanceName)
+		p, err := loadPluginAs(d.path, cfg, instanceName, policy)
 		if err != nil {
 			return fmt.Errorf("loading plugin %q as %q: %w", d.path, instanceName, err)
 		}
@@ -149,7 +171,7 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 	}
 
 	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].Name < plugins[j].Name })
-	return &PluginManager{plugins: plugins, byName: byName}, nil
+	return &PluginManager{plugins: plugins, byName: byName, manifest: policy.manifest}, nil
 }
 
 // valueToString safely converts a goja value to a string, handling undefined/nil cases
@@ -202,6 +224,50 @@ func parseBoolPtr(obj *goja.Object, key string) *bool {
 }
 
 // parseAnnotations reads the optional `annotations` property from a plugin export.
+// defaultInputSchema is the schema used for a plugin that declares none: an
+// object schema with no properties, which accepts any arguments.
+//
+// MCP requires a tool's inputSchema to be an object schema, and the SDK panics
+// (it does not return an error) when a tool's schema is nil, empty, or not an
+// object. A plugin that merely omits inputSchema must therefore be normalised
+// here rather than allowed to take the whole server down at registration.
+func defaultInputSchema() map[string]interface{} {
+	return map[string]interface{}{"type": "object"}
+}
+
+// normalizeInputSchema validates the inputSchema exported by a plugin and
+// returns a value that is safe to hand to the MCP SDK.
+//
+// A missing schema becomes an empty object schema. An object schema that omits
+// "type" gets type "object" added, since that is what the author means and what
+// the spec requires. Anything else is rejected: the SDK responds to a malformed
+// schema by panicking, so the check has to happen while we can still report
+// which plugin file is at fault and fail cleanly.
+func normalizeInputSchema(val goja.Value) (interface{}, error) {
+	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
+		return defaultInputSchema(), nil
+	}
+	exported := safeExport(val)
+	if exported == nil {
+		return defaultInputSchema(), nil
+	}
+
+	schema, ok := exported.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("inputSchema must be a JSON object, got %T", exported)
+	}
+
+	if rawType, present := schema["type"]; present {
+		typeName, ok := rawType.(string)
+		if !ok || typeName != "object" {
+			return nil, fmt.Errorf(`inputSchema "type" must be the string "object", got %v`, rawType)
+		}
+	} else {
+		schema["type"] = "object"
+	}
+	return schema, nil
+}
+
 func parseAnnotations(obj *goja.Object) *PluginAnnotations {
 	annVal := obj.Get("annotations")
 	if annVal == nil {
@@ -223,7 +289,7 @@ func parseAnnotations(obj *goja.Object) *PluginAnnotations {
 	}
 	return ann
 }
-func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config) func(modulePath string, visited map[string]bool) goja.Value {
+func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config, manifest *Manifest) func(modulePath string, visited map[string]bool) goja.Value {
 	// internal recursive loader with cycle detection. Uses the provided VM so
 	// values can be returned into the calling runtime (avoids illegal runtime
 	// transitions when returning objects created in another Runtime).
@@ -289,6 +355,19 @@ func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config) fun
 				continue
 			}
 
+			// With a manifest configured, a required module must be listed and
+			// must match. This is the only place a require()'d file can be
+			// checked: it is read here, at call time, long after startup
+			// verified the entry file. A failure aborts the require outright
+			// rather than falling through to the next candidate name.
+			if manifest != nil {
+				if verifyErr := manifest.Verify(pluginDir, resolved, content); verifyErr != nil {
+					lastErr = fmt.Errorf("%s: %w", modulePath, verifyErr)
+					cfg.Logf(1, "require: refusing to load %s: %v", resolved, verifyErr)
+					break
+				}
+			}
+
 			visited[resolved] = true
 			// ensure we remove from visited for other branches
 			defer func(p string) { delete(visited, p) }(resolved)
@@ -327,8 +406,8 @@ func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config) fun
 // visited map per top-level require invocation. This is suitable for setting
 // on the VM during plugin load-time; CallTool will overwrite require with a
 // per-call variant that shares a visited map across nested requires.
-func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config) func(goja.FunctionCall) goja.Value {
-	loader := makeModuleLoader(vm, pluginDir, cfg)
+func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config, manifest *Manifest) func(goja.FunctionCall) goja.Value {
+	loader := makeModuleLoader(vm, pluginDir, cfg, manifest)
 	return func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			if _, runErr := vm.RunString(fmt.Sprintf("throw new Error(%q)", "require: module path required")); runErr != nil {
@@ -342,19 +421,40 @@ func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config) func(goj
 }
 
 // loadPlugin loads a plugin using its exported name as the tool name.
-func loadPlugin(path string, cfg config.Config) (*Plugin, error) {
-	return loadPluginAs(path, cfg, "")
+func loadPlugin(path string, cfg config.Config, policy *checksumPolicy) (*Plugin, error) {
+	return loadPluginAs(path, cfg, "", policy)
 }
 
 // loadPluginAs loads the JavaScript at path and registers it under instanceName.
 // When instanceName is empty the plugin's exported name is used. Supplying an
 // instance name is what allows the same plugin file to be loaded multiple
 // times under different tool names with independent configuration.
-func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin, error) {
+func loadPluginAs(path string, cfg config.Config, instanceName string, policy *checksumPolicy) (*Plugin, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		cfg.Logf(1, "Failed to read plugin file %s: %v", path, err)
 		return nil, err
+	}
+
+	// verifyChecksum enforces the integrity policy for the bytes just read.
+	verifyChecksum := func(name string) error {
+		if err := policy.verifyEntry(name, path, content); err != nil {
+			cfg.Logf(1, "Plugin %s (%s) failed checksum verification: %v", name, path, err)
+			return fmt.Errorf("plugin %q (%s): %w", name, path, err)
+		}
+		return nil
+	}
+
+	// When the instance name is known, the checksum can be enforced on the exact
+	// bytes about to be executed, before they reach the JavaScript runtime.
+	// Discovery loads (instanceName == "") do not know which config entry -- and
+	// so which checksum -- applies until the script has run and exported its
+	// name; they are verified below, still before LoadPlugins returns, so a
+	// mismatch aborts startup either way.
+	if instanceName != "" {
+		if err := verifyChecksum(instanceName); err != nil {
+			return nil, err
+		}
 	}
 
 	vm := goja.New()
@@ -380,7 +480,7 @@ func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin,
 	}
 
 	pluginDir := filepath.Dir(path)
-	if err := vm.Set("require", makeRequire(vm, pluginDir, cfg)); err != nil {
+	if err := vm.Set("require", makeRequire(vm, pluginDir, cfg, policy.manifest)); err != nil {
 		cfg.Logf(1, "Failed to set require for plugin %s: %v", path, err)
 		return nil, err
 	}
@@ -413,6 +513,11 @@ func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin,
 	// paths, domains, etc.) is applied correctly.
 	if instanceName == "" {
 		instanceName = name
+		// Discovery load: verify now that the exported name identifies the
+		// config entry whose checksum applies.
+		if err := verifyChecksum(instanceName); err != nil {
+			return nil, err
+		}
 	}
 	realHost := host.MakeHostObject(cfg, context.Background(), instanceName)
 	if err := vm.Set("host", realHost); err != nil {
@@ -430,6 +535,11 @@ func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin,
 	if !ok {
 		cfg.Logf(1, "Plugin %q call property is not a function", name)
 		return nil, fmt.Errorf("plugin %q call property is not a function", name)
+	}
+	inputSchema, err := normalizeInputSchema(inputSchemaVal)
+	if err != nil {
+		cfg.Logf(1, "Plugin %q (%s): %v", name, path, err)
+		return nil, fmt.Errorf("plugin %q (%s): %w", name, path, err)
 	}
 
 	return &Plugin{
@@ -460,10 +570,11 @@ func loadPluginAs(path string, cfg config.Config, instanceName string) (*Plugin,
 			return tags
 		}(),
 		Commit:      valueToString(obj.Get("commit")),
-		InputSchema: safeExport(inputSchemaVal),
+		InputSchema: inputSchema,
 		Call:        callFunc,
 		VM:          vm,
 		Dir:         pluginDir,
+		File:        path,
 	}, nil
 }
 
@@ -515,7 +626,7 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	// Install a per-call `require` that shares a single `visited` map across
 	// nested requires invoked during this plugin.Call invocation so circular
 	// imports can be detected.
-	loader := makeModuleLoader(plugin.VM, plugin.Dir, cfg)
+	loader := makeModuleLoader(plugin.VM, plugin.Dir, cfg, pm.manifest)
 	visited := make(map[string]bool)
 	if plugin.File != "" {
 		visited[filepath.Clean(plugin.File)] = true

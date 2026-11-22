@@ -42,10 +42,55 @@ token_secret: ""
 # disk. Set it to revoke tokens without restarting the server.
 # token_revocation_file: "/var/lib/mcphe/revocations.yaml"
 
+# ---------------------------------------------------------------------------
+# Plugin integrity (optional, off by default).
+#
+# A plugin is code this process executes. A checksum pins each plugin file to an
+# exact byte sequence: if the file on disk changes, the engine refuses to start
+# instead of serving code nobody reviewed.
+#
+# Generate the values with the installed binary -- do this after installing or
+# upgrading, because package upgrades replace the plugin files:
+#
+#   mcphe digest -format yaml        # paste the output under `plugins:` below
+#   mcphe digest -format manifest -o /etc/mcphe/plugins.sha256
+#
+# The per-plugin form covers only that plugin's own .js file. The manifest form
+# additionally covers files a plugin pulls in with require() (e.g. lib/*.js),
+# which are read at call time and are otherwise never verified.
+#
+# require_plugin_checksums: true
+# plugin_checksum_manifest: "/etc/mcphe/plugins.sha256"
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Config integrity (optional, off by default).
+#
+# The settings above pin the plugins; this pins the file that grants them their
+# powers. Pin the config you deployed and pass the digest at startup:
+#
+#   mcphe config verify -config /etc/mcphe/config.yaml     # prints the digest
+#   mcphe -config-checksum sha256:<hex> /etc/mcphe/config.yaml
+#
+# The expected digest is deliberately NOT a key in this file: a config that
+# stated its own checksum would prove nothing, since whoever edits the file
+# edits the expected value too. Use -config-checksum, or file:///etc/mcphe/
+# config.sha256 to keep it in a root-owned file.
+#
+# Uncommenting the key below makes an unverified start a startup failure. That is
+# a hygiene control, not a security boundary -- anyone who can edit this file can
+# clear the flag. To make the requirement itself tamper-proof, put
+# -require-config-checksum in the service unit's ExecStart as well.
+#
+# require_config_checksum: true
+# ---------------------------------------------------------------------------
+
 plugins:
   # Plugins needing no credentials.
   get_datetime:
   ping:
+    # Optional integrity pin for this plugin's .js file:
+    # checksum: "sha256:<64 hex chars from `mcphe digest`>"
   wikipedia_search:
     allowed_domains: ["en.wikipedia.org"]
 

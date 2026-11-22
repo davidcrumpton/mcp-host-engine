@@ -17,6 +17,34 @@ func RegisterResolver(scheme string, r SecretResolver) {
 	resolvers[scheme] = r
 }
 
+// registerBuiltinResolvers registers the two schemes that never depend on
+// anything else in the config. Idempotent: assigning the same value twice is
+// harmless, and both LoadConfigBytes and ResolveValue call it so that either
+// entry point works on its own.
+func registerBuiltinResolvers() {
+	RegisterResolver("env", EnvResolver{})
+	RegisterResolver("file", FileResolver{})
+}
+
+// ResolveValue expands a "scheme://" reference through the registered resolvers
+// and returns anything else unchanged. Unlike the config fields, it is callable
+// before any config has been loaded.
+//
+// It exists for values that must be known *before* the config is parsed -- in
+// practice the expected checksum of the config file itself, which by definition
+// cannot be read out of the file it describes. That lets an operator keep the
+// expected digest in an EnvironmentFile or a root-owned file instead of in the
+// service unit's argv:
+//
+//	mcphe -config-checksum file:///etc/mcphe/config.sha256 /etc/mcphe/config.yaml
+//
+// Only env:// and file:// are available here. vault:// needs a vault client,
+// which needs a config, which is the thing being verified.
+func ResolveValue(s string) (string, error) {
+	registerBuiltinResolvers()
+	return resolveString(s)
+}
+
 // resolveString expands a single string value if it matches a registered scheme.
 // Non-matching strings pass through unchanged — this is critical so normal
 // config values (URLs, plain text) aren't misinterpreted.
@@ -50,6 +78,9 @@ var resolvableFields = []string{
 	"VaultRoleID",
 	"VaultSecretID",
 	"VaultApprole",
+	// A manifest path is often outside the config directory, so allow it to be
+	// given as file:///etc/mcphe/plugins.sha256 rather than only a literal path.
+	"PluginChecksumManifest",
 }
 
 // resolveTopLevelFields walks resolvableFields and, for each, resolves its

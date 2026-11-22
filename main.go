@@ -21,37 +21,43 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "token" {
-		runTokenCommand(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "token":
+			runTokenCommand(os.Args[2:])
+			return
+		case "digest":
+			runDigestCommand(os.Args[2:])
+			return
+		case "config":
+			runConfigCommand(os.Args[2:])
+			return
+		}
 	}
 
+	var guard configGuard
+	guard.register(flag.CommandLine)
+
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [config.yaml]\n", os.Args[0])
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Usage: %s [-config-checksum <sha256:hex>] [-require-config-checksum] [config.yaml]\n", os.Args[0])
+		fmt.Fprintf(out, "       %s token create|revoke ...   (see '%s token')\n", os.Args[0], os.Args[0])
+		fmt.Fprintf(out, "       %s digest [-format ...] [-verify]\n", os.Args[0])
+		fmt.Fprintf(out, "       %s config verify -checksum <sha256:hex> [-config path]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
 	configPath := "./config.yaml"
-	var cfg config.Config
-	if flag.NArg() > 0 {
-		var err error
+	explicitConfig := flag.NArg() > 0
+	if explicitConfig {
 		configPath = flag.Arg(0)
-		cfg, err = config.LoadConfig(configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-			os.Exit(1)
-		}
-	} else if flag.NArg() == 0 {
-		if _, err := os.Stat(configPath); err == nil {
-			cfg, err = config.LoadConfig(configPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-				os.Exit(1)
-			}
-		} else {
-			cfg = config.DefaultConfig
-		}
+	}
+
+	cfg, err := guard.load(configPath, !explicitConfig)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Check if running as root is allowed in config and log a warning if so
@@ -80,7 +86,10 @@ func main() {
 		Version: config.Version,
 	}, nil)
 
-	server.RegisterPlugins(mcpServer, pluginManager, cfg)
+	if err := server.RegisterPlugins(mcpServer, pluginManager, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to register tools: %v\n", err)
+		os.Exit(1)
+	}
 
 	switch cfg.Transport {
 	case config.TransportStdio:
@@ -90,7 +99,6 @@ func main() {
 	}
 }
 
- 
 // runTokenCommand implements:
 //
 //	mcphe token create [-config path] <username> <duration> [label]
@@ -103,13 +111,15 @@ func main() {
 func runTokenCommand(args []string) {
 	fs := flag.NewFlagSet("token", flag.ExitOnError)
 	configPath := fs.String("config", "./config.yaml", "path to config.yaml")
+	var guard configGuard
+	guard.register(fs)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage:")
-		fmt.Fprintln(os.Stderr, "  mcphe token create [-config path] <username> <duration> [label]")
-		fmt.Fprintln(os.Stderr, "  mcphe token revoke [-config path] <username>[:<label>] [ttl]")
+		fmt.Fprintln(os.Stderr, "  mcphe token create [-config path] [-config-checksum <sha256:hex>] <username> <duration> [label]")
+		fmt.Fprintln(os.Stderr, "  mcphe token revoke [-config path] [-config-checksum <sha256:hex>] <username>[:<label>] [ttl]")
 		fmt.Fprintln(os.Stderr, "  duration/ttl examples: 12h, 30d, 1y  (flags must come before positional args)")
 	}
- 
+
 	if len(args) < 1 || (args[0] != "create" && args[0] != "revoke") {
 		fs.Usage()
 		os.Exit(1)
@@ -117,13 +127,13 @@ func runTokenCommand(args []string) {
 	subcommand := args[0]
 	fs.Parse(args[1:])
 	rest := fs.Args()
- 
-	cfg, err := config.LoadConfig(*configPath)
+
+	cfg, err := guard.load(*configPath, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config %q: %v\n", *configPath, err)
 		os.Exit(1)
 	}
- 
+
 	switch subcommand {
 	case "create":
 		if len(rest) < 2 {
@@ -135,7 +145,7 @@ func runTokenCommand(args []string) {
 		if len(rest) >= 3 {
 			label = rest[2]
 		}
- 
+
 		ttl, err := parseTokenDuration(durationStr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "invalid duration %q: %v\n", durationStr, err)
@@ -167,14 +177,14 @@ func runTokenCommand(args []string) {
 		}
 		// fmt.Printf("Successfully unrevoked token for %s\n", username)
 		fmt.Println(token)
- 
+
 	case "revoke":
 		if len(rest) < 1 {
 			fs.Usage()
 			os.Exit(1)
 		}
 		key := rest[0]
- 
+
 		var expiry int64
 		if len(rest) >= 2 {
 			ttl, err := parseTokenDuration(rest[1])
@@ -188,7 +198,7 @@ func runTokenCommand(args []string) {
 			fmt.Fprintln(os.Stderr, "token_revocation_file is not set in config — add one before revoking tokens")
 			os.Exit(1)
 		}
- 
+
 		r, err := auth.NewRevoker(cfg.TokenRevocationFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to open revocation file %q: %v\n", cfg.TokenRevocationFile, err)
@@ -201,7 +211,163 @@ func runTokenCommand(args []string) {
 		fmt.Printf("Revoked %q\n", key)
 	}
 }
- 
+
+// runDigestCommand implements:
+//
+//	mcphe digest [-config path] [-algo sha256|sha512] [-format text|yaml|json|manifest] [-o file] [path ...]
+//	mcphe digest -verify [-config path]
+//
+// The first form prints content digests for plugin files: "text" for pasting a
+// plugin's "checksum:" value, "yaml" for a ready-made plugins: block, "manifest"
+// for a coreutils-compatible file usable as plugin_checksum_manifest, and "json"
+// for other tooling. With no paths it digests plugin_dir recursively.
+//
+// The second form checks the checksums already in config against the files on
+// disk without starting the server, which makes it usable as a CI or pre-deploy
+// gate. Exit status is 0 when everything matches, 1 when anything does not.
+func runDigestCommand(args []string) {
+	fs := flag.NewFlagSet("digest", flag.ExitOnError)
+	configPath := fs.String("config", "./config.yaml", "path to config.yaml")
+	algo := fs.String("algo", plugin.ChecksumSHA256, "hash algorithm: sha256 or sha512")
+	format := fs.String("format", "text", "output format: text, yaml, json, manifest")
+	outFile := fs.String("o", "", "write output to this file instead of stdout")
+	verify := fs.Bool("verify", false, "verify configured checksums against the files on disk and exit non-zero on any mismatch")
+	var guard configGuard
+	guard.register(fs)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage:")
+		fmt.Fprintln(os.Stderr, "  mcphe digest [-config path] [-algo sha256|sha512] [-format text|yaml|json|manifest] [-o file] [path ...]")
+		fmt.Fprintln(os.Stderr, "  mcphe digest -verify [-config path]")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "With no paths, plugin_dir from the config is scanned recursively for *.js.")
+		fmt.Fprintln(os.Stderr, "  text      \"algo:hex  path\" lines (use as a plugin's checksum: value)")
+		fmt.Fprintln(os.Stderr, "  yaml      a plugins: block keyed by exported plugin name")
+		fmt.Fprintln(os.Stderr, "  manifest  coreutils-style \"hex  path\" lines for plugin_checksum_manifest")
+		fmt.Fprintln(os.Stderr, "  json      JSON object keyed by path")
+	}
+
+	if len(args) < 1 {
+		fs.Usage()
+		os.Exit(2)
+	}
+	fs.Parse(args)
+	rest := fs.Args()
+
+	algorithm := strings.ToLower(*algo)
+	if algorithm != plugin.ChecksumSHA256 && algorithm != plugin.ChecksumSHA512 {
+		fmt.Fprintf(os.Stderr, "invalid -algo %q: want %s or %s\n", *algo, plugin.ChecksumSHA256, plugin.ChecksumSHA512)
+		os.Exit(2)
+	}
+
+	cfg, err := guard.load(*configPath, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config %q: %v\n", *configPath, err)
+		os.Exit(1)
+	}
+	pluginDir := cfg.PluginDir
+	if pluginDir == "" {
+		pluginDir = config.DefaultConfig.PluginDir
+	}
+
+	if *verify {
+		if len(rest) > 0 {
+			fmt.Fprintln(os.Stderr, "-verify checks the checksums in the config; it takes no file arguments")
+			os.Exit(2)
+		}
+		if *outFile != "" {
+			fmt.Fprintln(os.Stderr, "-verify prints its report to stdout and cannot be combined with -o")
+			os.Exit(2)
+		}
+		os.Exit(verifyPluginChecksums(cfg))
+	}
+
+	var entries []plugin.DigestEntry
+	if len(rest) == 0 {
+		entries, err = plugin.DigestDir(pluginDir, algorithm)
+	} else {
+		entries, err = plugin.DigestPaths(pluginDir, algorithm, rest)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "digest: %v\n", err)
+		os.Exit(1)
+	}
+	if len(entries) == 0 {
+		fmt.Fprintf(os.Stderr, "digest: no .js files found in %q\n", pluginDir)
+		os.Exit(1)
+	}
+
+	var output string
+	switch strings.ToLower(*format) {
+	case "text":
+		output = plugin.FormatDigestText(entries)
+	case "yaml":
+		output = plugin.FormatDigestYAML(entries)
+	case "manifest":
+		output = plugin.FormatDigestManifest(entries)
+	case "json":
+		output, err = plugin.FormatDigestJSON(entries)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "digest: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "invalid -format %q: want text, yaml, json or manifest\n", *format)
+		os.Exit(2)
+	}
+
+	if *outFile == "" {
+		fmt.Print(output)
+		return
+	}
+	if err := os.WriteFile(*outFile, []byte(output), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "digest: writing %s: %v\n", *outFile, err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %d digests to %s\n", len(entries), *outFile)
+}
+
+// verifyPluginChecksums prints a per-file integrity report and returns the
+// process exit status: 0 when every configured checksum matches, 1 otherwise.
+func verifyPluginChecksums(cfg config.Config) int {
+	reports, err := plugin.VerifyConfiguredChecksums(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "digest: %v\n", err)
+		return 1
+	}
+	if len(reports) == 0 {
+		fmt.Fprintln(os.Stderr, "digest: no enabled plugins to verify")
+		return 1
+	}
+
+	var failures, unchecked int
+	for _, r := range reports {
+		switch r.Status {
+		case plugin.ChecksumStatusMismatch:
+			failures++
+			fmt.Printf("%-10s %-24s %s\n", r.Status, r.Plugin, r.File)
+			fmt.Printf("%-10s %-24s expected %s, got %s\n", "", "", r.Expected, r.Actual)
+		case plugin.ChecksumStatusMissing:
+			failures++
+			detail := "file not found"
+			if r.Expected == "" {
+				detail = "no checksum configured (require_plugin_checksums is true)"
+			}
+			fmt.Printf("%-10s %-24s %s: %s\n", r.Status, r.Plugin, r.File, detail)
+		case plugin.ChecksumStatusUnchecked:
+			unchecked++
+			fmt.Printf("%-10s %-24s %s\n", r.Status, r.Plugin, r.File)
+		default:
+			fmt.Printf("%-10s %-24s %s\n", r.Status, r.Plugin, r.File)
+		}
+	}
+
+	fmt.Printf("\n%d checked, %d failed, %d without a configured checksum\n", len(reports), failures, unchecked)
+	if failures > 0 {
+		return 1
+	}
+	return 0
+}
+
 // parseTokenDuration extends time.ParseDuration with day ("d") and year ("y")
 // suffixes, since token lifetimes are usually given as human spans like
 // "265d" or "1y" rather than raw hours — time.ParseDuration tops out at "h".

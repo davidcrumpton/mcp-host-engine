@@ -44,6 +44,16 @@ type Config struct {
 	HTTPClientTimeoutSeconds int `yaml:"http_client_timeout_seconds"`
 	TokenSecret        string                            `yaml:"token_secret"`
 	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
+	// Plugin integrity. Per-plugin checksums live in the plugins map under
+	// "checksum:"; these two are the global switches. See plugin/checksum.go.
+	RequirePluginChecksums bool   `yaml:"require_plugin_checksums"`
+	PluginChecksumManifest string `yaml:"plugin_checksum_manifest"`
+	// Config integrity. When true the process refuses to start unless this
+	// file's checksum was verified against a value supplied from outside the
+	// file (the -config-checksum flag). It is a hygiene control, not a security
+	// boundary: whoever can edit this file can also clear the flag. See
+	// integrity/checksum.go and the "Config Integrity" section of the README.
+	RequireConfigChecksum bool `yaml:"require_config_checksum"`
 	VaultAddr          string                            `yaml:"vault_addr"`
 	VaultToken         string                            `yaml:"vault_token"` 
 	VaultRoleID        string                            `yaml:"vault_role_id"`
@@ -77,16 +87,27 @@ var DefaultConfig = Config{
 
 // LoadConfig doesn't set defaults.  Main now does only if no argument is provided.
 func LoadConfig(path string) (Config, error) {
-	cfg := Config{}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, fmt.Errorf("config file not found: %s", path)
+			return Config{}, fmt.Errorf("config file not found: %s", path)
 		}
-		return cfg, fmt.Errorf("error reading config: %w", err)
+		return Config{}, fmt.Errorf("error reading config: %w", err)
 	}
+	return LoadConfigBytes(path, data)
+}
+
+// LoadConfigBytes parses config data the caller has already read from path.
+//
+// It exists so the config-integrity gate can verify a file and then parse the
+// very same bytes: reading the file twice would leave a window in which it could
+// change between the check and its use. Everything LoadConfig does after reading
+// -- resolution of env://, vault:// and file:// references, the vault client,
+// plugin value expansion -- happens here.
+func LoadConfigBytes(path string, data []byte) (Config, error) {
+	cfg := Config{}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("error parsing config: %w", err)
+		return cfg, fmt.Errorf("%s: error parsing config: %w", path, err)
 	}
 	if cfg.PluginDir == "" {
 		cfg.PluginDir = DefaultConfig.PluginDir
@@ -112,15 +133,14 @@ func LoadConfig(path string) (Config, error) {
 			token = resolveVaultToken(cfg)
 			client, err = NewRealVaultClient(cfg.VaultAddr, token)
 		}
-		
+
 		if err != nil {
 			return cfg, fmt.Errorf("initializing vault client: %w", err)
 		}
 		RegisterResolver("vault", &VaultResolver{Client: client})
 	}
 
-	RegisterResolver("env", EnvResolver{})
-	RegisterResolver("file", FileResolver{})
+	registerBuiltinResolvers()
 	if err := cfg.resolveTopLevelFields(); err != nil {
 		return cfg, err
 	}
@@ -130,6 +150,25 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// PeekRequireConfigChecksum reports the require_config_checksum setting in raw
+// config bytes, without resolving references or contacting anything.
+//
+// The gate needs this one boolean from a file it has not verified yet, which is
+// otherwise exactly what it must not do. Reading a single flag is safe in a way
+// that acting on a whole config is not: it has no side effects, and the value
+// can only ever make the process stricter. A file that turns the requirement
+// off cannot make an unverified config acceptable -- that requires the operator
+// to have supplied no expected checksum in the first place.
+func PeekRequireConfigChecksum(data []byte) (bool, error) {
+	var probe struct {
+		RequireConfigChecksum bool `yaml:"require_config_checksum"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false, fmt.Errorf("error parsing config: %w", err)
+	}
+	return probe.RequireConfigChecksum, nil
 }
 
 func (c Config) Verbose(level int) bool {
@@ -387,6 +426,32 @@ func (c Config) PluginSource(instanceName string) string {
 		}
 	}
 	return instanceName
+}
+
+// PluginChecksum returns the raw "checksum" value declared for instanceName.
+//
+// A checksum describes a *file*, so an entry that instantiates another entry
+// through "plugin:" inherits that entry's checksum when it declares none of its
+// own -- declare it once on the module's own entry and every alias is covered.
+//
+// The value is returned unparsed (interface{}) so the plugin package can report
+// a precise error for a malformed checksum instead of this accessor silently
+// returning "" and the plugin loading unverified.
+func (c Config) PluginChecksum(instanceName string) (interface{}, bool) {
+	if pCfg, ok := c.Plugins[instanceName]; ok {
+		if raw, ok := pCfg["checksum"]; ok {
+			return raw, true
+		}
+	}
+	source := c.PluginSource(instanceName)
+	if source != instanceName {
+		if pCfg, ok := c.Plugins[source]; ok {
+			if raw, ok := pCfg["checksum"]; ok {
+				return raw, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func (c Config) IsToolEnabled(name string) bool {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -168,6 +169,79 @@ func TestPluginSource(t *testing.T) {
 		if got := cfg.PluginSource(instance); got != want {
 			t.Errorf("PluginSource(%q): got %q, want %q", instance, got, want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PluginChecksum
+// ---------------------------------------------------------------------------
+
+func TestPluginChecksum(t *testing.T) {
+	cfg := Config{
+		Plugins: map[string]map[string]interface{}{
+			"direct":   {"checksum": "sha256:aa"},
+			"declared": {"checksum": "sha256:bb"},
+			"alias":    {"plugin": "declared"},
+			"own":      {"plugin": "declared", "checksum": "sha256:cc"},
+			"none":     {},
+			"absent":   {},
+			// A non-string value must be surfaced, not swallowed, so the plugin
+			// package can report a precise error instead of loading unverified.
+			"typed": {"checksum": 1234},
+		},
+	}
+
+	tests := []struct {
+		instance string
+		want     interface{}
+		wantOK   bool
+	}{
+		{instance: "direct", want: "sha256:aa", wantOK: true},
+		{instance: "alias", want: "sha256:bb", wantOK: true}, // inherits its source
+		{instance: "own", want: "sha256:cc", wantOK: true},   // its own wins
+		{instance: "declared", want: "sha256:bb", wantOK: true},
+		{instance: "none", wantOK: false},
+		{instance: "typed", want: 1234, wantOK: true},
+		{instance: "not-in-config", wantOK: false},
+	}
+	for _, tc := range tests {
+		got, ok := cfg.PluginChecksum(tc.instance)
+		if ok != tc.wantOK {
+			t.Errorf("PluginChecksum(%q): ok = %v, want %v", tc.instance, ok, tc.wantOK)
+			continue
+		}
+		if ok && got != tc.want {
+			t.Errorf("PluginChecksum(%q): got %v, want %v", tc.instance, got, tc.want)
+		}
+	}
+}
+
+func TestLoadConfigPluginIntegrityFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+plugin_dir: plugins
+require_plugin_checksums: true
+plugin_checksum_manifest: checksums.txt
+plugins:
+  ping:
+    checksum: "sha256:abc"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.RequirePluginChecksums {
+		t.Error("require_plugin_checksums was not loaded")
+	}
+	if cfg.PluginChecksumManifest != "checksums.txt" {
+		t.Errorf("plugin_checksum_manifest = %q", cfg.PluginChecksumManifest)
+	}
+	if got, ok := cfg.PluginChecksum("ping"); !ok || got != "sha256:abc" {
+		t.Errorf("PluginChecksum(ping) = %v, %v", got, ok)
 	}
 }
 
@@ -535,5 +609,137 @@ func TestAllowedHTTPMethodsFor_MissingKey(t *testing.T) {
 	cfg := Config{Plugins: map[string]map[string]interface{}{"myplugin": {}}}
 	if got := cfg.AllowedHTTPMethodsFor("myplugin"); got != nil {
 		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Config integrity
+// ---------------------------------------------------------------------------
+
+func TestLoadConfig_RequireConfigChecksum(t *testing.T) {
+	path := writeYAML(t, "require_config_checksum: true\nplugins:\n  ping:\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.RequireConfigChecksum {
+		t.Error("require_config_checksum was not loaded")
+	}
+
+	// Absent means off: the gate is opt-in, so existing configs keep working.
+	cfg, err = LoadConfig(writeYAML(t, "plugins:\n  ping:\n"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.RequireConfigChecksum {
+		t.Error("require_config_checksum should default to false")
+	}
+}
+
+// PeekRequireConfigChecksum reads one boolean out of bytes that have not been
+// verified yet, so it must work without resolution and must not invent a value
+// for a file it cannot parse.
+func TestPeekRequireConfigChecksum(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+		wantErr bool
+	}{
+		{name: "true", content: "require_config_checksum: true\n", want: true},
+		{name: "false", content: "require_config_checksum: false\n", want: false},
+		{name: "absent", content: "port: \"8001\"\n", want: false},
+		{name: "empty", content: "", want: false},
+		// A reference in an unrelated field must not be resolved, so a broken
+		// env:// here cannot stop the gate from reading the flag.
+		{name: "unresolvable reference", content: "token_secret: \"env://NOPE_NOT_SET\"\nrequire_config_checksum: true\n", want: true},
+		{name: "not yaml", content: "\tnot: [valid\n", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PeekRequireConfigChecksum([]byte(tc.content))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q", tc.content)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PeekRequireConfigChecksum: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// LoadConfigBytes must behave exactly like LoadConfig: it is what the checksum
+// gate calls after verifying the bytes it read.
+func TestLoadConfigBytes_MatchesLoadConfig(t *testing.T) {
+	const content = "port: \"9999\"\nplugin_dir: /tmp/plugins\nplugins:\n  ping:\n    checksum: \"sha256:abc\"\n"
+	path := writeYAML(t, content)
+
+	fromPath, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	fromBytes, err := LoadConfigBytes(path, []byte(content))
+	if err != nil {
+		t.Fatalf("LoadConfigBytes: %v", err)
+	}
+	if !reflect.DeepEqual(fromPath, fromBytes) {
+		t.Errorf("LoadConfigBytes differs from LoadConfig:\n%+v\n%+v", fromPath, fromBytes)
+	}
+
+	// A parse error names the file, since the gate may be reading a path the
+	// operator passed explicitly.
+	if _, err := LoadConfigBytes("/etc/mcphe/config.yaml", []byte("\tnot: [valid\n")); err == nil {
+		t.Error("expected an error for malformed YAML")
+	} else if !strings.Contains(err.Error(), "/etc/mcphe/config.yaml") {
+		t.Errorf("error should name the file: %v", err)
+	}
+}
+
+func TestResolveValue(t *testing.T) {
+	t.Setenv("MCPHE_RESOLVE_TEST", "from-env")
+	filePath := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(filePath, []byte("from-file"), 0o600); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{name: "env", in: "env://MCPHE_RESOLVE_TEST", want: "from-env"},
+		{name: "file", in: "file://" + filePath, want: "from-file"},
+		{name: "plain value", in: "sha256:abc", want: "sha256:abc"},
+		{name: "plain path", in: "/etc/mcphe/config.yaml", want: "/etc/mcphe/config.yaml"},
+		{name: "empty", in: "", want: ""},
+		{name: "unset env", in: "env://MCPHE_RESOLVE_TEST_UNSET", wantErr: true},
+		{name: "missing file", in: "file:///nonexistent/mcphe/nope", wantErr: true},
+		// vault:// needs a config, which is the thing being verified, so it is
+		// deliberately unavailable here rather than silently unresolved.
+		{name: "vault scheme", in: "vault://secret/x#y", want: "vault://secret/x#y"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveValue(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q", tc.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveValue(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
