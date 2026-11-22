@@ -46,6 +46,9 @@ type Config struct {
 	Transport          string                            `yaml:"transport"`
 	LogsAsJSON         bool                              `yaml:"logs_as_json"`
 	AllowedHTTPHeaders []string                          `yaml:"allowed_http_headers"`
+	// AllowedHTTPPorts is the global default for which destination ports a
+	// plugin may reach. Empty means any port. See AllowedPortsFor.
+	AllowedHTTPPorts []string `yaml:"allowed_http_ports"`
 	HTTPClientTimeoutSeconds int `yaml:"http_client_timeout_seconds"`
 	TokenSecret        string                            `yaml:"token_secret"`
 	TokenRevocationFile  string                            `yaml:"token_revocation_file"`
@@ -69,6 +72,12 @@ type Config struct {
 	// part of the YAML schema: it exists so the loader can refuse a plugin
 	// entry that points a file:// reference at the daemon's own config.
 	sourcePath string
+
+	// resolvers are the scheme resolvers in effect for this config, including
+	// the vault client built from *this* file. Unexported and not part of the
+	// YAML schema. Keeping them here rather than in a package global is what
+	// stops a second load from inheriting the first one's vault credentials.
+	resolvers resolverSet
 }
 
 var DefaultConfig = Config{
@@ -147,10 +156,10 @@ func LoadConfigBytes(path string, data []byte) (Config, error) {
 		if err != nil {
 			return cfg, fmt.Errorf("initializing vault client: %w", err)
 		}
-		RegisterResolver("vault", &VaultResolver{Client: client})
+		cfg.resolvers = builtinResolvers().with("vault", &VaultResolver{Client: client})
+	} else {
+		cfg.resolvers = builtinResolvers()
 	}
-
-	registerBuiltinResolvers()
 	if err := cfg.resolveTopLevelFields(); err != nil {
 		return cfg, err
 	}
@@ -179,6 +188,23 @@ func PeekRequireConfigChecksum(data []byte) (bool, error) {
 		return false, fmt.Errorf("error parsing config: %w", err)
 	}
 	return probe.RequireConfigChecksum, nil
+}
+
+// PeekRunAsRoot reports the run_as_root setting in raw config bytes, without
+// resolving references, contacting a vault, or building anything.
+//
+// The root check has to happen *before* the config is acted on: parsing it can
+// log in to Vault and resolve env:// values, and doing that as root before
+// refusing to run as root is the wrong order. Only this one boolean is read out
+// of the unparsed bytes, and it can only ever make the process refuse to start.
+func PeekRunAsRoot(data []byte) (bool, error) {
+	var probe struct {
+		RunAsRoot bool `yaml:"run_as_root"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false, fmt.Errorf("error parsing config: %w", err)
+	}
+	return probe.RunAsRoot, nil
 }
 
 func (c Config) Verbose(level int) bool {
@@ -374,6 +400,51 @@ func (c Config) AllowedDomainsFor(pluginName string) []string {
 	return nil
 }
 
+// AllowedPortsFor returns the ports pluginName may reach, or nil for "any
+// port".
+//
+// allowed_domains bounds the host, not the service: with
+// allowed_domains: ["internal.example.com"] a plugin could still reach
+// internal.example.com:6379 (redis) or :22. Set allowed_ports on the plugin --
+// or allowed_http_ports globally -- to bound that too. Unset means any port,
+// which is what the shipped plugins need (proxmox 8006, elastic 9200, ...).
+func (c Config) AllowedPortsFor(pluginName string) []string {
+	if pCfg, ok := c.Plugins[pluginName]; ok {
+		if ports := portList(pCfg["allowed_ports"]); len(ports) > 0 {
+			return ports
+		}
+	}
+	return portList(c.AllowedHTTPPorts)
+}
+
+// portList normalises a YAML port list. Ports are written as numbers in every
+// config file that has one, so an int (or float, which is what YAML gives for a
+// bare number in some decoders) is accepted alongside a string.
+func portList(raw interface{}) []string {
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		ports := make([]string, 0, len(v))
+		for _, item := range v {
+			switch n := item.(type) {
+			case string:
+				if n != "" {
+					ports = append(ports, n)
+				}
+			case int:
+				ports = append(ports, strconv.Itoa(n))
+			case float64:
+				ports = append(ports, strconv.Itoa(int(n)))
+			}
+		}
+		return ports
+	case int:
+		return []string{strconv.Itoa(v)}
+	}
+	return nil
+}
+
 func (c Config) AllowedRunCommandsFor(pluginName string) []string {
 	pCfg, ok := c.Plugins[pluginName]
 	if !ok {
@@ -542,18 +613,11 @@ func (c Config) GetProcessGID() int {
 	return os.Getgid()
 }
 
-func (c Config) WritePidFile() error {
-	if c.PidFile == "" {
-		c.Logf(1, "PidFile is not set, skipping pid file write")
-		return fmt.Errorf("PidFile is not set")
-	}
-	err := os.WriteFile(c.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
-	if err != nil {
-		c.Logf(1, "Error writing pid file %s: %v", c.PidFile, err)
-		return err
-	}
-	return nil
-}
+// WritePidFile was removed: writing the pid file is the single-instance lock's
+// job (see pidfile.go). An unconditional overwrite is exactly the bug that let a
+// second instance clobber a running one's pid and then have that running
+// instance delete the second instance's file on exit. Callers now take the lock
+// instead, which cannot be acquired twice.
 
 // sensitiveNameParts are the substrings that mark a header, query parameter or
 // config key as carrying a credential. Matching is on substrings rather than on
@@ -670,7 +734,7 @@ func (c *Config) resolvePluginValues() error {
 						return err
 					}
 				}
-				resolved, err := resolveString(val)
+				resolved, err := c.resolveString(val)
 				if err != nil {
 					return fmt.Errorf("plugin %q key %q: %w", pluginName, k, err)
 				}
@@ -696,7 +760,7 @@ func (c *Config) resolvePluginValues() error {
 						resolvedList[i] = item
 						continue
 					}
-					resolved, err := resolveString(s)
+					resolved, err := c.resolveString(s)
 					if err != nil {
 						return fmt.Errorf("plugin %q key %q[%d]: %w", pluginName, k, i, err)
 					}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // maxResolvedFileBytes bounds a file:// reference. Config values are resolved
@@ -35,5 +36,10 @@ func (FileResolver) Resolve(ref string) (string, error) {
 	if len(content) > maxResolvedFileBytes {
 		return "", fmt.Errorf("file %q exceeds the %d byte limit for a file:// reference", ref, maxResolvedFileBytes)
 	}
-	return string(content), nil
+	// A credential file almost always ends with a newline -- `echo secret >
+	// /etc/mcphe/secret` and every editor do it. Keeping it made
+	// `token_secret: file:///etc/mcphe/secret` a secret with a trailing "\n",
+	// which authenticates nothing and is invisible in a log or an error.
+	// Trailing newlines carry no meaning in any config value, so drop them.
+	return strings.TrimRight(string(content), "\r\n"), nil
 }

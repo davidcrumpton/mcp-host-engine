@@ -17,6 +17,17 @@ type contextKey string
 const IdentityContextKey contextKey = "auth_identity"
 const SessionIDContextKey contextKey = "session_id"
 
+// HTTPHeadersContextKey carries the inbound request's headers to the host
+// object, which filters them through allowed_http_headers before a plugin sees
+// them.
+//
+// It used to be the bare string "http_headers". A string key can collide with
+// any other package's context value, and `go vet` flags it (SA1029) precisely
+// because a typo on either side silently yields a nil value -- which here means
+// "no headers", i.e. a plugin that quietly stops receiving a credential header
+// instead of failing loudly.
+const HTTPHeadersContextKey contextKey = "http_headers"
+
 // sessionIDPattern is what a session id may contain. The value arrives from a
 // query parameter (or a header) chosen by the client, and is then written into
 // log lines and used to pick which transport handles the request, so it is

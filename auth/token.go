@@ -40,6 +40,20 @@ type Revoked interface {
 // Create mints a new signed token. label may be empty; an empty label means
 // the resulting token can only be revoked by username, not individually.
 func Create(progname, version, username, label string, ttl time.Duration, secret string) (string, error) {
+	// The username and label end up in the revocation file's key syntax and in
+	// log lines, so they are validated here rather than at revoke time: a token
+	// that cannot be revoked unambiguously should never be minted.
+	if err := ValidateIdentityName("username", username); err != nil {
+		return "", err
+	}
+	if label != "" {
+		if err := ValidateIdentityName("label", label); err != nil {
+			return "", err
+		}
+	}
+	if ttl <= 0 {
+		return "", fmt.Errorf("token lifetime must be positive, got %s", ttl)
+	}
 	now := time.Now()
 	payload, err := json.Marshal(Identity{
 		Progname:  progname,

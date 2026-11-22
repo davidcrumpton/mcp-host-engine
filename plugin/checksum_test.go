@@ -752,13 +752,21 @@ func TestDetectPluginName(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "esbuild const", content: "const plugin = {\n  name: \"ping\",\n  call(){}\n};", want: "ping"},
+		{name: "esbuild const", content: "const plugin = {\n  name: \"ping\",\n  call(){}\n};\nmodule.exports = plugin;", want: "ping"},
 		{name: "inline object", content: `module.exports = { name: "date_time", call(){} };`, want: "date_time"},
 		{name: "no space", content: `module.exports = {name:"tight"};`, want: "tight"},
-		{name: "description before name", content: "var o = { description: \"x\", name: \"after\" };", want: "after"},
-		{name: "not a name key", content: `var o = { fileName: "nope" };`, want: ""},
+		{name: "description before name", content: "var o = { description: \"x\", name: \"after\" };\nmodule.exports = o;", want: "after"},
+		{name: "not a name key", content: `var o = { fileName: "nope" }; module.exports = o;`, want: ""},
 		{name: "module.exports.name", content: `module.exports.name = "assigned";`, want: ""},
 		{name: "absent", content: "var x = 1;", want: ""},
+		// L20: a nested object's name must not be reported as the plugin's.
+		{name: "nested name first", content: `module.exports = { inputSchema: { properties: { name: { type: "string" } } }, name: "outer" };`, want: "outer"},
+		{name: "nested object with its own name", content: `module.exports = { name: { value: "inner" }, name2: "x" };`, want: ""},
+		{name: "name in a comment", content: "module.exports = { /* name: \"no\" */ name: \"yes\" };", want: "yes"},
+		{name: "name in a string", content: `module.exports = { description: "name: \"no\"", name: "yes" };`, want: "yes"},
+		{name: "single quotes", content: `module.exports = { name: 'single' };`, want: "single"},
+		{name: "exported ident declared with let", content: "let plugin = {\n  name: \"letbound\"\n};\nmodule.exports = plugin;", want: "letbound"},
+		{name: "no export at all", content: "var o = { name: \"orphan\" };", want: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

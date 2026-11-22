@@ -27,30 +27,3 @@ func GetEnv(name string, cfg config.Config, pluginName string) (string, error) {
 	}
 	return os.Getenv(name), nil
 }
-
-func isDomainAllowed(domain string, allowedDomains []string) bool {
-	for _, allowed := range allowedDomains {
-		if domain == allowed {
-			return true
-		}
-	}
-	return false
-}
-
-func isCommandAllowed(command string, allowedCommands []string) bool {
-	for _, allowed := range allowedCommands {
-		if command == allowed {
-			return true
-		}
-	}
-	return false
-}
-
-func isEnvAllowed(env string, allowedEnvs []string) bool {
-	for _, allowed := range allowedEnvs {
-		if env == allowed {
-			return true
-		}
-	}
-	return false
-}

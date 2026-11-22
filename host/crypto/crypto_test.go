@@ -1,16 +1,44 @@
 package crypto
 
 import (
+	"encoding/hex"
 	"testing"
 )
 
 func TestRandomBytes(t *testing.T) {
 	b, err := RandomBytes(16)
 	if err != nil {
-		t.Errorf("RandomBytes error: %v", err)
+		t.Fatalf("RandomBytes error: %v", err)
 	}
-	if len(b) != 16 {
-		t.Errorf("RandomBytes error: got %d bytes, want %d", len(b), 16)
+	if len(b) != 32 {
+		t.Errorf("RandomBytes(16) returned %d characters, want 32 hex characters", len(b))
+	}
+	if _, err := hex.DecodeString(b); err != nil {
+		t.Errorf("RandomBytes returned non-hex output %q: %v", b, err)
+	}
+}
+
+// L9: raw random bytes in a Go string lose entropy when goja converts them to a
+// JS string -- invalid UTF-8 becomes U+FFFD. The output must be pure ASCII hex,
+// and two draws must differ.
+func TestRandomBytesIsHexAndDoesNotRepeat(t *testing.T) {
+	a, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes error: %v", err)
+	}
+	b, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes error: %v", err)
+	}
+	if a == b {
+		t.Error("two 32-byte draws produced the same value")
+	}
+	for _, r := range a {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f':
+		default:
+			t.Fatalf("RandomBytes output %q contains %q, which is not lowercase hex", a, r)
+		}
 	}
 }
 
@@ -53,8 +81,8 @@ func TestCrypto(t *testing.T) {
 	if err != nil {
 		t.Errorf("RandomBytes error: %v", err)
 	}
-	if len(b) != 16 {
-		t.Errorf("RandomBytes error: got %d bytes, want %d", len(b), 16)
+	if len(b) != 32 {
+		t.Errorf("RandomBytes error: got %d hex characters, want %d", len(b), 32)
 	}
 
 	s, err := Sha256("hello")

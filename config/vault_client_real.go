@@ -14,11 +14,9 @@ type realVaultClient struct {
 }
 
 func NewRealVaultClient(addr, token string) (VaultClient, error) {
-	cfg := vaultapi.DefaultConfig()
-	cfg.Address = addr
-	c, err := vaultapi.NewClient(cfg)
+	c, err := newVaultClient(addr)
 	if err != nil {
-		return nil, fmt.Errorf("creating vault client: %w", err)
+		return nil, err
 	}
 	if token != "" {
 		c.SetToken(token)
@@ -31,12 +29,19 @@ func (r *realVaultClient) ReadSecret(path, key string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("vault read %q: %w", path, err)
 	}
+	return secretValue(secret, path, key)
+}
+
+// secretValue pulls key out of a Vault read response, handling both KV v1
+// (fields at the top level) and KV v2 (fields nested under "data").
+//
+// A nil secret -- which is what a 404, a 204 or an empty body produces -- used
+// to be dereferenced by the caller, panicking the process at startup.
+func secretValue(secret *vaultapi.Secret, path, key string) (string, error) {
 	if secret == nil || secret.Data == nil {
 		return "", fmt.Errorf("vault path %q: no data returned", path)
 	}
 
-	// KV v2 nests actual fields under "data"; KV v1 does not. Handle both
-	// so admins don't have to know which engine version they're on.
 	data := secret.Data
 	if nested, ok := secret.Data["data"].(map[string]interface{}); ok {
 		data = nested

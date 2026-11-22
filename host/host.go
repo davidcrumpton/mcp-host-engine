@@ -11,17 +11,17 @@ import (
 	"mcphe/host/exec"
 	"mcphe/host/fs"
 	"mcphe/host/httpclient"
+	hosttime "mcphe/host/time"
 	"mcphe/host/path"
 	"mcphe/host/url"
 	"mcphe/transport"
 	"net/http"
 	"os"
-	"time"
 )
 
 func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) map[string]interface{} {
 	httpHeaders := make(map[string]string)
-	if h, ok := ctx.Value("http_headers").(http.Header); ok {
+	if h, ok := ctx.Value(transport.HTTPHeadersContextKey).(http.Header); ok {
 		for k, vs := range h {
 			if len(vs) > 0 {
 				if httpclient.IsHTTPHeaderAllowed(k, cfg) {
@@ -76,9 +76,13 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 				return crypto.Sha256(data)
 			},
 		},
+		// Routed through host/time, which rejects a negative or oversized
+		// duration and gives up when the request is cancelled. Calling
+		// time.Sleep here meant the validated helper was bypassed entirely:
+		// sleep(-1) succeeded instantly and sleep(86400000) blocked the
+		// plugin's VM lock (and a handler, and shutdown) for a day.
 		"sleep": func(ms int) error {
-			time.Sleep(time.Duration(ms) * time.Millisecond)
-			return nil
+			return hosttime.SleepContext(ctx, ms)
 		},
 		"console": map[string]interface{}{
 			"log": func(msg string) error {

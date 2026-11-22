@@ -59,7 +59,47 @@ func (g configGuard) load(path string, allowMissing bool) (config.Config, error)
 		}
 		return config.Config{}, fmt.Errorf("error reading config: %w", err)
 	}
+	return g.loadBytes(path, data)
+}
 
+// checkRunAsRoot refuses to start as root unless the config says run_as_root:
+// true, and does so before anything else acts on the config.
+//
+// It reads the file itself because that is the whole point: the config must not
+// be parsed, resolved or used to log in to Vault before this decision is made.
+// The bytes are re-read by load(), which verifies them; a file that changed in
+// between is caught there by the checksum, and without a checksum the second
+// read is the one that is acted on, so no unverified value survives.
+func (g configGuard) checkRunAsRoot(path string, allowMissing bool) error {
+	if !isRoot() {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if allowMissing && os.IsNotExist(err) {
+			// No file: built-in defaults, and run_as_root defaults to false.
+			return fmt.Errorf("This program is not designed to run as root.\nIf you really want to run as root, add 'run_as_root: true' to your config file.")
+		}
+		// A config we cannot read is reported by load(); there is nothing to
+		// learn about run_as_root here.
+		return nil
+	}
+	allowed, err := config.PeekRunAsRoot(data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if !allowed {
+		return fmt.Errorf("This program is not designed to run as root.\nIf you really want to run as root, add 'run_as_root: true' to your config file.")
+	}
+	return nil
+}
+
+// loadBytes is load for bytes the caller has already read. It exists so a
+// pre-parse check (the root guard, which must see run_as_root before the config
+// is acted on) can work from the same bytes the gate verifies and parses -- one
+// read, one set of bytes, no window in which the file changes underneath.
+func (g configGuard) loadBytes(path string, data []byte) (config.Config, error) {
+	var err error
 	var want integrity.Checksum
 	if g.expected != "" {
 		want, err = parseExpectedChecksum(g.expected)

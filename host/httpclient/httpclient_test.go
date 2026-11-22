@@ -50,10 +50,90 @@ func TestIsAllowedDomain_EmptyList(t *testing.T) {
 	}
 }
 
-func TestIsAllowedDomain_TrailingColon(t *testing.T) {
-	// url.Parse may produce "hostname:" for bare IPs without ports.
-	if !isDomainAllowed("example.com:", []string{"example.com"}) {
-		t.Error("trailing colon should be stripped")
+// L19: the old code trimmed a trailing ":" with the comment that url.Parse may
+// produce "hostname:" for bare IPs. It does not -- url.URL.Hostname() strips the
+// port and its colon, for IPs too -- so the trim was dead code dressed as a
+// defence, and a hostname that really does end in ":" was matched by accident.
+// What must hold is that a port never takes part in the domain comparison.
+func TestIsAllowedDomain_PortIsNotPartOfTheHostname(t *testing.T) {
+	for _, raw := range []string{"https://example.com:8443/x", "http://example.com:80/x"} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", raw, err)
+		}
+		if got := u.Hostname(); got != "example.com" {
+			t.Fatalf("%q: Hostname() = %q, want %q", raw, got, "example.com")
+		}
+		if !isDomainAllowed(u.Hostname(), []string{"example.com"}) {
+			t.Errorf("%q should match allowed domain example.com", raw)
+		}
+	}
+	// A "hostname" that genuinely contains a colon is not a hostname, and must
+	// not be normalised into one.
+	if isDomainAllowed("example.com:", []string{"example.com"}) {
+		t.Error(`"example.com:" should not match example.com`)
+	}
+}
+
+// L19: allowed_domains bounds the host, not the port, so an allow-listed host
+// was reachable on any port. allowed_ports (and the global allowed_http_ports)
+// now bound that; unset still means any port, which the shipped plugins need.
+func TestIsPortAllowed(t *testing.T) {
+	mustParse := func(raw string) *url.URL {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", raw, err)
+		}
+		return u
+	}
+	withPorts := func(ports []string) config.Config {
+		return config.Config{
+			Plugins: map[string]map[string]interface{}{
+				"p": {"allowed_ports": ports},
+			},
+		}
+	}
+
+	// Unset anywhere: any port.
+	if !isPortAllowed(mustParse("https://example.com:8443/"), config.Config{}, "p") {
+		t.Error("unset allowed_ports should allow any port")
+	}
+
+	cfg := withPorts([]string{"443"})
+	if !isPortAllowed(mustParse("https://example.com/x"), cfg, "p") {
+		t.Error("https with no explicit port should count as 443")
+	}
+	if !isPortAllowed(mustParse("https://example.com:443/x"), cfg, "p") {
+		t.Error("explicit 443 should be allowed")
+	}
+	if isPortAllowed(mustParse("https://example.com:8443/x"), cfg, "p") {
+		t.Error("8443 should be refused when allowed_ports is [443]")
+	}
+	if isPortAllowed(mustParse("http://example.com/x"), cfg, "p") {
+		t.Error("http with no explicit port is 80, which is not in [443]")
+	}
+
+	// The global list is the fallback when the plugin sets none.
+	global := config.Config{AllowedHTTPPorts: []string{"80", "443"}}
+	if !isPortAllowed(mustParse("http://example.com/x"), global, "p") {
+		t.Error("global allowed_http_ports should allow port 80")
+	}
+	if isPortAllowed(mustParse("http://example.com:9200/x"), global, "p") {
+		t.Error("global allowed_http_ports should refuse 9200")
+	}
+
+	// A plugin list overrides the global one rather than merging with it.
+	override := config.Config{
+		AllowedHTTPPorts: []string{"80"},
+		Plugins: map[string]map[string]interface{}{
+			"p": {"allowed_ports": []interface{}{9200}},
+		},
+	}
+	if !isPortAllowed(mustParse("http://example.com:9200/x"), override, "p") {
+		t.Error("plugin allowed_ports should allow 9200 (as a YAML number)")
+	}
+	if isPortAllowed(mustParse("http://example.com/x"), override, "p") {
+		t.Error("plugin allowed_ports should override, not extend, the global list")
 	}
 }
 

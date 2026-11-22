@@ -98,7 +98,7 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 		cfg.Logf(2, "Verifying plugin files against checksum manifest %s (%d entries)", policy.manifest.Path, policy.manifest.Len())
 	}
 
-	files, err := filepath.Glob(filepath.Join(dir, "*.js"))
+	files, err := pluginFilesIn(dir)
 	if err != nil {
 		cfg.Logf(1, "Failed to scan plugin directory: %v", err)
 		return nil, fmt.Errorf("failed to scan plugin directory: %w", err)
@@ -224,6 +224,30 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 
 	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].Name < plugins[j].Name })
 	return &PluginManager{plugins: plugins, byName: byName, manifest: policy.manifest}, nil
+}
+
+// pluginFilesIn lists the .js files in dir, sorted by name.
+//
+// It replaces filepath.Glob(dir + "/*.js"). Glob treats metacharacters in *dir*
+// as part of the pattern, so a plugin_dir containing "[" or "*" changed the
+// match set, and a directory whose own name ends in ".js" matched itself. The
+// directory is data, not a pattern, so it is listed and filtered instead.
+func pluginFilesIn(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".js") {
+			continue
+		}
+		files = append(files, filepath.Join(dir, entry.Name()))
+	}
+	// os.ReadDir already sorts, but sorting explicitly keeps the order a
+	// documented property rather than a consequence of the implementation.
+	sort.Strings(files)
+	return files, nil
 }
 
 // valueToString safely converts a goja value to a string, handling undefined/nil cases

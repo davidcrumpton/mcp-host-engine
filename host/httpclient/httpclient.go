@@ -79,6 +79,10 @@ func do(ctx context.Context, method, urlStr string, headers map[string]interface
 		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - not in allowed domains", parsedURL.Hostname())
 		return nil, fmt.Errorf("access to %s is not allowed", parsedURL.Hostname())
 	}
+	if !isPortAllowed(parsedURL, cfg, pluginName) {
+		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - port not in allowed_ports", parsedURL.Host)
+		return nil, fmt.Errorf("port %s is not allowed for %s", parsedURL.Port(), parsedURL.Hostname())
+	}
 	if !isMethodAllowed(method, cfg, pluginName) {
 		cfg.LogfWithContext(1, identity, sessionID, "Blocked HTTP request to %s - method %s not allowed", parsedURL.Hostname(), method)
 		return nil, fmt.Errorf("method %s is not allowed for %s", method, parsedURL.Hostname())
@@ -225,13 +229,54 @@ func redactURL(raw string) string {
 	return out
 }
 
+// isDomainAllowed reports whether hostname is one of allowed, or a subdomain of
+// one. hostname must be a bare host: url.URL.Hostname() strips the port, so an
+// entry in allowed_domains cannot be made to match a different host by adding
+// one. (The previous version trimmed a trailing ":" "for safety"; Hostname()
+// never produces one, so that trim was dead code that looked like a defence.)
+//
+// Ports are a separate question -- allowed_domains bounds *where* a request
+// goes, not which service on that host answers it, so 8443 on an allowed host
+// was reachable with allowed_domains alone. Use allowed_ports (see
+// isPortAllowed) when that matters.
 func isDomainAllowed(hostname string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return false
 	}
-	hostname = strings.TrimSuffix(hostname, ":")
 	for _, domain := range allowed {
 		if hostname == domain || strings.HasSuffix(hostname, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPortAllowed reports whether the port of u may be used for pluginName.
+//
+// An empty allow-list means "any port", which is the historical behaviour and
+// what every shipped plugin needs (proxmox 8006, elastic 9200, kibana 5601...).
+// Setting allowed_ports on a plugin, or allowed_http_ports globally, restricts
+// it to the listed ports. The port compared is the one the URL actually names,
+// defaulted from the scheme when it names none, so an allow-list of ["443"] is
+// not bypassed by writing the URL without a port.
+func isPortAllowed(u *url.URL, cfg config.Config, pluginName string) bool {
+	allowed := cfg.AllowedPortsFor(pluginName)
+	if len(allowed) == 0 {
+		return true
+	}
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return false
+		}
+	}
+	for _, p := range allowed {
+		if p == port {
 			return true
 		}
 	}
@@ -325,6 +370,9 @@ func clientFor(cfg config.Config, pluginName string) *http.Client {
 			}
 			if !isDomainAllowed(req.URL.Hostname(), allowedDomains) {
 				return fmt.Errorf("redirect to %q is not allowed", req.URL.Hostname())
+			}
+			if !isPortAllowed(req.URL, cfg, pluginName) {
+				return fmt.Errorf("redirect to %q uses a port that is not allowed", req.URL.Host)
 			}
 			return nil
 		},

@@ -13,18 +13,25 @@ type VaultClientAppRole struct {
 }
 
 func NewVaultClientAppRole(addr, roleID, secretID string, approle string) (VaultClient, error) {
-	cfg := vaultapi.DefaultConfig()
-	cfg.Address = addr
-	c, err := vaultapi.NewClient(cfg)
+	c, err := newVaultClient(addr)
 	if err != nil {
-		return nil, fmt.Errorf("creating vault client: %w", err)
+		return nil, err
 	}
-	token, err := c.Logical().Write("auth/" + approle + "/login", map[string]interface{}{
+	token, err := c.Logical().Write("auth/"+approle+"/login", map[string]interface{}{
 		"role_id":   roleID,
 		"secret_id": secretID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vault %s login: %w", approle, err)
+	}
+	// A login that answers 204, or with a body that has no auth block, used to
+	// nil-dereference here and take the process down before it had logged
+	// anything. Treat it as the failed login it is.
+	if token == nil || token.Auth == nil {
+		return nil, fmt.Errorf("vault %s login: no auth data in response (check the role_id/secret_id and that the approle auth method is enabled)", approle)
+	}
+	if token.Auth.ClientToken == "" {
+		return nil, fmt.Errorf("vault %s login: response carried an empty client token", approle)
 	}
 	c.SetToken(token.Auth.ClientToken)
 	return &VaultClientAppRole{client: c}, nil
@@ -35,24 +42,5 @@ func (r *VaultClientAppRole) ReadSecret(path, key string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("vault read %q: %w", path, err)
 	}
-	if secret == nil || secret.Data == nil {
-		return "", fmt.Errorf("vault path %q: no data returned", path)
-	}
-
-	// KV v2 nests actual fields under "data"; KV v1 does not. Handle both
-	// so admins don't have to know which engine version they're on.
-	data := secret.Data
-	if nested, ok := secret.Data["data"].(map[string]interface{}); ok {
-		data = nested
-	}
-
-	val, ok := data[key]
-	if !ok {
-		return "", fmt.Errorf("vault path %q: key %q not found", path, key)
-	}
-	str, ok := val.(string)
-	if !ok {
-		return "", fmt.Errorf("vault path %q key %q: value is not a string (%T)", path, key, val)
-	}
-	return str, nil
+	return secretValue(secret, path, key)
 }

@@ -105,6 +105,37 @@ class PortInUseTests(StartupCase):
         self.assertIn(f"127.0.0.1:{port}", completed.stderr)
 
 
+class PidFileLockTests(ServerCase):
+    """A second instance on the same pid_file is refused.
+
+    The pid file used to be written unconditionally: the second instance
+    overwrote the first one's pid, and when the first one exited its cleanup
+    deleted the *second* instance's file. Two daemons could serve one config,
+    sharing a revocation list and a plugin directory.
+    """
+
+    plugins = ("ping",)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["pid_file"] = str(self.dir / "mcphe.pid")
+        return fields
+
+    def test_a_second_instance_is_refused(self):
+        """The second process exits 1 and leaves the first instance's pid file alone."""
+        self.start()
+        pid_file = self.dir / "mcphe.pid"
+        self.assertEqual(pid_file.read_text().strip(), str(self.server.pid))
+
+        completed = harness.run_server(self.config)
+
+        self.assertEqual(completed.returncode, 1, harness.output_of(completed))
+        self.assertIn("already running", completed.stderr)
+        self.assertIn(str(self.server.pid), completed.stderr)
+        # The running instance's file is untouched.
+        self.assertEqual(pid_file.read_text().strip(), str(self.server.pid))
+
+
 class MissingNameTests(StartupCase):
     """A plugin that cannot be named cannot be a tool."""
 
@@ -498,6 +529,38 @@ class HttpMethodEnforcementTests(ServerCase):
         self.assertIsNone(self.upstream.last_request())
 
 
+class HttpPortEnforcementTests(ServerCase):
+    """allowed_domains bounds the host, not the port.
+
+    With allowed_domains: ["internal.example.com"] a plugin could still reach
+    internal.example.com:6379. allowed_ports closes that; unset still means any
+    port, which is what the shipped plugins need.
+    """
+
+    plugins = ("fetcher",)
+
+    def setUp(self):
+        self.upstream = Upstream().start()
+        self.addCleanup(self.upstream.stop)
+        super().setUp()
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {
+            "fetcher": {
+                "allowed_domains": [self.upstream.host],
+                "allowed_ports": ["1"],
+            }
+        }
+        return fields
+
+    def test_port_outside_the_allow_list_is_refused(self):
+        """A port that allowed_ports omits is refused, and nothing is sent."""
+        result = self.call("fetcher", {"url": self.upstream.url("/page")})
+        self.assertToolError(result, "not allowed")
+        self.assertEqual(self.upstream.requests, [])
+
+
 class HttpHeaderEnforcementTests(ServerCase):
     """allowed_headers applies to the convenience helpers too."""
 
@@ -712,6 +775,7 @@ CASES = {
     "PluginConfigSelfReferenceTests.test_pointing_config_at_the_daemon_config_is_refused": "startup.plugin-config-self-reference",
     "WildcardCORSOriginTests.test_wildcard_origin_without_opt_in_is_refused": "startup.cors-wildcard",
     "PortInUseTests.test_port_already_bound": "startup.port-in-use",
+    "PidFileLockTests.test_a_second_instance_is_refused": "startup.pid-lock",
     "MissingNameTests.test_plugin_without_a_name": "discover.missing-name",
     "MissingCallTests.test_plugin_without_a_call_function": "discover.missing-call",
     "DuplicateNameTests.test_two_plugins_with_the_same_name": "discover.duplicate-name",
@@ -740,6 +804,7 @@ CASES = {
     "HttpSandboxFailureTests.test_http_request_enforces_allowed_methods": "sandbox.http-method-request",
     "HttpMethodEnforcementTests.test_http_post_is_refused_by_allowed_methods": "sandbox.http-method-convenience",
     "HttpHeaderEnforcementTests.test_header_outside_allowed_headers_is_refused": "sandbox.http-header-denied",
+    "HttpPortEnforcementTests.test_port_outside_the_allow_list_is_refused": "sandbox.allowed-ports",
     "ServerConfigScopeTests.test_another_plugins_config_is_not_disclosed": "sandbox.server-config-scope",
     "WriteStreamFailureTests.test_a_failing_stream_leaves_the_original_file_intact": "sandbox.fs-write-atomic",
     "WriteStreamFailureTests.test_a_complete_stream_replaces_the_file": "sandbox.fs-write-atomic-success",

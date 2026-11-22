@@ -4,7 +4,11 @@ port: "8001"
 host: "127.0.0.1"
 use_https: false
 bearer_token: ""
-token_secret: oludie3Aigae6Ohru6AhMigh
+# The secret itself lives in secrets/token_secret, which is gitignored: a
+# literal here is published to everyone who can read the repository (and stays
+# in its history after the line is removed). See SECURITY_FINDINGS L1.
+# In production prefer env://MCPHE_TOKEN_SECRET or vault://.
+token_secret: "file://./secrets/token_secret"
 #token_secret: "vault://PurpleMac/data/mcphe/8000#token_secret"
 run_as_root: false
 verbosity_level: 4

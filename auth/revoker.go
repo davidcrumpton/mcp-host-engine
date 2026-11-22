@@ -122,6 +122,12 @@ func (r *Revoker) IsRevoked(id Identity) bool {
 // Revoke needs to remove all entries when just username is passed without :label
 // e.g. 'bear' needs to remove 'bear:windows' and 'bear' itself.
 func (r *Revoker) Revoke(key string, expiry int64) error {
+	// A key with whitespace or an extra colon cannot be represented in the file,
+	// and one that is *almost* representable is worse: it silently revokes a
+	// different identity than the operator asked for.
+	if err := ValidateRevocationKey(key); err != nil {
+		return err
+	}
 	// Read-modify-write under the file lock: two `mcphe token revoke` processes
 	// running at once would otherwise each read the old list and the second
 	// rename would silently drop the first one's entry.
@@ -151,6 +157,9 @@ func (r *Revoker) Revoke(key string, expiry int64) error {
 // refreshes the in-memory set immediately. It's the inverse of Revoke, used
 // when re-issuing a token to a previously-revoked key.
 func (r *Revoker) Unrevoke(key string) error {
+	if err := ValidateRevocationKey(key); err != nil {
+		return err
+	}
 	return r.purge(key)
 }
 
@@ -167,6 +176,14 @@ func (r *Revoker) Unrevoke(key string) error {
 // coarse instrument, and issuing a new token is taken as a decision to trust
 // the user again.
 func (r *Revoker) UnrevokeIdentity(username, label string) error {
+	if err := ValidateIdentityName("username", username); err != nil {
+		return err
+	}
+	if label != "" {
+		if err := ValidateIdentityName("label", label); err != nil {
+			return err
+		}
+	}
 	return r.withLock(func() error {
 		entries, err := r.readEntries()
 		if err != nil {
@@ -213,6 +230,13 @@ func (r *Revoker) reload() error {
 // blank/comment lines and entries whose optional expiry has already passed.
 // A missing file yields an empty map (not an error) so revocation stays
 // opt-in.
+// maxRevocationLine bounds one line of the revocation file. bufio.Scanner's
+// default is 64 KB, which is not a lot for a line an operator might paste: one
+// longer line made every reload fail, and because Watch only logs, the stale
+// snapshot stayed live while revocations silently stopped taking effect. 1 MiB
+// is far more than any real entry and still bounded.
+const maxRevocationLine = 1 << 20
+
 func (r *Revoker) readEntries() (map[string]int64, error) {
 	f, err := os.Open(r.path)
 	if os.IsNotExist(err) {
@@ -227,6 +251,7 @@ func (r *Revoker) readEntries() (map[string]int64, error) {
 	entries := map[string]int64{}
 
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxRevocationLine)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -235,9 +260,28 @@ func (r *Revoker) readEntries() (map[string]int64, error) {
 		fields := strings.Fields(line)
 		key := fields[0]
 
+		// A key that cannot be written by Revoke can still arrive from a hand
+		// edit or an older file. Skipping it keeps every other revocation in
+		// force, which is the safe direction: refusing the whole file would
+		// un-revoke everybody else.
+		if err := ValidateRevocationKey(key); err != nil {
+			continue
+		}
+
+		// The line is "<key>" or "<key> <expiry>" and nothing else. Parsing
+		// only the first field meant "bad key here" was read as a revocation
+		// of the user "bad", so a malformed line quietly revoked someone.
 		var expiry int64
-		if len(fields) > 1 {
-			expiry, _ = strconv.ParseInt(fields[1], 10, 64)
+		switch len(fields) {
+		case 1:
+		case 2:
+			n, err := strconv.ParseInt(fields[1], 10, 64)
+			if err != nil {
+				continue // not an expiry -- a malformed line, not a key
+			}
+			expiry = n
+		default:
+			continue
 		}
 		if expiry != 0 && expiry < now {
 			continue // expired entry -- prune it
@@ -245,7 +289,7 @@ func (r *Revoker) readEntries() (map[string]int64, error) {
 		entries[key] = expiry
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", r.path, err)
 	}
 	return entries, nil
 }

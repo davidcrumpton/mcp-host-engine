@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -186,27 +185,6 @@ func (r ChecksumReport) Failed() bool {
 	return r.Status == ChecksumStatusMismatch || r.Status == ChecksumStatusMissing
 }
 
-// pluginNamePattern finds the exported `name: "..."` of a compiled plugin
-// without executing it. Several plugins export a name that differs from their
-// file name (date_time.js -> get_datetime, proxmox.js -> proxmox_api), so the
-// file name alone is not enough to key a config block.
-var pluginNamePattern = regexp.MustCompile(`(?:^|[\s,{])name\s*:\s*"([^"\\]{1,120})"`)
-
-// DetectPluginName returns the plugin name exported by the JavaScript file at
-// path, or "" when it cannot be determined statically. It never executes the
-// file: digest output must be safe to produce on a machine that has not yet
-// decided to trust the code.
-func DetectPluginName(path string) string {
-	data, err := readPluginFile(path)
-	if err != nil {
-		return ""
-	}
-	if m := pluginNamePattern.FindSubmatch(data); m != nil {
-		return string(m[1])
-	}
-	return ""
-}
-
 // VerifyConfiguredChecksums checks every enabled plugin's entry file against the
 // checksum declared in config, plus every file covered by the manifest when one
 // is configured. It does not execute plugin code, so it is safe to run as a CI
@@ -218,7 +196,7 @@ func VerifyConfiguredChecksums(cfg config.Config) ([]ChecksumReport, error) {
 	}
 	dir := policy.dir
 
-	files, err := filepath.Glob(filepath.Join(dir, "*.js"))
+	files, err := pluginFilesIn(dir)
 	if err != nil {
 		return nil, fmt.Errorf("scanning plugin directory %q: %w", dir, err)
 	}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -57,6 +59,16 @@ func main() {
 		configPath = flag.Arg(0)
 	}
 
+	// The root check comes before the config is parsed, not after. Parsing
+	// resolves env:// and file:// values and can log in to Vault, so the old
+	// order performed all of that as root before deciding not to run as root.
+	// Reading run_as_root out of the raw bytes is the one thing that has to
+	// happen first; it has no side effects and can only make us refuse.
+	if err := guard.checkRunAsRoot(configPath, !explicitConfig); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		os.Exit(1)
+	}
+
 	cfg, err := guard.load(configPath, !explicitConfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
@@ -66,13 +78,6 @@ func main() {
 	// Check if running as root is allowed in config and log a warning if so
 	if cfg.RunAsRoot {
 		cfg.Logf(1, "WARN: Running as root is enabled in config. Please ensure you understand the security implications.")
-	}
-
-	// Check if running as root but not explicitly allowed
-	if isRoot() && !cfg.RunAsRoot {
-		fmt.Fprintf(os.Stderr, "ERROR: This program is not designed to run as root.\n")
-		fmt.Fprintf(os.Stderr, "If you really want to run as root, add 'run_as_root: true' to your config file.\n")
-		os.Exit(1)
 	}
 
 	cfg.Logf(2, "Using config %s plugin dir=%s, verbosity=%d, transport=%s",
@@ -94,11 +99,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Take the single-instance lock before serving. A second instance used to
+	// overwrite the pid file of a running one, and the first instance then
+	// deleted the second's file on exit; two daemons on one config share a
+	// revocation list and a plugin directory. Inert when pid_file is unset.
+	lock, err := acquirePidLockForConfig(cfg.PidFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.PidFile != "" {
+		cfg.Logf(2, "Locked pid file %s (pid %d)", cfg.PidFile, os.Getpid())
+	}
+
 	switch cfg.Transport {
 	case config.TransportStdio:
-		runStdio(mcpServer, cfg)
+		runStdio(mcpServer, cfg, lock)
 	default:
-		runHTTP(mcpServer, pluginManager, cfg)
+		runHTTP(mcpServer, pluginManager, cfg, lock)
 	}
 }
 
@@ -374,29 +392,61 @@ func verifyPluginChecksums(cfg config.Config) int {
 // parseTokenDuration extends time.ParseDuration with day ("d") and year ("y")
 // suffixes, since token lifetimes are usually given as human spans like
 // "265d" or "1y" rather than raw hours — time.ParseDuration tops out at "h".
+//
+// The result is always positive and finite. It used to accept "-1h", "NaNd" and
+// "1e400d": the last two because ParseFloat returns ±Inf/NaN and the float→
+// Duration conversion then overflows to a negative number. A negative TTL is not
+// a rejected input, it is a wrong answer -- `mcphe token revoke bob -1h` wrote an
+// already-expired entry, which readEntries pruned on the next reload, so the
+// revocation silently vanished and the token kept working.
 func parseTokenDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("duration is empty")
+	}
+
+	var d time.Duration
+	var err error
 	switch {
 	case strings.HasSuffix(s, "d"):
-		days, err := strconv.ParseFloat(strings.TrimSuffix(s, "d"), 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid day duration: %w", err)
-		}
-		return time.Duration(days * 24 * float64(time.Hour)), nil
+		d, err = scaleDuration(s, strings.TrimSuffix(s, "d"), 24*float64(time.Hour))
 	case strings.HasSuffix(s, "y"):
-		years, err := strconv.ParseFloat(strings.TrimSuffix(s, "y"), 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid year duration: %w", err)
-		}
-		return time.Duration(years * 365 * 24 * float64(time.Hour)), nil
+		d, err = scaleDuration(s, strings.TrimSuffix(s, "y"), 365*24*float64(time.Hour))
 	default:
-		return time.ParseDuration(s)
+		d, err = time.ParseDuration(s)
 	}
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("duration must be positive, got %q", s)
+	}
+	return d, nil
+}
+
+// scaleDuration parses a decimal number of unit-length spans into a Duration,
+// rejecting values that are not finite or that overflow a Duration.
+func scaleDuration(whole, number string, unit float64) (time.Duration, error) {
+	n, err := strconv.ParseFloat(strings.TrimSpace(number), 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q: %w", whole, err)
+	}
+	if math.IsNaN(n) || math.IsInf(n, 0) {
+		return 0, fmt.Errorf("invalid duration %q: not a finite number", whole)
+	}
+	ns := n * unit
+	// A float-to-int64 conversion out of range is implementation-defined and
+	// yields a negative Duration here, so bound it explicitly.
+	if ns >= float64(math.MaxInt64) || ns <= float64(math.MinInt64) {
+		return 0, fmt.Errorf("invalid duration %q: out of range", whole)
+	}
+	return time.Duration(ns), nil
 }
 
 // runStdio serves MCP over stdin/stdout. Bearer token and CORS are HTTP-only
 // concerns and are intentionally omitted here. The process exits when the
 // client disconnects (server.Run returns) or when it is signalled.
-func runStdio(mcpServer *mcp.Server, cfg config.Config) {
+func runStdio(mcpServer *mcp.Server, cfg config.Config, lock *pidLock) {
 	cfg.Logf(1, "MCP Host Engine version %s starting on stdio transport", config.Version)
 
 	// Without this a SIGINT/SIGTERM kills the process outright, so the pid file
@@ -406,7 +456,7 @@ func runStdio(mcpServer *mcp.Server, cfg config.Config) {
 	defer stop()
 
 	if err := mcpServer.Run(ctx, &mcp.StdioTransport{}); err != nil {
-		removePidFile(cfg)
+		lock.Release()
 		// A cancelled context is the shutdown we asked for, not a failure.
 		if ctx.Err() != nil {
 			return
@@ -414,12 +464,12 @@ func runStdio(mcpServer *mcp.Server, cfg config.Config) {
 		fmt.Fprintf(os.Stderr, "Stdio server error: %v\n", err)
 		os.Exit(1)
 	}
-	removePidFile(cfg)
+	lock.Release()
 }
 
 // runHTTP serves MCP over HTTP (streamable + SSE). This is the original
 // transport and supports bearer-token auth and CORS middleware.
-func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg config.Config) {
+func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg config.Config, lock *pidLock) {
 	// Warn if the server is exposed on a non-loopback address without a bearer token.
 	if cfg.BearerToken == "" && cfg.TokenSecret == "" && !isLoopback(cfg.Host) {
 		fmt.Fprintf(os.Stderr, "WARNING: neither token_secret nor bearer_token is configured and server is listening on %s — the API is unauthenticated\n", cfg.Host)
@@ -450,7 +500,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 	// Route based on transport type
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Inject request headers into context so plugins can access them via host.server.httpHeaders
-		r = r.WithContext(context.WithValue(r.Context(), "http_headers", r.Header))
+		r = r.WithContext(context.WithValue(r.Context(), transport.HTTPHeadersContextKey, r.Header))
 
 		// Derive session ID for routing decisions (SSE vs StreamableHTTP). A
 		// value that is not a plausible session id is dropped: it is used both
@@ -553,7 +603,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 	} else {
 		fmt.Printf("    on http://%s/rpc\n", addr)
 	}
-	storePidFile(cfg)
+
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -566,7 +616,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 
 	select {
 	case err := <-serveErr:
-		removePidFile(cfg)
+		lock.Release()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
 			os.Exit(1)
@@ -581,7 +631,7 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 			fmt.Fprintf(os.Stderr, "Graceful shutdown failed: %v\n", err)
 			srv.Close()
 		}
-		removePidFile(cfg)
+		lock.Release()
 	}
 }
 
@@ -589,30 +639,40 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 // after SIGTERM/SIGINT before the listener is closed under them.
 const shutdownGracePeriod = 30 * time.Second
 
-func removePidFile(cfg config.Config) {
-	if cfg.PidFile != "" {
-		err := os.Remove(cfg.PidFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error removing pid file: %v\n", err)
+
+// isLoopback reports whether host names a loopback destination.
+//
+// The old version compared against three literals, so the most common way to
+// write "listen locally" -- host: localhost -- was treated as a public
+// interface and produced a spurious "the API is unauthenticated" warning on
+// every start. A name that resolves only to loopback addresses counts too.
+// Anything that does not resolve is *not* loopback: the warning should err
+// towards firing.
+func isLoopback(host string) bool {
+	h := strings.TrimSpace(host)
+	// Accept the bracketed IPv6 form ("[::1]") that a listen address uses.
+	h = strings.TrimSuffix(strings.TrimPrefix(h, "["), "]")
+	if h == "" {
+		return false
+	}
+	if strings.EqualFold(h, "localhost") || strings.HasSuffix(strings.ToLower(h), ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, h)
+	if err != nil || len(addrs) == 0 {
+		return false
+	}
+	for _, a := range addrs {
+		if !a.IP.IsLoopback() {
+			return false
 		}
 	}
-}
-
-func storePidFile(cfg config.Config) {
-	cfg.Logf(4, "Checking pid file %s", cfg.PidFile)
-	pid := cfg.GetProcessPID()
-	if pid != -1 {
-		cfg.Logf(4, "Server process ID: %d\n", pid)
-	}
-	err := cfg.WritePidFile()
-	if err != nil {
-		cfg.Logf(4, "Error writing pid file %s", err)
-	}
-}
-
-// isLoopback reports whether host is a loopback address (127.x.x.x or ::1).
-func isLoopback(host string) bool {
-	return host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.")
+	return true
 }
 
 // isRoot reports whether the current process is running as root.

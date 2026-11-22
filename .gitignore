@@ -20,6 +20,9 @@ plugin-devel/plugins/README for agentic AI to rapidly build
 plugin-devel/node_modules/
 plugin-devel/dist 
 
+# Local development secrets. config.yaml names these by path, so a checked-out
+# tree has no credential in it; see SECURITY_FINDINGS L1.
+secrets/
 # Container deployment: runtime secrets and state, never committed
 deploy/.env
 deploy/state/

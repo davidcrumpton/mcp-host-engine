@@ -11,19 +11,34 @@ type SecretResolver interface {
 	Resolve(ref string) (string, error) // ref = everything after "scheme://"
 }
 
-var resolvers = map[string]SecretResolver{}
+// resolverSet is the set of scheme resolvers in effect for one config load.
+//
+// It is a value carried by the Config, not a package global. The previous
+// version registered the vault client into a process-wide map, which meant a
+// second LoadConfigBytes silently inherited the first one's client (and its
+// credentials) -- harmless while a process loads one config, wrong the moment a
+// reload or a parallel test exists. A per-load set also means two configs can
+// point at two different vault servers.
+type resolverSet map[string]SecretResolver
 
-func RegisterResolver(scheme string, r SecretResolver) {
-	resolvers[scheme] = r
+// builtinResolvers returns the two schemes that never depend on anything else
+// in the config.
+func builtinResolvers() resolverSet {
+	return resolverSet{"env": EnvResolver{}, "file": FileResolver{}}
 }
 
-// registerBuiltinResolvers registers the two schemes that never depend on
-// anything else in the config. Idempotent: assigning the same value twice is
-// harmless, and both LoadConfigBytes and ResolveValue call it so that either
-// entry point works on its own.
-func registerBuiltinResolvers() {
-	RegisterResolver("env", EnvResolver{})
-	RegisterResolver("file", FileResolver{})
+// with returns rs extended with scheme, or rs itself when r is nil. A fresh map
+// is returned so that a caller cannot mutate a set another config is using.
+func (rs resolverSet) with(scheme string, r SecretResolver) resolverSet {
+	if r == nil {
+		return rs
+	}
+	out := make(resolverSet, len(rs)+1)
+	for k, v := range rs {
+		out[k] = v
+	}
+	out[scheme] = r
+	return out
 }
 
 // ResolveValue expands a "scheme://" reference through the registered resolvers
@@ -41,15 +56,14 @@ func registerBuiltinResolvers() {
 // Only env:// and file:// are available here. vault:// needs a vault client,
 // which needs a config, which is the thing being verified.
 func ResolveValue(s string) (string, error) {
-	registerBuiltinResolvers()
-	return resolveString(s)
+	return builtinResolvers().resolveString(s)
 }
 
 // resolveString expands a single string value if it matches a registered scheme.
 // Non-matching strings pass through unchanged — this is critical so normal
 // config values (URLs, plain text) aren't misinterpreted.
-func resolveString(val string) (string, error) {
-	for scheme, r := range resolvers {
+func (rs resolverSet) resolveString(val string) (string, error) {
+	for scheme, r := range rs {
 		prefix := scheme + "://"
 		if strings.HasPrefix(val, prefix) {
 			resolved, err := r.Resolve(strings.TrimPrefix(val, prefix))
@@ -60,6 +74,21 @@ func resolveString(val string) (string, error) {
 		}
 	}
 	return val, nil
+}
+
+// resolveString expands val through this config's resolver set.
+func (c Config) resolveString(val string) (string, error) {
+	return c.resolversFor().resolveString(val)
+}
+
+// resolversFor returns the resolver set to use, falling back to the builtins for
+// a Config that was not produced by LoadConfigBytes (DefaultConfig, a test
+// literal, ...). A zero Config must still resolve env:// the way it always did.
+func (c Config) resolversFor() resolverSet {
+	if c.resolvers == nil {
+		return builtinResolvers()
+	}
+	return c.resolvers
 }
 
 // resolvableFields lists the top-level Config struct fields eligible for
@@ -111,7 +140,7 @@ func (c *Config) resolveTopLevelFields() error {
 			continue // nothing to resolve
 		}
 
-		resolved, err := resolveString(current)
+		resolved, err := c.resolveString(current)
 		if err != nil {
 			return fmt.Errorf("resolving field %q: %w", fieldName, err)
 		}
