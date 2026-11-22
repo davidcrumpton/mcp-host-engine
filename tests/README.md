@@ -21,21 +21,21 @@ it.
 
 ## Coverage
 
-141 recorded cases, each mapped to a test. `case_inventory.py` is the inventory
+162 recorded cases, each mapped to a test. `case_inventory.py` is the inventory
 of record; `test_inventory.py` is the gate that keeps it honest.
 
 | Section | Positive | Negative | Cases |
 |---------|---------:|---------:|------:|
-| 1. Startup & config loading | 5 | 6 | **11** |
-| 2. Tool discovery & registration | 7 | 9 | **16** |
-| 3. Tool invocation & host sandbox | 10 | 16 | **26** |
-| 4. HTTP transport & auth | 8 | 12 | **20** |
+| 1. Startup & config loading | 6 | 8 | **14** |
+| 2. Tool discovery & registration | 7 | 10 | **17** |
+| 3. Tool invocation & host sandbox | 11 | 26 | **37** |
+| 4. HTTP transport & auth | 10 | 14 | **24** |
 | 5. stdio transport | 3 | 3 | **6** |
-| 6. Plugin integrity | 12 | 15 | **27** |
+| 6. Plugin integrity | 12 | 16 | **28** |
 | 7. Config integrity | 9 | 8 | **17** |
-| 8. Token CLI | 6 | 5 | **11** |
+| 8. Token CLI | 7 | 5 | **12** |
 | 9. CLI usage & exit codes | 4 | 3 | **7** |
-| **Total** | **64** | **77** | **141** |
+| **Total** | **69** | **93** | **162** |
 
 ## Layout
 
@@ -133,17 +133,17 @@ Two consequences worth remembering:
 3. Map it: `"MyTests.test_something": "my.case"` in that module's `CASES`.
 4. Run `python3 -m tests` from the repo root.
 
-## Known gaps this suite records
+## Former gaps, now pinned as fixes
 
-Three behaviours are pinned as they *are*, not as they arguably should be. Each
-case says so in its own docstring; when the behaviour is fixed, the case flips
-from asserting the gap to asserting the fix.
+Three behaviours were once pinned as they *were*, not as they should be. The
+fixes landed with the medium-severity review items, and each case now asserts
+the fixed behaviour under the same id (so the history stays readable):
 
-| Case | What it records |
-|------|-----------------|
-| `transport.openapi-no-auth` | `GET /rpc/openapi.json` is answered without a token: `main.go` registers it on the mux next to `/rpc`, outside the bearer-token middleware, so the tool list is readable by anyone who can reach the port. |
-| `transport.preflight-requires-token` | An unauthenticated CORS preflight (`OPTIONS`) is 401: `transport.ValidateToken` wraps `CORSMiddleware`, so the preflight a browser sends — which carries no `Authorization` header by design — never reaches the CORS handler. With auth enabled, a browser client cannot get past preflight. |
-| `sandbox.http-method-convenience` | `allowed_http_methods` is enforced by `host.http.request` only. The convenience helpers (`host.http.get/post/put/patch/delete/head/options`) check the domain list but not the method list, so a plugin restricted to `GET` can still `POST` to an allowed host. |
+| Case | What it asserts now |
+|------|---------------------|
+| `transport.openapi-auth` | `GET /rpc/openapi.json` without a token is 401. It used to be served straight off the mux, outside the bearer-token middleware, so the tool inventory was readable by anyone who could reach the port. |
+| `transport.preflight-allowed` | An unauthenticated `OPTIONS` preflight is answered 200 with the CORS headers. It used to be 401, because `ValidateToken` wrapped `CORSMiddleware` and the preflight a browser sends carries no `Authorization` header by design. |
+| `sandbox.http-method-convenience` | `host.http.post` is refused when only `GET` is in `allowed_http_methods`, and the request is never sent. All eight helpers now share one gate. |
 
 ## Limits worth knowing
 

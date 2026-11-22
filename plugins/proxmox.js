@@ -53,8 +53,11 @@ const plugin = {
   // call() must NOT be async. All host.* calls are synchronous — no await needed.
   call(params) {
     const cfg = host.server.config();
-    const baseUrl = host.process.env("PROXMOX_BASE_URL") || cfg.base_url;
-    const apiToken = host.process.env("PROXMOX_API_TOKEN") || cfg.api_token;
+    // Options live in the plugin's options: block; the flat keys are kept as a
+    // fallback for older configs.
+    const opts = (cfg && cfg.options) || {};
+    const baseUrl = host.process.env("PROXMOX_BASE_URL") || opts.base_url || cfg.base_url;
+    const apiToken = host.process.env("PROXMOX_API_TOKEN") || opts.api_token || cfg.api_token;
     if (!baseUrl || !apiToken) {
       throw new Error("base_url and api_token must be set via env vars or plugin config");
     }

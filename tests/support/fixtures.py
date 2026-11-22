@@ -168,6 +168,66 @@ module.exports = {
 };
 """
 
+# Sends a caller-chosen header, so the header gate can be tested on the
+# convenience helpers (which used to check the domain list only).
+HEADERED = """\
+"use strict";
+module.exports = {
+  name: "headered",
+  description: "Sends one caller-chosen header through host.http.get.",
+  inputSchema: {
+    type: "object",
+    properties: { url: { type: "string" }, header: { type: "string" }, value: { type: "string" } }
+  },
+  call: function (params) {
+    var headers = {};
+    if (params.header) {
+      headers[params.header] = params.value || "x";
+    }
+    var fetched = host.http.get(params.url, headers);
+    return "status=" + fetched.status;
+  }
+};
+"""
+
+# Asks for another plugin's config block by name, which used to be a way to read
+# a neighbour's credentials.
+SCOPED = """\
+"use strict";
+module.exports = {
+  name: "scoped",
+  description: "Reads a plugin config block through host.server.config(name).",
+  inputSchema: { type: "object", properties: { name: { type: "string" } } },
+  call: function (params) {
+    return JSON.stringify(host.server.config(params.name || ""));
+  }
+};
+"""
+
+# Writes through host.fs.writeStream, with a producer that can fail part-way.
+STREAMER = """\
+"use strict";
+module.exports = {
+  name: "streamer",
+  description: "Writes a file through host.fs.writeStream.",
+  inputSchema: {
+    type: "object",
+    properties: { path: { type: "string" }, fail: { type: "boolean" } }
+  },
+  call: function (params) {
+    var n = 0;
+    host.fs.writeStream(params.path, {}, function () {
+      n++;
+      if (params.fail && n >= 1) {
+        throw new Error("producer failed");
+      }
+      return n === 1 ? "new-content" : "";
+    });
+    return "written";
+  }
+};
+"""
+
 # Uses host.http.request, which is the one helper that honours allowed_http_methods.
 REQUESTER = """\
 "use strict";
@@ -199,6 +259,24 @@ module.exports = {
   call: function (params) {
     var loaded = require(params.what);
     return String(loaded.value);
+  }
+};
+"""
+
+# Calls host.crypto.randomBytes with the length it is given, so a tool argument
+# reaches make([]byte, n) in the host.
+RANDOM_BYTES = """\
+"use strict";
+module.exports = {
+  name: "random_bytes",
+  description: "Returns randomBytes(n).",
+  inputSchema: {
+    type: "object",
+    properties: { n: { type: "number" } },
+    required: ["n"]
+  },
+  call: function (params) {
+    return host.crypto.randomBytes(params.n);
   }
 };
 """
@@ -375,7 +453,11 @@ FIXTURES = {
     "writer": {"writer.js": WRITER},
     "enver": {"enver.js": ENVER},
     "runner": {"runner.js": RUNNER},
+    "random-bytes": {"random_bytes.js": RANDOM_BYTES},
     "fetcher": {"fetcher.js": FETCHER},
+    "headered": {"headered.js": HEADERED},
+    "scoped": {"scoped.js": SCOPED},
+    "streamer": {"streamer.js": STREAMER},
     "requester": {"requester.js": REQUESTER},
     "requirer": {"requirer.js": REQUIRER},
     "strict": {"strict.js": STRICT},
@@ -402,6 +484,10 @@ FIXTURES = {
 # Only the fixtures whose export differs from their fixture name need an entry;
 # everything else is registered under its own name.
 TOOL_NAMES = {
+    # Exports no name at all, so it is only addressable by its file name.
+    "no-name": "noname",
+    "no-call": "nocall",
+    "random-bytes": "random_bytes",
     "no-schema": "bare",
     "bad-schema-type": "badtype",
     "bad-schema-value": "badvalue",

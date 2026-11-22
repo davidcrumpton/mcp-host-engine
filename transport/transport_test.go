@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"mcphe/config"
+
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
@@ -45,7 +47,7 @@ func TestCORSMiddleware(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := CORSMiddleware(inner, "*")
+	handler := CORSMiddleware(inner, "*", true)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -245,5 +247,114 @@ func TestHandleRequest_CancelNonExistentID(t *testing.T) {
 
 	if w.Body.Len() != 0 {
 		t.Fatalf("expected empty body, got %q", w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// M9 -- the client-supplied session id is validated before it is used
+// ---------------------------------------------------------------------------
+
+func TestValidSessionID(t *testing.T) {
+	valid := []string{"abc", "A-Z_0-9", strings.Repeat("a", 128)}
+	for _, s := range valid {
+		if !ValidSessionID(s) {
+			t.Errorf("%q should be a valid session id", s)
+		}
+	}
+	invalid := []string{
+		"",
+		strings.Repeat("a", 129),
+		"x\n2026-Nov-22 [WARN] admin - forged",
+		"x\r\ny",
+		"has space",
+		"../../etc/passwd",
+		"a;b",
+		"a%00b",
+	}
+	for _, s := range invalid {
+		if ValidSessionID(s) {
+			t.Errorf("%q should be refused as a session id", s)
+		}
+	}
+}
+
+func TestSessionIDFromRequestDropsAForgedValue(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/rpc?sessionId=x%0a2026-Nov-22%20[WARN]%20admin%20-%20forged", nil)
+	if got := SessionIDFromRequest(req); got != "" {
+		t.Errorf("a session id containing a newline must be dropped, got %q", got)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/rpc?sessionId=abc123", nil)
+	if got := SessionIDFromRequest(req); got != "abc123" {
+		t.Errorf("got %q, want abc123", got)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/rpc", nil)
+	req.Header.Set("Mcp-Session-Id", "from-header")
+	if got := SessionIDFromRequest(req); got != "from-header" {
+		t.Errorf("got %q, want from-header", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// M8 -- CORS outside auth, so the preflight is answered
+// ---------------------------------------------------------------------------
+
+// authChain mirrors what main.go builds: CORS on the outside, token validation
+// inside it.
+func authChain(origin string, allowAny bool) http.Handler {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	validated := ValidateToken("mcphe", "test", inner, "secret", "", nil, config.Config{})
+	return CORSMiddleware(validated, origin, allowAny)
+}
+
+func TestPreflightIsAnsweredWithoutAToken(t *testing.T) {
+	handler := authChain("https://app.example.com", false)
+
+	req := httptest.NewRequest(http.MethodOptions, "/rpc", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("preflight: got %d, want 200 (a preflight carries no Authorization header)", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("Access-Control-Allow-Origin: got %q", got)
+	}
+}
+
+func TestStateChangingRequestFromAnotherOriginIsRefused(t *testing.T) {
+	handler := authChain("https://app.example.com", false)
+
+	req := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader("{}"))
+	req.Header.Set("Origin", "https://evil.example")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a cross-origin POST from an unlisted origin: got %d, want 403", w.Code)
+	}
+}
+
+func TestWildcardOriginNeedsAnExplicitOptIn(t *testing.T) {
+	// Without the opt-in the header is simply not set, whatever the caller asks
+	// for; main.go refuses to start on this combination at all.
+	handler := CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "*", false)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("cors_origin * without cors_allow_any should not be honoured, got %q", got)
+	}
+
+	handler = CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "*", true)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("with the opt-in the wildcard should be sent, got %q", got)
 	}
 }

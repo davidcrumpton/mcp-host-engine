@@ -418,6 +418,10 @@ class Server:
         """Wait for the process to exit and return its status."""
         return self._process.wait(timeout=timeout)
 
+    def signal(self, sig):
+        """Send a signal to the running server (for shutdown cases)."""
+        self._process.send_signal(sig)
+
 
 def run_server(config, *args, **kwargs):
     """Run the binary against ``config`` and wait for it to exit.

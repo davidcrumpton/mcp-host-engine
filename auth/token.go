@@ -58,7 +58,6 @@ func Create(progname, version, username, label string, ttl time.Duration, secret
 	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
-
 // Validate verifies token's signature and expiry, and -- when revoked is
 // non-nil -- checks it against the revocation list. revoked may be nil for
 // callers that don't need revocation support (e.g. tests).
@@ -73,31 +72,33 @@ func Validate(progname, version, token, secret string, revoked Revoked) (*Identi
 	}
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("malformed token %s", token)
+		// The token itself is a credential: never put it in an error string,
+		// because the caller logs those.
+		return nil, fmt.Errorf("malformed token")
 	}
 
-	// NOTE: these two error messages previously logged the *decoded*
-	// payload/sig variables, which are empty/nil on a decode failure.
-	// Logging the raw input (parts[0]/parts[1]) instead so the error is
-	// actually useful for debugging a bad token.
+	// NOTE: these errors deliberately do not quote the input. Both halves of a
+	// token are credential material, and every error from here is logged by
+	// transport.ValidateToken, so a "useful for debugging" message was also a
+	// token-disclosure message. The position is named instead.
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return nil, fmt.Errorf("invalid payload base64 %s", parts[0])
+		return nil, fmt.Errorf("token payload is not valid base64url")
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid signature base64 %s", parts[1])
+		return nil, fmt.Errorf("token signature is not valid base64url")
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	if !hmac.Equal(mac.Sum(nil), sig) {
-		return nil, fmt.Errorf("invalid signature %s", parts[1])
+		return nil, fmt.Errorf("invalid token signature")
 	}
 
 	var id Identity
 	if err := json.Unmarshal(payload, &id); err != nil {
-		return nil, fmt.Errorf("malformed payload %s", payload)
+		return nil, fmt.Errorf("malformed token payload")
 	}
 
 	// Previously the progname argument was checked against the literal

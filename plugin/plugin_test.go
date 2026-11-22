@@ -11,9 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/dop251/goja"
+
 	"mcphe/config"
+	"mcphe/transport"
 )
 
 // ---------------------------------------------------------------------------
@@ -1116,5 +1120,211 @@ module.exports = {
 	}
 	if res != 9.0 {
 		t.Errorf("two: expected 9, got %v", res)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// H2: one VM, one call at a time
+// ---------------------------------------------------------------------------
+
+// The MCP SDK handles every tools/call in its own goroutine, so a client that
+// pipelines two calls -- or two clients at once -- runs CallTool twice against
+// one goja runtime. The plugin below notices the symptom that matters: CallTool
+// re-Set()s `host` per call, so an overlapping call swaps the host object out
+// from under the JS that is already running.
+func TestCallTool_ConcurrentCallsDoNotShareTheHostObject(t *testing.T) {
+	dir := t.TempDir()
+	js := `
+module.exports = {
+  name: "sessions",
+  description: "reports the session it was called in",
+  call: function(args) {
+    var before = host.sessionID;
+    host.sleep(20);
+    if (host.sessionID !== before) {
+      throw new Error("host object replaced mid-call: " + before + " -> " + host.sessionID);
+    }
+    return before;
+  }
+};
+`
+	writePlugin(t, dir, "sessions", js)
+	cfg := allEnabled("sessions")
+	cfg.PluginDir = dir
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("LoadPlugins: %v", err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	results := make([]interface{}, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			want := fmt.Sprintf("session-%d", i)
+			ctx := context.WithValue(context.Background(), transport.SessionIDContextKey, want)
+			results[i], errs[i] = pm.CallTool(ctx, "sessions", json.RawMessage(`{}`), cfg)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		want := fmt.Sprintf("session-%d", i)
+		if errs[i] != nil {
+			t.Errorf("call %d: %v", i, errs[i])
+			continue
+		}
+		if results[i] != want {
+			t.Errorf("call %d: got %v, want %q", i, results[i], want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// H5: a Go panic inside a host function is a tool error, not a dead daemon
+// ---------------------------------------------------------------------------
+
+func TestCallTool_GoPanicIsContainedAndPoisonsThePlugin(t *testing.T) {
+	calls := 0
+	p := &Plugin{
+		Name: "panicky",
+		VM:   goja.New(),
+		Call: func(goja.Value, ...goja.Value) (goja.Value, error) {
+			calls++
+			panic("boom from a host function")
+		},
+	}
+	pm := &PluginManager{plugins: []*Plugin{p}, byName: map[string]*Plugin{"panicky": p}}
+	cfg := config.Config{}
+
+	res, err := pm.CallTool(context.Background(), "panicky", json.RawMessage(`{}`), cfg)
+	if err == nil {
+		t.Fatal("expected the panic to surface as an error")
+	}
+	if res != nil {
+		t.Errorf("expected no result alongside the error, got %v", res)
+	}
+	if !strings.Contains(err.Error(), "panicked") {
+		t.Errorf("error should say the plugin panicked, got: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("call function ran %d times, want 1", calls)
+	}
+
+	// The runtime was unwound mid-execution, so it must not be reused.
+	_, err2 := pm.CallTool(context.Background(), "panicky", json.RawMessage(`{}`), cfg)
+	if err2 == nil {
+		t.Fatal("expected the poisoned plugin to keep failing")
+	}
+	if calls != 1 {
+		t.Errorf("a poisoned plugin must not be executed again (ran %d times)", calls)
+	}
+	if err2.Error() != err.Error() {
+		t.Errorf("second call error: got %q, want the original %q", err2, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// H3: nothing is executed before it is configured and verified
+// ---------------------------------------------------------------------------
+
+func TestLoadPlugins_DoesNotExecuteUnconfiguredFiles(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "good", minimalJS("good"))
+	// Nobody configured this one. If its body runs, startup fails with its own
+	// message and this test can tell.
+	writePlugin(t, dir, "stray", `
+throw new Error("MODULE BODY RAN");
+module.exports = { name: "stray", call: function(){ return "x"; } };
+`)
+	cfg := allEnabled("good")
+	cfg.PluginDir = dir
+
+	pm, err := LoadPlugins(cfg)
+	if err != nil {
+		t.Fatalf("an unconfigured plugin file must not affect startup: %v", err)
+	}
+	if len(pm.plugins) != 1 || pm.plugins[0].Name != "good" {
+		t.Errorf("expected only the configured plugin, got %d", len(pm.plugins))
+	}
+}
+
+func TestLoadPlugins_ChecksumIsCheckedBeforeTheModuleRuns(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "tampered", `
+throw new Error("MODULE BODY RAN");
+module.exports = { name: "tampered", call: function(){ return "x"; } };
+`)
+	cfg := pluginsMap(map[string]map[string]interface{}{
+		"tampered": {"checksum": "sha256:" + strings.Repeat("00", 32)},
+	})
+	cfg.PluginDir = dir
+
+	_, err := LoadPlugins(cfg)
+	if err == nil {
+		t.Fatal("expected the checksum mismatch to stop startup")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("expected a checksum mismatch, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "MODULE BODY RAN") {
+		t.Fatalf("the module body ran before its checksum was checked: %v", err)
+	}
+}
+
+func TestLoadPlugins_RejectsAFileThatExportsAnotherName(t *testing.T) {
+	dir := t.TempDir()
+	// The config asks for "wanted"; the file of that name exports "other".
+	writePlugin(t, dir, "wanted", minimalJS("other"))
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins:   map[string]map[string]interface{}{"wanted": {}},
+	}
+
+	_, err := LoadPlugins(cfg)
+	if err == nil {
+		t.Fatal("expected an error when the file does not export the configured name")
+	}
+	if !strings.Contains(err.Error(), `exports name "other"`) {
+		t.Errorf("error should name both, got: %v", err)
+	}
+}
+
+func TestLoadPlugins_UnknownSourceIsReported(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "real", minimalJS("real"))
+	cfg := config.Config{
+		PluginDir: dir,
+		Plugins:   map[string]map[string]interface{}{"ghost": {"plugin": "nowhere"}},
+	}
+
+	_, err := LoadPlugins(cfg)
+	if err == nil {
+		t.Fatal("expected an error for a source that does not exist")
+	}
+	if !strings.Contains(err.Error(), "nowhere") {
+		t.Errorf("error should name the missing source, got: %v", err)
+	}
+}
+
+// M3: tool arguments are LLM-produced and routinely carry passwords, tokens and
+// PII. The level-2 log line printed them verbatim; it now prints the field names
+// only, which is what this pins.
+func TestArgumentNames(t *testing.T) {
+	got := argumentNames(json.RawMessage(`{"password":"hunter2","url":"https://x","api_key":"k"}`))
+	if got != "api_key,password,url" {
+		t.Errorf("argumentNames = %q, want the sorted field names only", got)
+	}
+	if strings.Contains(got, "hunter2") || strings.Contains(got, "https://x") {
+		t.Errorf("argumentNames leaked a value: %q", got)
+	}
+	if argumentNames(nil) != "none" {
+		t.Errorf("empty arguments: got %q, want \"none\"", argumentNames(nil))
+	}
+	if argumentNames(json.RawMessage(`not json`)) != "<unparsable>" {
+		t.Errorf("unparsable arguments should be reported as such")
 	}
 }

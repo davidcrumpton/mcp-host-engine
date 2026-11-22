@@ -13,6 +13,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,11 +135,35 @@ func VerifyData(path string, data []byte, want Checksum) error {
 // VerifyFile reads path and returns a descriptive error when its content does
 // not match want.
 func VerifyFile(path string, want Checksum) error {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path, maxIntegrityFileBytes)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 	return VerifyData(path, data, want)
+}
+
+// maxIntegrityFileBytes bounds a file this package reads to hash or parse. These
+// paths are named by config (a manifest) or by the operator (digest arguments),
+// and a FIFO or /dev/zero there would otherwise be an unbounded allocation.
+const maxIntegrityFileBytes = 8 << 20 // 8 MiB
+
+// readLimited reads path, refusing anything larger than limit. The cap is
+// applied while reading so a non-regular file cannot grow past it.
+func readLimited(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s exceeds the %d byte limit", path, limit)
+	}
+	return data, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +187,7 @@ type Manifest struct {
 
 // LoadManifest reads and parses a checksum manifest.
 func LoadManifest(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path, maxIntegrityFileBytes)
 	if err != nil {
 		return nil, fmt.Errorf("reading checksum manifest: %w", err)
 	}

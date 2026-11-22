@@ -8,6 +8,7 @@ that is what a script wrapping the CLI sees.
 
 import base64
 import json
+import threading
 import time
 import unittest
 
@@ -166,7 +167,41 @@ class TokenUsageTests(unittest.TestCase):
         self.assertIn("token revoke", completed.stderr)
 
 
+class ConcurrentRevokeTests(TokenCase):
+    """Simultaneous revocations are serialised, so none is silently dropped."""
+
+    def test_concurrent_revokes_all_survive(self):
+        """Every entry is in the file after N revokes started at the same time.
+
+        The file is read, mutated and rewritten; without a lock the last writer
+        wins and the others vanish. A fixed temp name made it worse: two writers
+        shared one scratch file, so a half-written list could be renamed into
+        place.
+        """
+        keys = [f"user{i}" for i in range(6)]
+        barrier = threading.Barrier(len(keys))
+        results = {}
+
+        def revoke(key):
+            barrier.wait()
+            results[key] = self.token("revoke", key)
+
+        threads = [threading.Thread(target=revoke, args=(key,)) for key in keys]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        for key, completed in results.items():
+            self.assertEqual(completed.returncode, 0, harness.output_of(completed))
+
+        entries = self.revocation_file.read_text().split()
+        for key in keys:
+            self.assertIn(key, entries, f"{key} was lost: {entries}")
+
+
 CASES = {
+    "ConcurrentRevokeTests.test_concurrent_revokes_all_survive": "token.revoke-concurrent",
     "TokenCreateTests.test_create_prints_a_token": "token.create",
     "TokenDaysTests.test_duration_in_days": "token.days",
     "TokenLabelTests.test_labelled_token_authenticates": "token.label",

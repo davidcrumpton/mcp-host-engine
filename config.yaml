@@ -88,7 +88,11 @@ plugins:
     allowed_domains: ["pve02.crumpton.org"]
     # vault_test: "vault://cubbyhole/mcphe#BIGG"
     invocation_user: "env://USER"
-    config: "file:///Users/bear/Workspace/mcp/mcphe/config.yaml"
+    # Credentials belong in the environment (see allowed_env_vars above) or in
+    # an options: block. Pointing config: at this file would hand the plugin
+    # token_secret and every other plugin's keys, so the daemon refuses it.
+    options:
+      base_url: "https://pve02.crumpton.org:8006"
   mcwsd:
     allowed_domains: ["docker-vm.crumpton.org"]
     allowed_env_vars: ["MCWSD_BASE_URL", "MCWSD_TOKEN"]

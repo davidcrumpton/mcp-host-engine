@@ -107,3 +107,22 @@ func TestFileResolver_PermissionsErrorFails(t *testing.T) {
 		t.Fatal("expected error for file with restricted permissions")
 	}
 }
+
+// M2: file:// is resolved from a config value, so "file:///dev/zero" must not
+// hang startup with an unbounded allocation.
+func TestFileResolver_RejectsAFileOverTheLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxResolvedFileBytes + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	if _, err := (FileResolver{}).Resolve(path); err == nil {
+		t.Fatalf("a file over %d bytes should be refused", maxResolvedFileBytes)
+	}
+}

@@ -7,6 +7,7 @@ not a mocked return value.
 """
 
 import json
+import signal
 import unittest
 
 from tests.support import harness, mcp_client
@@ -23,6 +24,36 @@ class StartupTests(ServerCase):
         self.assertIn("protocolVersion", self.session.server_info)
         self.assertEqual(self.tool_names(), ["ping"])
         self.assertEqual(self.text_of("ping"), "pong")
+
+
+class GracefulShutdownTests(ServerCase):
+    """SIGTERM shuts the server down through its own cleanup path."""
+
+    plugins = ("ping",)
+
+    def prepare(self):
+        self.pid_file = self.dir / "mcphe.pid"
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["pid_file"] = str(self.pid_file)
+        return fields
+
+    def test_sigterm_exits_cleanly_and_removes_the_pid_file(self):
+        """The process exits 0 and the pid file is gone.
+
+        A bare ListenAndServe leaves SIGTERM to the default handler: the process
+        dies where it stands, removePidFile never runs, and in-flight tool calls
+        are severed mid-write.
+        """
+        self.start()
+        self.assertTrue(self.pid_file.exists(), "the server should have written a pid file")
+
+        self.server.signal(signal.SIGTERM)
+        status = self.server.wait(timeout=20)
+
+        self.assertEqual(status, 0, f"expected a clean exit, got {status}")
+        self.assertFalse(self.pid_file.exists(), "the pid file outlived the process")
 
 
 class PidFileStartupTests(ServerCase):
@@ -313,6 +344,7 @@ class PluginConfigTests(ServerCase):
 
 
 CASES = {
+    "GracefulShutdownTests.test_sigterm_exits_cleanly_and_removes_the_pid_file": "startup.graceful-shutdown",
     "StartupTests.test_valid_config_serves": "startup.serves",
     "PidFileStartupTests.test_pid_file_is_written": "startup.pid-file",
     "EnvResolutionTests.test_token_secret_is_read_from_the_environment": "startup.env-resolution",

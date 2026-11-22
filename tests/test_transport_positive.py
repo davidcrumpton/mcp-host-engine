@@ -137,6 +137,38 @@ class CorsOriginTests(ServerCase):
         )
 
 
+class PreflightTests(ServerCase):
+    """A browser's preflight is answered, because CORS wraps the auth middleware."""
+
+    plugins = ("ping",)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["token_secret"] = "suite-token-secret-0123456789"
+        fields["cors_origin"] = "https://app.example.com"
+        return fields
+
+    def test_preflight_needs_no_token(self):
+        """OPTIONS without an Authorization header is 200 with the CORS headers.
+
+        A preflight never carries credentials -- the browser does not send them
+        cross-origin -- so when auth wrapped CORS every browser client was
+        stopped before it could ask permission.
+        """
+        session = mcp_client.HttpSession(self.server.base_url)
+        response = session.options(
+            headers={
+                "Origin": "https://app.example.com",
+                "Access-Control-Request-Method": "POST",
+            }
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            response.header("Access-Control-Allow-Origin"), "https://app.example.com"
+        )
+        self.assertIn("POST", response.header("Access-Control-Allow-Methods") or "")
+
+
 class CorsDisabledTests(ServerCase):
     plugins = ("ping",)
 
@@ -207,6 +239,7 @@ CASES = {
     "OpenAuthTests.test_no_token_configured_means_no_token_required": "auth.open",
     "CorsOriginTests.test_configured_origin_is_returned": "cors.origin",
     "CorsDisabledTests.test_empty_cors_origin_omits_the_header": "cors.disabled",
+    "PreflightTests.test_preflight_needs_no_token": "transport.preflight-allowed",
     "StdioCallTests.test_tools_over_stdio": "stdio.call",
     "StdioNoAuthTests.test_stdio_does_not_authenticate": "stdio.no-auth",
     "StdioStreamTests.test_protocol_on_stdout_logs_on_stderr": "stdio.stdout-protocol",

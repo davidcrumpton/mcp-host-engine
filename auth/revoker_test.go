@@ -1,9 +1,12 @@
 package auth
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 // token_revocation_file is optional: NewRevoker documents a missing file as an
@@ -54,4 +57,81 @@ func TestUnrevokeIdentityPersistsAndCleansUpTemp(t *testing.T) {
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Errorf("temp file %s.tmp was left behind", path)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// M7 -- the revocation file survives concurrent writers, and Watch is safe
+// ---------------------------------------------------------------------------
+
+// Two `mcphe token revoke` processes at once used to lose an update: both read
+// the old list, and the second rename silently dropped the first one's entry.
+func TestConcurrentRevokesDoNotLoseEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "revocations.txt")
+
+	const writers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		key := fmt.Sprintf("user%d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := NewRevoker(path)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if err := r.Revoke(key, 0); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent Revoke: %v", err)
+	}
+
+	r, err := NewRevoker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < writers; i++ {
+		key := fmt.Sprintf("user%d", i)
+		if !r.IsRevoked(Identity{Username: key}) {
+			t.Errorf("%s was lost: the read-modify-write cycles were not serialised", key)
+		}
+	}
+	if _, err := os.Stat(path + ".lock"); !os.IsNotExist(err) {
+		t.Errorf("lock file %s.lock was left behind", path)
+	}
+}
+
+// The stop function used to be func(){ close(done) }, which panics the second
+// time it is called -- a trap for any shutdown path with more than one caller.
+func TestWatchStopIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "revocations.txt")
+	r, err := NewRevoker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stop := r.Watch(10*time.Millisecond, nil)
+	stop()
+	stop() // must not panic
+}
+
+// time.NewTicker panics for a non-positive interval, and Watch takes the
+// interval from its caller.
+func TestWatchWithNonPositiveIntervalDoesNotPanic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "revocations.txt")
+	r, err := NewRevoker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stop := r.Watch(0, nil)
+	stop()
+	stop = r.Watch(-time.Second, nil)
+	stop()
 }

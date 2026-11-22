@@ -10,6 +10,7 @@ import (
 
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/dop251/goja"
 
@@ -38,6 +39,30 @@ type Plugin struct {
 	File        string
 	Meta        interface{}
 	Annotations *PluginAnnotations
+
+	// SourceName is the name the module exports, which is what a config entry's
+	// "plugin:" alias refers to. It is Name unless this plugin is an aliased
+	// instance of another entry.
+	SourceName string
+
+	// mu serialises access to VM.
+	//
+	// goja.Runtime is documented as not safe for concurrent use, and the MCP
+	// SDK handles every tools/call in its own goroutine (jsonrpc2.Async), so
+	// two requests for the same tool really do overlap -- an agent batching
+	// independent calls is enough. Without the lock they run in one VM at once:
+	// "concurrent map writes" kills the process, and even when it survives,
+	// CallTool re-Set()s host and require per call, so one request can swap the
+	// host object out from under another.
+	//
+	// Host functions are synchronous, so serialising per plugin costs no I/O
+	// parallelism that this design had anyway.
+	mu sync.Mutex
+
+	// poisoned is set when the VM panicked mid-execution. A goja runtime that
+	// has been unwound by a Go panic is not safe to reuse, so the instance is
+	// disabled rather than risking corrupted state on the next call.
+	poisoned error
 }
 
 type PluginManager struct {
@@ -83,57 +108,73 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 		return nil, fmt.Errorf("no JavaScript plugins found in %q", dir)
 	}
 
-	// Phase 1: discover the exported name of every plugin file. The exported
-	// name is the "source" that config entries refer to via their optional
-	// "plugin:" alias. Duplicate exported names would silently collide in
-	// byName, so reject them up front.
-	type discoveredPlugin struct {
-		name   string
-		path   string
-		plugin *Plugin
+	// A checksum manifest describes the whole directory, so with one configured
+	// the directory itself is under the operator's control: every .js in it must
+	// be listed and must match, configured or not. This is checked here -- before
+	// anything is executed and before the name index is built -- so a dropped-in
+	// file can neither run nor influence which file a config entry resolves to.
+	if policy.manifest != nil {
+		for _, path := range files {
+			content, readErr := readPluginFile(path)
+			if readErr != nil {
+				return nil, fmt.Errorf("reading plugin %q: %w", path, readErr)
+			}
+			if verifyErr := policy.manifest.Verify(dir, path, content); verifyErr != nil {
+				return nil, fmt.Errorf("plugin %q: %w", path, verifyErr)
+			}
+		}
 	}
-	discovered := make([]*discoveredPlugin, 0, len(files))
-	bySource := make(map[string]*discoveredPlugin, len(files))
+
+	// Index the directory by the name each file exports, read statically.
+	//
+	// Discovering a name by running the file (which is what this used to do)
+	// meant executing every .js in the directory at startup, including files the
+	// config never mentioned and files whose checksum was only checked
+	// afterwards. The invariant is now: no bytes reach the JavaScript runtime
+	// until they have been verified and their plugin has been configured.
+	//
+	// DetectPluginName reads the file as text, so a file whose name it cannot
+	// find is still addressable -- under its file name -- and is only executed
+	// if a config entry (or the legacy tools map) asks for it.
+	bySource := make(map[string]string, len(files))
 	for _, path := range files {
-		cfg.Logf(2, "Loading plugin %s", path)
-		plugin, err := loadPlugin(path, cfg, policy)
-		if err != nil {
-			return nil, fmt.Errorf("loading plugin %q: %w", path, err)
+		name := DetectPluginName(path)
+		if name == "" {
+			name = strings.TrimSuffix(filepath.Base(path), ".js")
 		}
-		if prev, ok := bySource[plugin.Name]; ok {
-			return nil, fmt.Errorf("duplicate plugin name %q exported by %q and %q", plugin.Name, prev.path, path)
+		if prev, dup := bySource[name]; dup {
+			return nil, fmt.Errorf("duplicate plugin name %q exported by %q and %q", name, prev, path)
 		}
-		d := &discoveredPlugin{name: plugin.Name, path: path, plugin: plugin}
-		discovered = append(discovered, d)
-		bySource[plugin.Name] = d
+		bySource[name] = path
 	}
 
 	plugins := make([]*Plugin, 0, len(files))
 	byName := make(map[string]*Plugin, len(files))
 
-	// addInstance registers source plugin code under instanceName. When the
-	// instance name matches the exported name and this is the only user of the
-	// source, the discovery-time load is reused; aliased instances get a fresh
-	// VM so their state is independent.
+	// addInstance loads source plugin code as instanceName. Every instance gets
+	// its own VM, so state is never shared between two tools -- including two
+	// tools backed by the same file.
 	addInstance := func(instanceName, source string) error {
-		d, ok := bySource[source]
+		path, ok := bySource[source]
 		if !ok {
-			return fmt.Errorf("plugin %q: source module %q not found", instanceName, source)
+			// A config entry may name the file instead of the name it exports
+			// (useful when the export is not statically detectable). Only a
+			// bare file name is considered, never a path.
+			candidate := filepath.Join(dir, source+".js")
+			if filepath.Base(source) != source || !fileExists(candidate) {
+				return fmt.Errorf("plugin %q: source module %q not found in %s", instanceName, source, dir)
+			}
+			path = candidate
 		}
 		// Only plugins that are actually being loaded are subject to
 		// require_plugin_checksums; a disabled entry never reaches here.
 		if err := policy.requireDeclared(instanceName); err != nil {
 			return err
 		}
-		if instanceName == d.name {
-			plugins = append(plugins, d.plugin)
-			byName[instanceName] = d.plugin
-			return nil
-		}
-		cfg.Logf(2, "Instantiating plugin %s as %s", source, instanceName)
-		p, err := loadPluginAs(d.path, cfg, instanceName, policy)
+		cfg.Logf(2, "Loading plugin %s as %s", path, instanceName)
+		p, err := loadPluginAs(path, cfg, instanceName, source, policy)
 		if err != nil {
-			return fmt.Errorf("loading plugin %q as %q: %w", d.path, instanceName, err)
+			return fmt.Errorf("loading plugin %q as %q: %w", path, instanceName, err)
 		}
 		plugins = append(plugins, p)
 		byName[instanceName] = p
@@ -142,8 +183,14 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 
 	// Phase 2a: every entry in the plugins map is an instance (or a disabled
 	// entry). The map key is the tool name; "plugin:" selects the source.
+	// Sorted so that a config with two bad entries always reports the same one.
 	configuredSources := make(map[string]bool, len(cfg.Plugins))
+	instanceNames := make([]string, 0, len(cfg.Plugins))
 	for instanceName := range cfg.Plugins {
+		instanceNames = append(instanceNames, instanceName)
+	}
+	sort.Strings(instanceNames)
+	for _, instanceName := range instanceNames {
 		source := cfg.PluginSource(instanceName)
 		configuredSources[source] = true
 		if !cfg.IsToolEnabled(instanceName) {
@@ -157,15 +204,20 @@ func LoadPlugins(cfg config.Config) (*PluginManager, error) {
 
 	// Phase 2b: keep legacy auto-registration for plugins that have no entry
 	// in the plugins map (e.g. enabled via the old top-level tools map).
-	for _, d := range discovered {
-		if configuredSources[d.name] {
+	sourceNames := make([]string, 0, len(bySource))
+	for name := range bySource {
+		sourceNames = append(sourceNames, name)
+	}
+	sort.Strings(sourceNames)
+	for _, name := range sourceNames {
+		if configuredSources[name] {
 			continue
 		}
-		if !cfg.IsToolEnabled(d.name) {
-			cfg.Logf(2, "Plugin %s disabled by config", d.name)
+		if !cfg.IsToolEnabled(name) {
+			cfg.Logf(2, "Plugin %s disabled by config", name)
 			continue
 		}
-		if err := addInstance(d.name, d.name); err != nil {
+		if err := addInstance(name, name); err != nil {
 			return nil, err
 		}
 	}
@@ -349,7 +401,7 @@ func makeModuleLoader(vm *goja.Runtime, pluginDir string, cfg config.Config, man
 				return goja.Undefined()
 			}
 
-			content, err := os.ReadFile(resolved)
+			content, err := readPluginFile(resolved)
 			if err != nil {
 				lastErr = fmt.Errorf("cannot read %s: %w", modulePath, err)
 				continue
@@ -420,41 +472,31 @@ func makeRequire(vm *goja.Runtime, pluginDir string, cfg config.Config, manifest
 	}
 }
 
-// loadPlugin loads a plugin using its exported name as the tool name.
-func loadPlugin(path string, cfg config.Config, policy *checksumPolicy) (*Plugin, error) {
-	return loadPluginAs(path, cfg, "", policy)
+// fileExists reports whether path names an existing regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // loadPluginAs loads the JavaScript at path and registers it under instanceName.
-// When instanceName is empty the plugin's exported name is used. Supplying an
-// instance name is what allows the same plugin file to be loaded multiple
-// times under different tool names with independent configuration.
-func loadPluginAs(path string, cfg config.Config, instanceName string, policy *checksumPolicy) (*Plugin, error) {
-	content, err := os.ReadFile(path)
+// Supplying an instance name is what allows the same plugin file to be loaded
+// multiple times under different tool names with independent configuration;
+// sourceName is the name the file is expected to export, which is what a
+// "plugin:" alias refers to.
+//
+// The checksum is verified against the exact bytes about to be executed, before
+// they reach the JavaScript runtime, so nothing runs unverified.
+func loadPluginAs(path string, cfg config.Config, instanceName, sourceName string, policy *checksumPolicy) (*Plugin, error) {
+	content, err := readPluginFile(path)
 	if err != nil {
 		cfg.Logf(1, "Failed to read plugin file %s: %v", path, err)
 		return nil, err
 	}
 
-	// verifyChecksum enforces the integrity policy for the bytes just read.
-	verifyChecksum := func(name string) error {
-		if err := policy.verifyEntry(name, path, content); err != nil {
-			cfg.Logf(1, "Plugin %s (%s) failed checksum verification: %v", name, path, err)
-			return fmt.Errorf("plugin %q (%s): %w", name, path, err)
-		}
-		return nil
-	}
-
-	// When the instance name is known, the checksum can be enforced on the exact
-	// bytes about to be executed, before they reach the JavaScript runtime.
-	// Discovery loads (instanceName == "") do not know which config entry -- and
-	// so which checksum -- applies until the script has run and exported its
-	// name; they are verified below, still before LoadPlugins returns, so a
-	// mismatch aborts startup either way.
-	if instanceName != "" {
-		if err := verifyChecksum(instanceName); err != nil {
-			return nil, err
-		}
+	// Enforce the integrity policy on the bytes just read.
+	if err := policy.verifyEntry(instanceName, path, content); err != nil {
+		cfg.Logf(1, "Plugin %s (%s) failed checksum verification: %v", instanceName, path, err)
+		return nil, fmt.Errorf("plugin %q (%s): %w", instanceName, path, err)
 	}
 
 	vm := goja.New()
@@ -462,19 +504,11 @@ func loadPluginAs(path string, cfg config.Config, instanceName string, policy *c
 	// Inject the host API into the VM *before* running the plugin script so
 	// that plugins which call host functions at module-load time (outside of
 	// the call() function) see a properly initialised host object rather than
-	// undefined.
-	//
-	// For unnamed (discovery) loads we use a temporary plugin name derived from
-	// the file path; the real name is extracted from the plugin's exports below
-	// and the host object is refreshed again on every CallTool invocation with
-	// the correct context. Instance loads use the instance name from the start
-	// so that per-instance config is visible at module-load time.
-	tempName := instanceName
-	if tempName == "" {
-		tempName = filepath.Base(path)
-	}
-	tempHost := host.MakeHostObject(cfg, context.Background(), tempName)
-	if err := vm.Set("host", tempHost); err != nil {
+	// undefined. The instance name is used from the start, so per-instance
+	// config is visible at module-load time and there is no window in which the
+	// module body runs against another entry's policy. CallTool re-Sets it per
+	// call, with that call's context.
+	if err := vm.Set("host", host.MakeHostObject(cfg, context.Background(), instanceName)); err != nil {
 		cfg.Logf(1, "Failed to set initial host API for plugin %s: %v", path, err)
 		return nil, err
 	}
@@ -508,21 +542,13 @@ func loadPluginAs(path string, cfg config.Config, instanceName string, policy *c
 		return nil, fmt.Errorf("plugin %q missing name", path)
 	}
 
-	// Now that we know the real plugin name (or have an explicit instance
-	// name), refresh the host object so that plugin-specific config (allowed
-	// paths, domains, etc.) is applied correctly.
-	if instanceName == "" {
-		instanceName = name
-		// Discovery load: verify now that the exported name identifies the
-		// config entry whose checksum applies.
-		if err := verifyChecksum(instanceName); err != nil {
-			return nil, err
-		}
-	}
-	realHost := host.MakeHostObject(cfg, context.Background(), instanceName)
-	if err := vm.Set("host", realHost); err != nil {
-		cfg.Logf(1, "Failed to set host API for plugin %s: %v", path, err)
-		return nil, err
+	// The file has to be the one the config asked for: an instance alias is
+	// resolved through the exported name, and a stale index entry (a name found
+	// in the wrong place, or a file replaced between indexing and loading) must
+	// not silently register one plugin's code under another plugin's policy.
+	if name != sourceName {
+		cfg.Logf(1, "Plugin %q exports name %q, expected %q", path, name, sourceName)
+		return nil, fmt.Errorf("plugin %q exports name %q but was loaded as %q", path, name, sourceName)
 	}
 
 	callVal := obj.Get("call")
@@ -544,6 +570,7 @@ func loadPluginAs(path string, cfg config.Config, instanceName string, policy *c
 
 	return &Plugin{
 		Name:        instanceName,
+		SourceName:  name,
 		Description: valueToString(obj.Get("description")),
 		Version:     valueToString(obj.Get("version")),
 		Meta:        safeExport(obj.Get("_meta")),
@@ -598,8 +625,32 @@ func (pm *PluginManager) ListTools(cfg config.Config) []map[string]interface{} {
 	return tools
 }
 
-func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json.RawMessage, cfg config.Config) (interface{}, error) {
-	cfg.Logf(2, "Calling tool %s with raw args %s", name, string(rawArgs))
+// argumentNames lists the top-level field names of a tools/call argument
+// object, for logging.
+//
+// The values are deliberately not logged. Tool arguments are produced by an LLM
+// from prompt-influenced content and routinely carry passwords, API tokens and
+// PII, and the old log line printed them verbatim at level 2 -- which the
+// shipped config.yaml enables. Names are enough to see what a call looked like;
+// anyone who needs a value can turn on the plugin's own logging.
+func argumentNames(rawArgs json.RawMessage) string {
+	if len(rawArgs) == 0 {
+		return "none"
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(rawArgs, &fields); err != nil {
+		return "<unparsable>"
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
+}
+
+func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json.RawMessage, cfg config.Config) (result interface{}, err error) {
+	cfg.Logf(2, "Calling tool %s with arguments [%s]", name, argumentNames(rawArgs))
 	plugin, ok := pm.byName[name]
 	if !ok {
 		cfg.Logf(1, "Tool %s not found", name)
@@ -617,6 +668,31 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	} else {
 		args = map[string]interface{}{}
 	}
+
+	// One call at a time per plugin instance. See Plugin.mu: the VM is not safe
+	// for concurrent use, and host/require are re-Set per call, so overlapping
+	// calls do not merely corrupt the VM -- they hand one caller another
+	// caller's context.
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+
+	if plugin.poisoned != nil {
+		return nil, plugin.poisoned
+	}
+
+	// A Go panic raised inside a host function is re-panicked by goja rather
+	// than converted into a JS exception, and tools/call runs on a goroutine
+	// that net/http does not own, so nothing else would recover it: the panic
+	// would take the whole daemon down. Convert it into a tool error instead,
+	// and disable the instance -- a runtime unwound mid-execution is not safe to
+	// hand to the next caller.
+	defer func() {
+		if r := recover(); r != nil {
+			plugin.poisoned = fmt.Errorf("plugin %q panicked and has been disabled for this process: %v", name, r)
+			cfg.Logf(1, "%v", plugin.poisoned)
+			result, err = nil, plugin.poisoned
+		}
+	}()
 
 	if err := plugin.VM.Set("host", host.MakeHostObject(cfg, ctx, plugin.Name)); err != nil {
 		cfg.Logf(1, "Failed to set host API for tool %s: %v", name, err)
@@ -645,13 +721,13 @@ func (pm *PluginManager) CallTool(ctx context.Context, name string, rawArgs json
 	}
 
 	scriptArgs := plugin.VM.ToValue(args)
-	result, err := plugin.Call(goja.Undefined(), scriptArgs)
+	callResult, err := plugin.Call(goja.Undefined(), scriptArgs)
 	if err != nil {
 		cfg.Logf(1, "Error executing tool %s: %v", name, err)
 		return nil, fmt.Errorf("tool error: %w", err)
 	}
-	cfg.Logf(2, "Tool returned result for %s with raw args %s", name, string(rawArgs))
-	exported := result.Export()
+	cfg.Logf(2, "Tool %s returned a result (arguments [%s])", name, argumentNames(rawArgs))
+	exported := callResult.Export()
 	// Normalize integer numeric types to float64 so callers observing JSON-like
 	// numbers see consistent types.
 	switch v := exported.(type) {

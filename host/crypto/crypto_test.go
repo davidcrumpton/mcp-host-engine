@@ -14,6 +14,28 @@ func TestRandomBytes(t *testing.T) {
 	}
 }
 
+// H5: the length comes from a tool argument. A negative or absurd value used to
+// reach make([]byte, n) and panic, which goja re-panics and nothing recovers --
+// the daemon died. It must be a plain error now.
+func TestRandomBytesRejectsOutOfRangeLength(t *testing.T) {
+	for _, n := range []int{-1, -1024, maxRandomBytes + 1} {
+		out, err := RandomBytes(n)
+		if err == nil {
+			t.Errorf("RandomBytes(%d): expected an error, got %d bytes", n, len(out))
+		}
+	}
+}
+
+func TestRandomBytesZeroIsEmpty(t *testing.T) {
+	out, err := RandomBytes(0)
+	if err != nil {
+		t.Fatalf("RandomBytes(0): unexpected error: %v", err)
+	}
+	if out != "" {
+		t.Errorf("RandomBytes(0): got %q, want an empty string", out)
+	}
+}
+
 func TestSha256(t *testing.T) {
 	s, err := Sha256("hello")
 	if err != nil {

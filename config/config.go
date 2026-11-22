@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,10 @@ type Config struct {
 	KeyFile            string                            `yaml:"key_file"`
 	BearerToken        string                            `yaml:"bearer_token"`
 	CORSOrigin         string                            `yaml:"cors_origin"`
+	// CORSAllowAny is the explicit opt-in for cors_origin: "*". A wildcard
+	// origin plus a bearer token is one misconfiguration away from a cross-site
+	// tool-invocation channel, so the wildcard is refused unless this is set.
+	CORSAllowAny bool `yaml:"cors_allow_any"`
 	PluginDir          string                            `yaml:"plugin_dir"`
 	Tools              map[string]bool                   `yaml:"tools"`
 	Verbosity          int                               `yaml:"verbosity_level"`
@@ -59,6 +64,11 @@ type Config struct {
 	VaultRoleID        string                            `yaml:"vault_role_id"`
 	VaultSecretID      string                            `yaml:"vault_secret_id"`
 	VaultApprole       string                            `yaml:"vault_approle"`
+
+	// sourcePath is the file this config was loaded from. Unexported and not
+	// part of the YAML schema: it exists so the loader can refuse a plugin
+	// entry that points a file:// reference at the daemon's own config.
+	sourcePath string
 }
 
 var DefaultConfig = Config{
@@ -105,7 +115,7 @@ func LoadConfig(path string) (Config, error) {
 // -- resolution of env://, vault:// and file:// references, the vault client,
 // plugin value expansion -- happens here.
 func LoadConfigBytes(path string, data []byte) (Config, error) {
-	cfg := Config{}
+	cfg := Config{sourcePath: path}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("%s: error parsing config: %w", path, err)
 	}
@@ -205,9 +215,36 @@ func (c Config) LogfWithContext(level int, identity, sessionID, format string, a
 			if sessionID == "" {
 				sessionID = "-"
 			}
-			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s\n", timestamp, levelStr, identity, sessionID, message)
+			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s\n", timestamp, levelStr, escapeLogField(identity), escapeLogField(sessionID), message)
 		}
 	}
+}
+
+// escapeLogField makes a caller-supplied value safe to interpolate into a single
+// log line. The session id arrives as a query parameter, so without this
+// "?sessionId=x%0a2026-Nov-22%20[WARN]%20admin" writes a fabricated log line in
+// text mode (JSON mode escapes it already). Control characters are escaped
+// rather than stripped so the forgery stays visible in the log.
+func escapeLogField(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func levelToString(level int) string {
@@ -258,7 +295,7 @@ func (c Config) LogfForPluginWithContext(pluginName, identity, sessionID string,
 			if sessionID == "" {
 				sessionID = "-"
 			}
-			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s: %s\n", timestamp, levelStr, identity, sessionID, pluginName, message)
+			fmt.Fprintf(os.Stderr, "%s [%s] %s %s - %s: %s\n", timestamp, levelStr, escapeLogField(identity), escapeLogField(sessionID), pluginName, message)
 		}
 	}
 }
@@ -518,9 +555,41 @@ func (c Config) WritePidFile() error {
 	return nil
 }
 
+// sensitiveNameParts are the substrings that mark a header, query parameter or
+// config key as carrying a credential. Matching is on substrings rather than on
+// a fixed list of names because the previous exact-match version masked exactly
+// four keys and let everything else through: x-api-key, private-token,
+// proxy-authorization, set-cookie, x-auth-token and api_key all logged in clear.
+var sensitiveNameParts = []string{
+	"auth",
+	"key",
+	"token",
+	"secret",
+	"cookie",
+	"password",
+	"passwd",
+	"credential",
+	"signature",
+	"session",
+}
+
+// IsSensitiveName reports whether a header/parameter/config key name looks like
+// it carries a credential. Callers use it to decide whether a value may be
+// logged verbatim.
+func IsSensitiveName(name string) bool {
+	lower := strings.ToLower(name)
+	for _, part := range sensitiveNameParts {
+		if strings.Contains(lower, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// MaskKeyValue returns value unless key looks sensitive, in which case it
+// returns "***". Used wherever a header or option is logged.
 func (c Config) MaskKeyValue(key string, value any) any {
-	key = strings.ToLower(key)
-	if key == "authorization" || key == "cookie" || key == "token" || key == "password" {
+	if IsSensitiveName(key) {
 		return "***"
 	}
 	return value
@@ -560,11 +629,47 @@ func splitListValue(s string) []interface{} {
 	return out
 }
 
+// refuseSelfReference rejects a plugin entry whose "config" key reads the
+// daemon's own config file:
+//
+//	plugins:
+//	  proxmox_api:
+//	    config: "file:///etc/mcphe/config.yaml"
+//
+// That value is resolved into the plugin's config block, which host.config
+// hands to the plugin -- so the plugin (and any tool argument that can make it
+// log its config) receives token_secret, bearer_token and every other plugin's
+// credentials. A plugin's own options belong in an options: block or the
+// environment; pointing at the daemon's config is never what was meant.
+func (c *Config) refuseSelfReference(pluginName, ref string) error {
+	const prefix = "file://"
+	if !strings.HasPrefix(ref, prefix) || c.sourcePath == "" {
+		return nil
+	}
+	refPath, err := filepath.Abs(strings.TrimPrefix(ref, prefix))
+	if err != nil {
+		return nil
+	}
+	selfPath, err := filepath.Abs(c.sourcePath)
+	if err != nil {
+		return nil
+	}
+	if filepath.Clean(refPath) == filepath.Clean(selfPath) {
+		return fmt.Errorf("plugin %q: config: %q is the daemon's own config file; put plugin options in an options: block or read them from the environment", pluginName, ref)
+	}
+	return nil
+}
+
 func (c *Config) resolvePluginValues() error {
 	for pluginName, pluginCfg := range c.Plugins {
 		for k, v := range pluginCfg {
 			switch val := v.(type) {
 			case string:
+				if k == "config" {
+					if err := c.refuseSelfReference(pluginName, val); err != nil {
+						return err
+					}
+				}
 				resolved, err := resolveString(val)
 				if err != nil {
 					return fmt.Errorf("plugin %q key %q: %w", pluginName, k, err)
@@ -606,19 +711,47 @@ func (c *Config) resolvePluginValues() error {
 
 // HTTPTimeoutSecondsFor returns the per-request HTTP client timeout for pluginName.
 // Precedence: plugin-level "http_timeout_seconds" > global http_client_timeout_seconds > 15s default.
+//
+// The value is validated rather than passed through: 0 means "no timeout at all"
+// to net/http, not "use the default", and a negative value makes every request
+// fail immediately. Either is a config mistake that would be invisible until a
+// request hung forever, so a value outside (0, maxHTTPTimeoutSeconds] falls back
+// to the next source in the chain.
 func (c Config) HTTPTimeoutSecondsFor(pluginName string) int {
 	if pCfg, ok := c.Plugins[pluginName]; ok {
 		if raw, ok := pCfg["http_timeout_seconds"]; ok {
 			switch v := raw.(type) {
 			case int:
-				return v
+				if validTimeoutSeconds(v) {
+					return v
+				}
+			case int64:
+				if v > 0 && v <= maxHTTPTimeoutSeconds {
+					return int(v)
+				}
 			case float64:
-				return int(v)
+				if v == float64(int(v)) && validTimeoutSeconds(int(v)) {
+					return int(v)
+				}
 			}
 		}
 	}
-	if c.HTTPClientTimeoutSeconds > 0 {
+	if validTimeoutSeconds(c.HTTPClientTimeoutSeconds) {
 		return c.HTTPClientTimeoutSeconds
 	}
-	return 15
+	return defaultHTTPTimeoutSeconds
+}
+
+const (
+	// defaultHTTPTimeoutSeconds is used when neither the plugin nor the config
+	// names a usable value.
+	defaultHTTPTimeoutSeconds = 15
+	// maxHTTPTimeoutSeconds is an upper bound on a single request. A longer
+	// timeout than this is almost always a typo (milliseconds written as
+	// seconds) and would pin a plugin instance's serialised call queue.
+	maxHTTPTimeoutSeconds = 3600
+)
+
+func validTimeoutSeconds(v int) bool {
+	return v > 0 && v <= maxHTTPTimeoutSeconds
 }

@@ -149,7 +149,7 @@ class HttpSession:
     # -- plumbing ----------------------------------------------------------
 
     def post(self, payload, *, headers=None, accept=DEFAULT_ACCEPT,
-             content_type="application/json", session=True, path=None):
+             content_type="application/json", session=True, path=None, query=""):
         """POST a payload to /rpc and return the Response, whatever its status."""
         if isinstance(payload, (dict, list)):
             body = json.dumps(payload).encode()
@@ -167,7 +167,7 @@ class HttpSession:
             request_headers["Mcp-Session-Id"] = self.session_id
         request_headers.update(headers or {})
 
-        url = self.rpc_url if path is None else f"{self.base_url}{path}"
+        url = (self.rpc_url if path is None else f"{self.base_url}{path}") + query
         request = urllib.request.Request(
             url, data=body, headers=request_headers, method="POST"
         )
@@ -202,7 +202,7 @@ class HttpSession:
         except urllib.error.HTTPError as error:
             return Response(error.code, error.headers, error.read())
 
-    def request(self, method, params=None, request_id=None):
+    def request(self, method, params=None, request_id=None, *, headers=None, query=""):
         payload = {
             "jsonrpc": "2.0",
             "id": self.next_id() if request_id is None else request_id,
@@ -210,7 +210,21 @@ class HttpSession:
         }
         if params is not None:
             payload["params"] = params
-        return self.post(payload)
+        return self.post(payload, headers=headers, query=query)
+
+    def request_method(self, method, path, *, headers=None):
+        """Send an arbitrary HTTP method to path and return the Response."""
+        request_headers = dict(headers or {})
+        if self.token is not None:
+            request_headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(
+            f"{self.base_url}{path}", headers=request_headers, method=method
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return Response(response.status, response.headers, response.read())
+        except urllib.error.HTTPError as error:
+            return Response(error.code, error.headers, error.read())
 
     def notify(self, method, params=None):
         payload = {"jsonrpc": "2.0", "method": method}
@@ -220,7 +234,7 @@ class HttpSession:
 
     # -- MCP ---------------------------------------------------------------
 
-    def initialize(self, protocol_version=PROTOCOL_VERSION):
+    def initialize(self, protocol_version=PROTOCOL_VERSION, *, headers=None, query=""):
         response = self.request(
             "initialize",
             {
@@ -228,6 +242,8 @@ class HttpSession:
                 "capabilities": {},
                 "clientInfo": CLIENT_INFO,
             },
+            headers=headers,
+            query=query,
         )
         session_id = response.header("Mcp-Session-Id")
         if session_id:

@@ -2,7 +2,9 @@ package auth
 
 import (
 	"bufio"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,7 +62,14 @@ func NewRevoker(path string) (*Revoker, error) {
 // in-memory snapshot rather than making every token look revoked or
 // suddenly look valid.
 func (r *Revoker) Watch(interval time.Duration, logf func(level int, format string, args ...interface{})) (stop func()) {
+	// time.NewTicker panics on a non-positive interval, and this is a public API
+	// taking a duration from its caller, so an unusable value falls back to the
+	// documented default instead of taking the process down.
+	if interval <= 0 {
+		interval = defaultWatchInterval
+	}
 	done := make(chan struct{})
+	var once sync.Once
 	ticker := time.NewTicker(interval)
 	go func() {
 		defer ticker.Stop()
@@ -75,8 +84,13 @@ func (r *Revoker) Watch(interval time.Duration, logf func(level int, format stri
 			}
 		}
 	}()
-	return func() { close(done) }
+	// The stop function is idempotent: closing a channel twice panics, and a
+	// stop function that can only be called once is a shutdown-order trap.
+	return func() { once.Do(func() { close(done) }) }
 }
+
+// defaultWatchInterval is used when Watch is given a non-positive interval.
+const defaultWatchInterval = 5 * time.Second
 
 // IsRevoked reports whether id matches a revoked entry: the bare-username
 // key (blanket revoke) always, and the username:label key (specific
@@ -108,24 +122,29 @@ func (r *Revoker) IsRevoked(id Identity) bool {
 // Revoke needs to remove all entries when just username is passed without :label
 // e.g. 'bear' needs to remove 'bear:windows' and 'bear' itself.
 func (r *Revoker) Revoke(key string, expiry int64) error {
-	entries, err := r.readEntries()
-	if err != nil {
-		return err
-	}
-	// If the key contains a colon, it's a specific token.
-	// If the key does not contain a colon, it's a blanket revoke. Reduce the list to just the username
-	if strings.Contains(key, ":") {
-		entries[key] = expiry
-	} else {
-		// Remove all entries for that user
-		for k := range entries {
-			if strings.HasPrefix(k, key+":") {
-				delete(entries, k)
-			}
+	// Read-modify-write under the file lock: two `mcphe token revoke` processes
+	// running at once would otherwise each read the old list and the second
+	// rename would silently drop the first one's entry.
+	return r.withLock(func() error {
+		entries, err := r.readEntries()
+		if err != nil {
+			return err
 		}
-		entries[key] = expiry
-	}
-	return r.writeEntries(entries)
+		// If the key contains a colon, it's a specific token.
+		// If the key does not contain a colon, it's a blanket revoke. Reduce the list to just the username
+		if strings.Contains(key, ":") {
+			entries[key] = expiry
+		} else {
+			// Remove all entries for that user
+			for k := range entries {
+				if strings.HasPrefix(k, key+":") {
+					delete(entries, k)
+				}
+			}
+			entries[key] = expiry
+		}
+		return r.writeEntries(entries)
+	})
 }
 
 // Unrevoke removes all entries matching key from the revocation file and
@@ -148,15 +167,17 @@ func (r *Revoker) Unrevoke(key string) error {
 // coarse instrument, and issuing a new token is taken as a decision to trust
 // the user again.
 func (r *Revoker) UnrevokeIdentity(username, label string) error {
-	entries, err := r.readEntries()
-	if err != nil {
-		return err
-	}
-	delete(entries, username)
-	if label != "" {
-		delete(entries, username+":"+label)
-	}
-	return r.writeEntries(entries)
+	return r.withLock(func() error {
+		entries, err := r.readEntries()
+		if err != nil {
+			return err
+		}
+		delete(entries, username)
+		if label != "" {
+			delete(entries, username+":"+label)
+		}
+		return r.writeEntries(entries)
+	})
 }
 
 // purge rewrites the revocation file without any entry matching key (and
@@ -165,12 +186,14 @@ func (r *Revoker) UnrevokeIdentity(username, label string) error {
 // only mutated the in-memory map, so the next reload from the Watch timer
 // (or a restart) resurrected the entry straight off disk.
 func (r *Revoker) purge(key string) error {
-	entries, err := r.readEntries()
-	if err != nil {
-		return err
-	}
-	delete(entries, key)
-	return r.writeEntries(entries)
+	return r.withLock(func() error {
+		entries, err := r.readEntries()
+		if err != nil {
+			return err
+		}
+		delete(entries, key)
+		return r.writeEntries(entries)
+	})
 }
 
 // reload re-reads the revocation file from disk and atomically swaps in the
@@ -254,11 +277,30 @@ func (r *Revoker) writeEntries(entries map[string]int64) error {
 		return nil
 	}
 
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
+	// A fixed temp name means two concurrent writers share one scratch file and
+	// one of them renames a half-written list into place. os.CreateTemp in the
+	// same directory gives each writer its own, and rename is still atomic.
+	f, err := os.CreateTemp(filepath.Dir(r.path), "."+filepath.Base(r.path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(b.String()); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, r.path); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 
@@ -266,4 +308,53 @@ func (r *Revoker) writeEntries(entries map[string]int64) error {
 	r.revoked = entries
 	r.mu.Unlock()
 	return nil
+}
+
+// lockPollInterval and lockTimeout bound how long a read-modify-write cycle
+// waits for a concurrent writer (another `mcphe token revoke`, or a running
+// daemon) to release the lock.
+const (
+	lockPollInterval = 10 * time.Millisecond
+	lockTimeout      = 5 * time.Second
+	// staleLockAge is how old a lock file must be before it is assumed to have
+	// been left behind by a process that died while holding it. Nothing is held
+	// across an operation that can take this long.
+	staleLockAge = 30 * time.Second
+)
+
+// withLock runs fn while holding an exclusive lock file next to the revocation
+// file, serialising the read-modify-write cycles in Revoke, UnrevokeIdentity and
+// purge.
+//
+// This is an O_EXCL lock file rather than flock so it behaves the same on every
+// platform the daemon builds for, and so a lock left by a killed process is
+// recoverable: a lock older than staleLockAge is removed rather than wedging
+// revocation forever.
+func (r *Revoker) withLock(fn func() error) error {
+	// No revocation file configured: nothing is persisted, so nothing to
+	// serialise against other processes.
+	if r.path == "" {
+		return fn()
+	}
+	lock := r.path + ".lock"
+	deadline := time.Now().Add(lockTimeout)
+	for {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			defer os.Remove(lock)
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return fmt.Errorf("revocation lock %s: %w", lock, err)
+		}
+		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > staleLockAge {
+			os.Remove(lock)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for the revocation lock %s", lock)
+		}
+		time.Sleep(lockPollInterval)
+	}
 }

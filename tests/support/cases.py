@@ -59,6 +59,14 @@ class ConfigCase(unittest.TestCase):
         """Plugin entries that are not derived from an installed fixture."""
         return {}
 
+    def mint_token(self, username, duration="1h"):
+        """Mint a token against this config and return it."""
+        minted = harness.run_cli(
+            "token", "create", "-config", self.config.path, username, duration
+        )
+        self.assertEqual(minted.returncode, 0, harness.output_of(minted))
+        return minted.stdout.strip()
+
 
 class StartupCase(ConfigCase):
     """A config that is expected to be refused, plus a way to run it."""

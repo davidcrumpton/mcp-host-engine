@@ -13,6 +13,7 @@ domain rules themselves are unchanged.
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTML_PAGE = (
@@ -144,6 +145,13 @@ class Upstream:
             return 200, "application/json", json.dumps(
                 {"method": method, "path": path, "body": body}
             )
+        if path.startswith("/delay/"):
+            try:
+                seconds = float(path.rsplit("/", 1)[1])
+            except ValueError:
+                seconds = 0.0
+            time.sleep(min(seconds, 10))
+            return 200, "text/plain", "delayed\n"
         if path.startswith("/slow"):
             return 200, "text/plain", "slow\n"
         return 200, "text/html", HTML_PAGE

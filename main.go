@@ -3,12 +3,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"mcphe/auth"
@@ -392,12 +395,23 @@ func parseTokenDuration(s string) (time.Duration, error) {
 
 // runStdio serves MCP over stdin/stdout. Bearer token and CORS are HTTP-only
 // concerns and are intentionally omitted here. The process exits when the
-// client disconnects (server.Run returns).
+// client disconnects (server.Run returns) or when it is signalled.
 func runStdio(mcpServer *mcp.Server, cfg config.Config) {
 	cfg.Logf(1, "MCP Host Engine version %s starting on stdio transport", config.Version)
-	if err := mcpServer.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "Stdio server error: %v\n", err)
+
+	// Without this a SIGINT/SIGTERM kills the process outright, so the pid file
+	// is left behind. The context makes the shutdown go through Run's own
+	// return path.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := mcpServer.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		removePidFile(cfg)
+		// A cancelled context is the shutdown we asked for, not a failure.
+		if ctx.Err() != nil {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Stdio server error: %v\n", err)
 		os.Exit(1)
 	}
 	removePidFile(cfg)
@@ -416,32 +430,53 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 		fmt.Fprintf(os.Stderr, "WARNING: bearer_token will be obsolete in the future. Please use token_secret instead.\n")
 	}
 
+	// A wildcard CORS origin is refused unless it is explicitly opted into: with
+	// a bearer token in play, "*" lets any website drive this server from a
+	// visitor's browser.
+	if cfg.CORSOrigin == "*" && !cfg.CORSAllowAny {
+		fmt.Fprintln(os.Stderr, "ERROR: cors_origin: \"*\" allows any website to call this server from a browser.")
+		fmt.Fprintln(os.Stderr, "Name the single origin that should be allowed, or set cors_allow_any: true to accept the risk.")
+		os.Exit(1)
+	}
+
 	// Create the HTTP handlers with a function that returns the server
 	serverFunc := func(r *http.Request) *mcp.Server {
 		return mcpServer
 	}
 	streamableHandler := mcp.NewStreamableHTTPHandler(serverFunc, nil)
 	sseHandler := mcp.NewSSEHandler(serverFunc, nil)
+	openapiHandler := plugin.OpenapiHandler(cfg, pluginManager)
 
 	// Route based on transport type
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Inject request headers into context so plugins can access them via host.server.httpHeaders
 		r = r.WithContext(context.WithValue(r.Context(), "http_headers", r.Header))
 
-		// Derive session ID for routing decisions (SSE vs StreamableHTTP)
-		sessionID := r.Header.Get("Mcp-Session-Id")
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("sessionId")
-		}
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("sessionid")
-		}
+		// Derive session ID for routing decisions (SSE vs StreamableHTTP). A
+		// value that is not a plausible session id is dropped: it is used both
+		// in log lines and to pick a transport, so it must not be able to forge
+		// either.
+		sessionID := transport.SessionIDFromRequest(r)
 
 		identity, _ := r.Context().Value(transport.IdentityContextKey).(string)
 		if identity == "" {
 			identity = "-"
 		}
 		cfg.LogfWithContext(4, identity, sessionID, "Incoming %s %s", r.Method, r.URL.Path)
+
+		// The tool inventory is served here rather than from its own mux entry,
+		// so that it sits behind the same auth and CORS chain as /rpc. It used
+		// to be registered directly on the mux, which meant any anonymous
+		// client could read every tool name, description and input schema.
+		if r.URL.Path == "/rpc/openapi.json" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			openapiHandler.ServeHTTP(w, r)
+			return
+		}
 
 		if sessionID != "" && r.Header.Get("Mcp-Session-Id") == "" {
 			// SSE POST: sessionid comes from query param
@@ -458,11 +493,6 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 
 	// Wrap with middleware using standard HTTP middleware approach
 	var finalHandler http.Handler = handler
-
-	// Apply CORS middleware. Use the configured origin (empty string disables
-	// the header; "*" opts into wide-open CORS; any other value restricts to
-	// that origin).
-	finalHandler = transport.CORSMiddleware(finalHandler, cfg.CORSOrigin)
 
 	// Apply bearer token middleware if configured
 	if cfg.TokenSecret != "" || cfg.BearerToken != "" {
@@ -481,43 +511,83 @@ func runHTTP(mcpServer *mcp.Server, pluginManager *plugin.PluginManager, cfg con
 		finalHandler = transport.ValidateToken("mcphe", config.Version, finalHandler, cfg.TokenSecret, cfg.BearerToken, revoker, cfg)
 	}
 
+	// CORS is applied outside auth so that a preflight -- which carries no
+	// Authorization header by design -- is answered instead of challenged. See
+	// transport.CORSMiddleware for what that costs and how it is contained.
+	finalHandler = transport.CORSMiddleware(finalHandler, cfg.CORSOrigin, cfg.CORSAllowAny)
+
 	cfg.Logf(1, "Starting server on %s:%s (HTTPS=%v)", cfg.Host, cfg.Port, cfg.UseHTTPS)
 
 	// Build a dedicated ServeMux so we can pass it to ListenAndServe/TLS and
 	// have the middleware chain (CORS, bearer token) apply to all routes.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc/openapi.json", plugin.OpenapiHandler(cfg, pluginManager))
+	mux.Handle("/rpc/openapi.json", finalHandler)
 	mux.Handle("/rpc", finalHandler)
 
 	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
-	var err error
-	if cfg.UseHTTPS {
-		if cfg.CertFile == "" || cfg.KeyFile == "" {
-			fmt.Fprintln(os.Stderr, "HTTPS enabled but cert_file or key_file is not configured")
-			os.Exit(1)
-		}
-		fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
-		fmt.Printf("MCP Host Engine listening with HTTPS\n")
-		fmt.Printf("    on https://%s/rpc\n", addr)
-		storePidFile(cfg)
-		err = http.ListenAndServeTLS(addr, cfg.CertFile, cfg.KeyFile, mux)
-		if err != nil {
-			removePidFile(cfg)
-		}
-	} else {
-		fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
-		fmt.Printf("    on http://%s/rpc\n", addr)
-		storePidFile(cfg)
-		err = http.ListenAndServe(addr, mux)
-		if err != nil {
-			removePidFile(cfg)
-		}
+
+	// A bare ListenAndServe has no timeouts at all: ReadHeaderTimeout is the
+	// specific defence against a slowloris client holding a connection open
+	// forever by dribbling headers. WriteTimeout stays zero on purpose -- SSE
+	// responses are long-lived, and a deadline would cut the stream rather than
+	// protect anything.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
+
+	if cfg.UseHTTPS && (cfg.CertFile == "" || cfg.KeyFile == "") {
+		fmt.Fprintln(os.Stderr, "HTTPS enabled but cert_file or key_file is not configured")
 		os.Exit(1)
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Printf("MCP Host Engine version %s starting...\n", config.Version)
+	if cfg.UseHTTPS {
+		fmt.Printf("MCP Host Engine listening with HTTPS\n")
+		fmt.Printf("    on https://%s/rpc\n", addr)
+	} else {
+		fmt.Printf("    on http://%s/rpc\n", addr)
+	}
+	storePidFile(cfg)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		if cfg.UseHTTPS {
+			serveErr <- srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+		} else {
+			serveErr <- srv.ListenAndServe()
+		}
+	}()
+
+	select {
+	case err := <-serveErr:
+		removePidFile(cfg)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "Server failed: %v\n", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		// Run the shutdown before the deferred stopWatch/stop, so the watcher
+		// is still live while in-flight requests drain.
+		cfg.Logf(1, "Signal received, shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGracePeriod)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "Graceful shutdown failed: %v\n", err)
+			srv.Close()
+		}
+		removePidFile(cfg)
+	}
 }
+
+// shutdownGracePeriod bounds how long in-flight requests may take to finish
+// after SIGTERM/SIGINT before the listener is closed under them.
+const shutdownGracePeriod = 30 * time.Second
 
 func removePidFile(cfg config.Config) {
 	if cfg.PidFile != "" {

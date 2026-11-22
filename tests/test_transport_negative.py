@@ -146,8 +146,8 @@ class ProtocolErrorTests(ServerCase):
         self.assertIn("bogus/method", response.body)
 
 
-class OpenapiWithoutTokenTests(ServerCase):
-    """openapi.json is registered on the mux outside the auth middleware."""
+class OpenapiAuthTests(ServerCase):
+    """openapi.json sits behind the same auth chain as /rpc."""
 
     plugins = ("ping",)
 
@@ -156,22 +156,37 @@ class OpenapiWithoutTokenTests(ServerCase):
         fields["token_secret"] = SECRET
         return fields
 
-    def test_openapi_is_served_without_a_token(self):
-        """The tool list is readable without credentials -- a recorded exposure.
+    def test_openapi_needs_a_token(self):
+        """The tool inventory is not readable without credentials.
 
-        main.go registers /rpc/openapi.json on the ServeMux next to /rpc, so the
-        bearer-token middleware never wraps it. This case pins the current
-        behaviour: if the endpoint is meant to be protected, this test should be
-        inverted rather than deleted.
+        /rpc/openapi.json used to be registered directly on the mux, so the
+        bearer-token middleware never wrapped it and any anonymous client could
+        read every tool name, description and input schema.
         """
         anonymous = mcp_client.HttpSession(self.server.base_url)
         response = anonymous.openapi()
+        self.assertEqual(response.status, 401)
+        self.assertNotIn("ping", response.body)
+
+    def test_openapi_accepts_a_token(self):
+        """With a token the same request succeeds, so the route still works."""
+        token = self.mint_token("alice")
+        session = mcp_client.HttpSession(self.server.base_url, token=token)
+        response = session.openapi()
         self.assertEqual(response.status, 200)
         self.assertIn("ping", response.body)
 
+    def test_openapi_is_read_only(self):
+        """A state-changing method is 405, not a second way to read the list."""
+        token = self.mint_token("alice")
+        session = mcp_client.HttpSession(self.server.base_url, token=token)
+        response = session.request_method("DELETE", "/rpc/openapi.json")
+        self.assertEqual(response.status, 405)
+        self.assertIn("GET", response.header("Allow") or "")
 
-class PreflightTests(ServerCase):
-    """Auth wraps CORS, so a browser's preflight is challenged."""
+
+class CrossOriginTests(ServerCase):
+    """The origin check is server-side, not just a CORS response header."""
 
     plugins = ("ping",)
 
@@ -181,22 +196,34 @@ class PreflightTests(ServerCase):
         fields["cors_origin"] = "https://app.example.com"
         return fields
 
-    def test_unauthenticated_preflight_is_rejected(self):
-        """OPTIONS without a token is 401 -- a recorded gap.
+    def test_post_from_another_origin_is_refused(self):
+        """A cross-origin POST from an unlisted origin is 403."""
+        token = self.mint_token("alice")
+        session = mcp_client.HttpSession(self.server.base_url, token=token)
+        response = session.initialize(headers={"Origin": "https://evil.example"})
+        self.assertEqual(response.status, 403)
+        self.assertIn("Origin not allowed", response.body)
 
-        transport.ValidateToken is applied outside CORSMiddleware, so the
-        preflight a browser sends (which carries no Authorization header by
-        design) never reaches the CORS handler. Pinned here so the fix is a
-        deliberate change to this case.
-        """
-        anonymous = mcp_client.HttpSession(self.server.base_url)
-        response = anonymous.options(
-            headers={
-                "Origin": "https://app.example.com",
-                "Access-Control-Request-Method": "POST",
-            }
-        )
-        self.assertEqual(response.status, 401)
+
+class SessionIdForgeryTests(ServerCase):
+    """A session id is client input: it may not forge a log line or steer routing."""
+
+    plugins = ("ping",)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["verbosity_level"] = 4
+        return fields
+
+    def test_a_newline_in_the_session_id_is_dropped(self):
+        """The forged log line never appears; the request is still served."""
+        session = mcp_client.HttpSession(self.server.base_url)
+        forged = "x%0a2026-Nov-22%20[WARN]%20admin%20-%20forged"
+        response = session.initialize(query=f"?sessionId={forged}")
+        self.assertIn(response.status, (200, 404))
+
+        log = self.server.stderr()
+        self.assertNotIn("[WARN] admin - forged", log)
 
 
 class StdioMalformedInputTests(StdioCase):
@@ -258,8 +285,11 @@ CASES = {
     "ProtocolErrorTests.test_wrong_content_type": "transport.wrong-content-type",
     "ProtocolErrorTests.test_accept_header_must_offer_both_types": "transport.bad-accept",
     "ProtocolErrorTests.test_unsupported_method": "transport.unknown-method",
-    "OpenapiWithoutTokenTests.test_openapi_is_served_without_a_token": "transport.openapi-no-auth",
-    "PreflightTests.test_unauthenticated_preflight_is_rejected": "transport.preflight-requires-token",
+    "OpenapiAuthTests.test_openapi_needs_a_token": "transport.openapi-auth",
+    "OpenapiAuthTests.test_openapi_accepts_a_token": "transport.openapi-auth-ok",
+    "OpenapiAuthTests.test_openapi_is_read_only": "transport.openapi-method",
+    "CrossOriginTests.test_post_from_another_origin_is_refused": "transport.cross-origin-post",
+    "SessionIdForgeryTests.test_a_newline_in_the_session_id_is_dropped": "transport.session-id-forgery",
     "StdioMalformedInputTests.test_non_json_input_ends_the_process": "stdio.malformed-input",
     "StdioEofTests.test_closing_stdin_ends_the_process": "stdio.eof",
     "StdioEofMidRequestTests.test_closing_stdin_during_a_request_is_an_error": "stdio.eof-mid-request",

@@ -197,7 +197,7 @@ var pluginNamePattern = regexp.MustCompile(`(?:^|[\s,{])name\s*:\s*"([^"\\]{1,12
 // file: digest output must be safe to produce on a machine that has not yet
 // decided to trust the code.
 func DetectPluginName(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readPluginFile(path)
 	if err != nil {
 		return ""
 	}
@@ -269,7 +269,7 @@ func VerifyConfiguredChecksums(cfg config.Config) ([]ChecksumReport, error) {
 			reports = append(reports, rep)
 			continue
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := readPluginFile(path)
 		if readErr != nil {
 			rep.Status = ChecksumStatusMissing
 			reports = append(reports, rep)
@@ -298,7 +298,7 @@ func VerifyConfiguredChecksums(cfg config.Config) ([]ChecksumReport, error) {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(dir, filepath.FromSlash(rel))
 			}
-			data, readErr := os.ReadFile(path)
+			data, readErr := readPluginFile(path)
 			if readErr != nil {
 				rep.Status = ChecksumStatusMissing
 				reports = append(reports, rep)
@@ -345,7 +345,7 @@ func DigestDir(dir, algo string) ([]DigestEntry, error) {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".js") {
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := readPluginFile(path)
 		if readErr != nil {
 			return readErr
 		}
@@ -372,7 +372,7 @@ func DigestDir(dir, algo string) ([]DigestEntry, error) {
 func DigestPaths(dir, algo string, paths []string) ([]DigestEntry, error) {
 	entries := make([]DigestEntry, 0, len(paths))
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := readPluginFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}

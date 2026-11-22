@@ -237,17 +237,20 @@ func MakeHostObject(cfg config.Config, ctx context.Context, pluginName string) m
 			"version": func() string { return config.Version },
 			"commit":  func() string { return config.Commit },
 			"logger":  cfg.LogfForPlugin(pluginName),
+			// config(name) used to take an arbitrary plugin name from JS and
+			// return that plugin's whole config block -- which is exactly where
+			// this project tells operators to put credentials. Plugin A could
+			// therefore read plugin B's API keys by naming it. A plugin may see
+			// its own block and nothing else; any other name is ignored (and
+			// logged), rather than rejected with an exception, so an existing
+			// plugin that probes another name degrades to "no extra keys"
+			// instead of failing outright.
 			"config": func(name string) map[string]interface{} {
-				if len(name) == 0 {
-					name = pluginName
-				}
-				pluginConfig := map[string]interface{}{
-					"mcp-version": config.Version,
-					"mcp-commit":  config.Commit,
-				}
-				if pCfg, ok := cfg.Plugins[name]; ok {
-					for k, v := range pCfg {
-						pluginConfig[k] = v
+				if name != "" && name != pluginName {
+					cfg.Logf(1, "plugin %q asked for the config of plugin %q; only a plugin's own config is exposed", pluginName, name)
+					return map[string]interface{}{
+						"mcp-version": config.Version,
+						"mcp-commit":  config.Commit,
 					}
 				}
 				return pluginConfig

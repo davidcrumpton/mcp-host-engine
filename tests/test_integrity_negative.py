@@ -119,6 +119,33 @@ class ChecksumMismatchStartupTests(StartupCase):
         self.assertIn(f"file is sha256:{sha256(self.plugin_dir / 'ping.js')}", completed.stderr)
 
 
+class ChecksumBeforeExecutionTests(StartupCase):
+    """No bytes reach the JavaScript runtime until they have been verified.
+
+    The file's own body would abort startup with a recognisable message, so the
+    absence of that message proves the checksum was checked first.
+    """
+
+    plugins = ()
+
+    def prepare(self):
+        (self.plugin_dir / "tampered.js").write_text(
+            'throw new Error("MODULE BODY RAN");\n'
+            'module.exports = { name: "tampered", call: function () { return "x"; } };\n'
+        )
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {"tampered": {"checksum": "sha256:" + "a" * 64}}
+        return fields
+
+    def test_a_tampered_plugin_never_runs(self):
+        completed = self.run_startup()
+        self.assertEqual(completed.returncode, 1, harness.output_of(completed))
+        self.assertIn("checksum mismatch", completed.stderr)
+        self.assertNotIn("MODULE BODY RAN", completed.stderr)
+
+
 class MalformedChecksumStartupTests(StartupCase):
     plugins = ("ping",)
 
@@ -397,6 +424,7 @@ CASES = {
     "VerifyMismatchTests.test_mismatch_is_reported_with_both_digests": "digest.verify-mismatch",
     "VerifyUncheckedTests.test_missing_checksum_is_a_failure_when_required": "digest.verify-unchecked",
     "ChecksumMismatchStartupTests.test_changed_plugin_stops_startup": "checksum.mismatch",
+    "ChecksumBeforeExecutionTests.test_a_tampered_plugin_never_runs": "checksum.before-execution",
     "MalformedChecksumStartupTests.test_malformed_checksum_stops_startup": "checksum.malformed",
     "UnsupportedAlgorithmStartupTests.test_unsupported_algorithm_stops_startup": "checksum.unsupported-algo",
     "RequiredChecksumMissingTests.test_required_checksum_missing_stops_startup": "checksum.required-missing",

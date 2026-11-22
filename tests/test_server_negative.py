@@ -7,6 +7,7 @@ happen (a file that must not be written, a request that must not be sent).
 """
 
 import socket
+import time
 
 from tests.support import harness
 from tests.support.cases import ServerCase, StartupCase
@@ -48,6 +49,34 @@ class StartupFailureTests(StartupCase):
         self.assertIn("missing", completed.stderr)
 
 
+class PluginConfigSelfReferenceTests(StartupCase):
+    """A plugin entry may not read the daemon's own config file."""
+
+    plugins = ("ping",)
+
+    def test_pointing_config_at_the_daemon_config_is_refused(self):
+        """Otherwise the plugin receives token_secret through host.config."""
+        self.config.rewrite(
+            plugins={"ping": {"config": f"file://{self.config.path}"}}
+        )
+        completed = self.run_startup()
+        self.assertEqual(completed.returncode, 1, harness.output_of(completed))
+        self.assertIn("own config file", completed.stderr)
+
+
+class WildcardCORSOriginTests(StartupCase):
+    """cors_origin: "*" needs an explicit opt-in."""
+
+    plugins = ("ping",)
+
+    def test_wildcard_origin_without_opt_in_is_refused(self):
+        """A wildcard origin plus a bearer token is a cross-site call channel."""
+        self.config.rewrite(cors_origin="*")
+        completed = self.run_startup()
+        self.assertEqual(completed.returncode, 1, harness.output_of(completed))
+        self.assertIn("cors_allow_any", completed.stderr)
+
+
 class EmptyPluginDirectoryTests(StartupCase):
     plugins = ()
 
@@ -80,7 +109,6 @@ class MissingNameTests(StartupCase):
     """A plugin that cannot be named cannot be a tool."""
 
     plugins = ("no-name",)
-    enabled = ()
 
     def test_plugin_without_a_name(self):
         completed = self.run_startup()
@@ -91,7 +119,6 @@ class MissingNameTests(StartupCase):
 
 class MissingCallTests(StartupCase):
     plugins = ("no-call",)
-    enabled = ()
 
     def test_plugin_without_a_call_function(self):
         completed = self.run_startup()
@@ -111,7 +138,6 @@ class DuplicateNameTests(StartupCase):
 
 class BadSchemaTypeTests(StartupCase):
     plugins = ("bad-schema-type",)
-    enabled = ()
 
     def test_schema_type_must_be_object(self):
         completed = self.run_startup()
@@ -123,7 +149,6 @@ class BadSchemaTypeTests(StartupCase):
 
 class BadSchemaValueTests(StartupCase):
     plugins = ("bad-schema-value",)
-    enabled = ()
 
     def test_schema_must_be_an_object(self):
         completed = self.run_startup()
@@ -144,6 +169,44 @@ class UnknownAliasTests(StartupCase):
         completed = self.run_startup()
         self.assertEqual(completed.returncode, 1, harness.output_of(completed))
         self.assertIn('source module "nosuch" not found', completed.stderr)
+
+
+class UnconfiguredFileIsNotExecutedTests(ServerCase):
+    """A .js file that nothing configured is never executed.
+
+    Its body must not run at startup: previously every file in plugin_dir was
+    run to discover its exported name, so dropping a file in was enough to get
+    arbitrary JavaScript executed.
+    """
+
+    plugins = ("ping",)
+
+    def prepare(self):
+        (self.plugin_dir / "stray.js").write_text(
+            'throw new Error("MODULE BODY RAN");\n'
+            'module.exports = { name: "stray", call: function () { return "x"; } };\n'
+        )
+
+    def test_an_unconfigured_file_never_runs(self):
+        self.assertNotIn("MODULE BODY RAN", self.server.stderr())
+        self.assertEqual(self.tool_names(), ["ping"])
+
+
+class PanicContainmentTests(ServerCase):
+    """A Go panic inside a host function is a tool error, not a dead daemon.
+
+    host.crypto.randomBytes used to call make([]byte, n) with the length it was
+    given; a negative n panicked, goja re-panicked, and nothing recovered it.
+    """
+
+    plugins = ("random-bytes",)
+
+    def test_a_negative_length_is_a_tool_error(self):
+        self.assertToolError(
+            self.call("random_bytes", {"n": -1}), "randomBytes", "between 0 and"
+        )
+        after = self.call("random_bytes", {"n": 0})
+        self.assertFalse(after.is_error, f"the daemon should still serve: {after!r}")
 
 
 class UnknownToolTests(ServerCase):
@@ -304,6 +367,62 @@ class ExecSandboxFailureTests(ServerCase):
         )
 
 
+class ExecShellInjectionTests(ServerCase):
+    """runCommand takes an argv, not a shell program.
+
+    The allow-list names an executable. A string that contains shell syntax must
+    therefore reach that executable as arguments -- nothing else may run.
+    """
+
+    plugins = ("runner",)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {"runner": {"allowed_commands": ["echo"]}}
+        return fields
+
+    def test_shell_metacharacters_are_only_arguments(self):
+        canary = self.dir / "pwned"
+        command = f"echo hi; touch {canary}"
+        self.assertEqual(self.text_of("runner", {"command": command}), f"hi; touch {canary}\n")
+        self.assertFalse(canary.exists(), "the injected command ran")
+
+    def test_command_substitution_is_not_expanded(self):
+        self.assertEqual(
+            self.text_of("runner", {"command": "echo $(id) `id`"}),
+            "$(id) `id`\n",
+        )
+
+
+class ExecEnvironmentTests(ServerCase):
+    """A child process does not inherit the daemon's environment.
+
+    Otherwise one allow-listed command (`env`, or anything that prints its
+    environment) would defeat allowed_env_vars entirely.
+    """
+
+    plugins = ("runner",)
+    server_env = {
+        "MCPHE_TEST_EXEC_ALLOWED": "yes",
+        "MCPHE_TEST_EXEC_SECRET": "must-not-leak",
+    }
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {
+            "runner": {
+                "allowed_commands": ["env"],
+                "allowed_env_vars": ["MCPHE_TEST_EXEC_ALLOWED"],
+            }
+        }
+        return fields
+
+    def test_only_allowed_variables_reach_the_child(self):
+        out = self.text_of("runner", {"command": "env"})
+        self.assertIn("MCPHE_TEST_EXEC_ALLOWED=yes", out)
+        self.assertNotIn("MCPHE_TEST_EXEC_SECRET", out)
+
+
 class HttpSandboxFailureTests(ServerCase):
     plugins = ("fetcher", "requester")
 
@@ -344,8 +463,13 @@ class HttpSandboxFailureTests(ServerCase):
         self.assertEqual(self.upstream.requests, [])
 
 
-class HttpMethodGapTests(ServerCase):
-    """allowed_http_methods, seen from the convenience helper that ignores it."""
+class HttpMethodEnforcementTests(ServerCase):
+    """allowed_http_methods applies to the convenience helpers too.
+
+    The method and header gates used to live in host.http.request only, so the
+    seven convenience helpers enforced the domain list and nothing else. Both
+    gates now sit in the single path every helper funnels through.
+    """
 
     plugins = ("fetcher",)
 
@@ -364,19 +488,194 @@ class HttpMethodGapTests(ServerCase):
         }
         return fields
 
-    def test_http_post_ignores_allowed_methods(self):
-        """host.http.post is not covered by allowed_http_methods -- a recorded gap.
-
-        The check lives in host.http.request only, so the convenience helpers
-        (get/post/put/patch/delete/head/options) enforce the domain list but not
-        the method list. This case pins the behaviour so that fixing it is a
-        deliberate change here rather than a silent one.
-        """
-        text = self.text_of(
+    def test_http_post_is_refused_by_allowed_methods(self):
+        """host.http.post is refused when only GET is listed, and never sent."""
+        result = self.call(
             "fetcher", {"url": self.upstream.url("/echo"), "method": "POST"}
         )
+        self.assertToolError(result, "POST", "not allowed")
+        self.assertEqual(self.upstream.requests, [])
+        self.assertIsNone(self.upstream.last_request())
+
+
+class HttpHeaderEnforcementTests(ServerCase):
+    """allowed_headers applies to the convenience helpers too."""
+
+    plugins = ("headered",)
+
+    def setUp(self):
+        self.upstream = Upstream().start()
+        self.addCleanup(self.upstream.stop)
+        super().setUp()
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {
+            "headered": {
+                "allowed_domains": [self.upstream.host],
+                "allowed_headers": ["Accept"],
+            }
+        }
+        return fields
+
+    def test_header_outside_allowed_headers_is_refused(self):
+        """A header the plugin may not send is refused, and never reaches the host."""
+        result = self.call(
+            "headered",
+            {
+                "url": self.upstream.url("/echo"),
+                "header": "X-Exfil",
+                "value": "secret-value",
+            },
+        )
+        self.assertToolError(result, "X-Exfil", "not allowed")
+        self.assertEqual(self.upstream.requests, [])
+
+        text = self.text_of(
+            "headered",
+            {"url": self.upstream.url("/echo"), "header": "Accept", "value": "text/plain"},
+        )
         self.assertIn("status=200", text)
-        self.assertEqual(self.upstream.last_request()["method"], "POST")
+        self.assertEqual(self.upstream.last_request()["headers"]["Accept"], "text/plain")
+
+
+class ServerConfigScopeTests(ServerCase):
+    """host.server.config(name) exposes the caller's own block and nothing else."""
+
+    plugins = ("scoped", "ping")
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {
+            "scoped": {"options": {"api_token": "scoped-token"}},
+            "ping": {"options": {"api_token": "neighbour-token"}},
+        }
+        return fields
+
+    def test_another_plugins_config_is_not_disclosed(self):
+        """Naming a neighbour returns no neighbour keys.
+
+        Plugin config blocks are where this project tells operators to put API
+        keys, so returning another plugin's block on request was a
+        cross-plugin credential disclosure.
+        """
+        import json
+
+        neighbour = json.loads(self.text_of("scoped", {"name": "ping"}))
+        self.assertNotIn("options", neighbour)
+        self.assertIn("mcp-version", neighbour)
+
+        own = json.loads(self.text_of("scoped", {"name": "scoped"}))
+        self.assertEqual(own["options"]["api_token"], "scoped-token")
+
+
+class WriteStreamFailureTests(ServerCase):
+    """A producer that fails part-way does not destroy the destination."""
+
+    plugins = ("streamer",)
+
+    def prepare(self):
+        self.target = self.dir / "target.txt"
+        self.target.write_text("original")
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {
+            "streamer": {"allowed_write_file_paths": [str(self.dir)]}
+        }
+        return fields
+
+    def test_a_failing_stream_leaves_the_original_file_intact(self):
+        """writeStream writes through a temp file, so a failure changes nothing."""
+        result = self.call("streamer", {"path": str(self.target), "fail": True})
+        self.assertToolError(result, "producer failed")
+        self.assertEqual(self.target.read_text(), "original")
+        leftovers = [p.name for p in self.dir.iterdir() if ".tmp" in p.name]
+        self.assertEqual(leftovers, [])
+
+    def test_a_complete_stream_replaces_the_file(self):
+        """The success path still replaces the file."""
+        text = self.text_of("streamer", {"path": str(self.target), "fail": False})
+        self.assertEqual(text, "written")
+        self.assertEqual(self.target.read_text(), "new-content")
+
+
+class InvalidHTTPTimeoutTests(ServerCase):
+    """http_timeout_seconds: 0 means "use the default", not "no timeout"."""
+
+    plugins = ("fetcher",)
+
+    def setUp(self):
+        self.upstream = Upstream().start()
+        self.addCleanup(self.upstream.stop)
+        super().setUp()
+
+    def config_for(self):
+        fields = super().config_for()
+        # 1 s global, and a plugin value that used to disable the timeout
+        # entirely (http.Client{Timeout: 0} waits forever).
+        fields["http_client_timeout_seconds"] = 1
+        fields["plugins"] = {
+            "fetcher": {
+                "allowed_domains": [self.upstream.host],
+                "http_timeout_seconds": 0,
+            }
+        }
+        return fields
+
+    def test_zero_falls_back_to_the_global_timeout(self):
+        """A slow host is cut off by the global timeout instead of hanging."""
+        started = time.monotonic()
+        result = self.call("fetcher", {"url": self.upstream.url("/delay/3")})
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(result.is_error, f"expected a timeout error, got: {result!r}")
+        self.assertLess(elapsed, 3.0, "the request was allowed to outlive the global timeout")
+
+
+class ArgumentLoggingTests(ServerCase):
+    """Tool arguments are logged by name, never by value."""
+
+    plugins = ("echo",)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["verbosity_level"] = 4
+        return fields
+
+    def test_a_password_argument_never_reaches_the_log(self):
+        """The argument name appears in stderr; its value does not.
+
+        Tool arguments come from an LLM working over prompt-influenced content,
+        and the old level-2 log line printed them verbatim.
+        """
+        secret = "correct-horse-battery-staple-9f2"
+        self.text_of("echo", {"text": secret, "password": secret})
+
+        log = self.server.stderr()
+        self.assertIn("password", log)
+        self.assertNotIn(secret, log)
+
+
+class OversizedFileReadTests(ServerCase):
+    """host.fs.readFile refuses a file it would have to hold in memory whole."""
+
+    plugins = ("reader",)
+
+    def prepare(self):
+        self.big = self.dir / "big.bin"
+        with open(self.big, "wb") as handle:
+            handle.truncate(33 * 1024 * 1024)
+
+    def config_for(self):
+        fields = super().config_for()
+        fields["plugins"] = {"reader": {"allowed_read_file_paths": [str(self.dir)]}}
+        return fields
+
+    def test_a_file_over_the_read_limit_is_an_error(self):
+        """33 MiB is over the 32 MiB cap: an error, not a truncated success."""
+        result = self.call("reader", {"path": str(self.big)})
+        self.assertToolError(result, "limit")
 
 
 class RequireFailureTests(ServerCase):
@@ -410,6 +709,8 @@ CASES = {
     "StartupFailureTests.test_unknown_transport": "startup.bad-transport",
     "StartupFailureTests.test_missing_plugin_directory": "startup.missing-plugin-dir",
     "EmptyPluginDirectoryTests.test_directory_without_plugins": "startup.no-plugins",
+    "PluginConfigSelfReferenceTests.test_pointing_config_at_the_daemon_config_is_refused": "startup.plugin-config-self-reference",
+    "WildcardCORSOriginTests.test_wildcard_origin_without_opt_in_is_refused": "startup.cors-wildcard",
     "PortInUseTests.test_port_already_bound": "startup.port-in-use",
     "MissingNameTests.test_plugin_without_a_name": "discover.missing-name",
     "MissingCallTests.test_plugin_without_a_call_function": "discover.missing-call",
@@ -420,6 +721,7 @@ CASES = {
     "UnknownToolTests.test_unknown_tool_is_a_json_rpc_error": "discover.unknown-tool",
     "DisabledToolTests.test_disabled_tool_is_neither_listed_nor_callable": "discover.disabled",
     "UnconfiguredPluginTests.test_plugin_without_a_config_entry_is_not_registered": "discover.unconfigured",
+    "UnconfiguredFileIsNotExecutedTests.test_an_unconfigured_file_never_runs": "discover.unconfigured-not-executed",
     "ToolFailureTests.test_a_throwing_plugin_is_an_error_result": "tool.error",
     "ToolFailureTests.test_arguments_that_are_not_an_object": "tool.bad-arguments",
     "ToolFailureTests.test_required_arguments_are_validated": "tool.schema-validation",
@@ -430,9 +732,20 @@ CASES = {
     "EnvSandboxFailureTests.test_variable_not_on_the_allow_list": "sandbox.env-denied",
     "ExecSandboxFailureTests.test_command_not_on_the_allow_list": "sandbox.exec-denied",
     "ExecSandboxFailureTests.test_allow_list_matches_the_command_name_only": "sandbox.exec-name-only",
+    "ExecShellInjectionTests.test_shell_metacharacters_are_only_arguments": "sandbox.exec-no-shell",
+    "ExecShellInjectionTests.test_command_substitution_is_not_expanded": "sandbox.exec-substitution-literal",
+    "ExecEnvironmentTests.test_only_allowed_variables_reach_the_child": "sandbox.exec-env-scrubbed",
+    "PanicContainmentTests.test_a_negative_length_is_a_tool_error": "tool.panic-contained",
     "HttpSandboxFailureTests.test_domain_not_on_the_allow_list": "sandbox.http-domain-denied",
     "HttpSandboxFailureTests.test_http_request_enforces_allowed_methods": "sandbox.http-method-request",
-    "HttpMethodGapTests.test_http_post_ignores_allowed_methods": "sandbox.http-method-convenience",
+    "HttpMethodEnforcementTests.test_http_post_is_refused_by_allowed_methods": "sandbox.http-method-convenience",
+    "HttpHeaderEnforcementTests.test_header_outside_allowed_headers_is_refused": "sandbox.http-header-denied",
+    "ServerConfigScopeTests.test_another_plugins_config_is_not_disclosed": "sandbox.server-config-scope",
+    "WriteStreamFailureTests.test_a_failing_stream_leaves_the_original_file_intact": "sandbox.fs-write-atomic",
+    "WriteStreamFailureTests.test_a_complete_stream_replaces_the_file": "sandbox.fs-write-atomic-success",
+    "OversizedFileReadTests.test_a_file_over_the_read_limit_is_an_error": "sandbox.fs-read-too-large",
+    "InvalidHTTPTimeoutTests.test_zero_falls_back_to_the_global_timeout": "sandbox.http-timeout-invalid",
+    "ArgumentLoggingTests.test_a_password_argument_never_reaches_the_log": "tool.args-not-logged",
     "RequireFailureTests.test_path_traversal": "sandbox.require-traversal",
     "RequireFailureTests.test_non_javascript_module": "sandbox.require-non-js",
     "RequireFailureTests.test_circular_import": "sandbox.require-cycle",

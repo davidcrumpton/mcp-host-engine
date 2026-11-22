@@ -90,3 +90,21 @@ func TestVerifyFile(t *testing.T) {
 		t.Error("expected an error for a missing file")
 	}
 }
+
+// M2: a manifest is a config-named path, so reading it must not be unbounded.
+func TestLoadManifest_RejectsAFileOverTheLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxIntegrityFileBytes + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	if _, err := LoadManifest(path); err == nil {
+		t.Fatalf("a manifest over %d bytes should be refused", maxIntegrityFileBytes)
+	}
+}

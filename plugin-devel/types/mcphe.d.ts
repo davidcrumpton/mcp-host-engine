@@ -64,6 +64,16 @@ export interface HostProcess {
 }
 
 export interface HostExec {
+  /**
+   * Runs one allow-listed executable.
+   *
+   * The string is split into an argument vector (quotes group, nothing is
+   * expanded) and `argv[0]` must appear in this plugin's `allowed_commands`;
+   * there is no shell, so `;`, `&&`, `|`, `$(...)`, backticks and globs are
+   * ordinary argument text rather than syntax. The child sees only the
+   * variables in `allowed_env_vars` (plus PATH/HOME/LANG/…), and output is
+   * capped at 1 MiB per call.
+   */
   runCommand(command: string): string;
 }
 

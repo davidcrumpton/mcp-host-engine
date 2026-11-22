@@ -186,7 +186,10 @@ This section details the available settings for the MCP Host Engine. These value
 | `token_secret` | `string` | *(none)* | A shared secret used to sign and verify JWT tokens. All clients and servers must use the same secret. |
 | `token_revocation_file` | `string` | *(none)* | Path to the file containing revoked tokens. |
 | `bearer_token` | `string` | *(none)* | Obsolete in future releases.  This is the static API key/token used for authenticating external client requests.  It will be replaced by tokens signed with the `token_secret`. |
-| `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. |
+| `pid_file` | `string` | *(none)* | The file path where the server's Process ID (PID) will be written upon startup. This is useful for process management. It is removed on a clean shutdown (`SIGTERM`/`SIGINT`). |
+| `cors_origin` | `string` | `""` | The single browser origin allowed to call `/rpc` (e.g. `"https://app.example.com"`). Empty disables CORS entirely. A request whose `Origin` names something else is refused `403` on state-changing methods. |
+| `cors_allow_any` | `bool` | `false` | Explicit opt-in for `cors_origin: "*"`. Without it the server refuses to start, because a wildcard origin plus a bearer token lets any website drive the server from a visitor's browser. |
+| `http_client_timeout_seconds` | `int` | `60` | Default timeout for `host.http.*` requests. Must be `> 0`; an unusable value falls back to 15 s rather than to "no timeout". |
 | `vault_addr` | `string` | *(none)* | The address of the Vault server.  This is required if you are using `vault://` scheme in your config. |
 | `vault_token` | `string` | *(none)* | The token to use for authentication with Vault but you should use approle instead. |
 | `vault_role_id` | `string` | *(none)* | The role ID to use for authentication with Vault approle. |
@@ -276,6 +279,13 @@ The config file itself can be pinned too — see [Config Integrity](#config-inte
 | :--- | :--- | :--- | :--- |
 | `verbosity_level` | `int` | `0` | The minimum logging level required for a message to be printed. Higher numbers mean more detailed logging (e.g., `3` might mean DEBUG level). |
 
+What the log contains, and what it does not:
+
+* **Tool arguments are logged by name only.** The `tools/call` line lists the argument *keys* (`password,url`) and never the values. Tool arguments come from an LLM working over prompt-influenced content and routinely carry credentials and PII.
+* **Header and query values that look sensitive are masked.** Any name containing `auth`, `key`, `token`, `secret`, `cookie`, `password`, `credential`, `signature` or `session` is replaced with `***`, as is the userinfo part of a URL (`https://***@host/…`).
+* **Token errors never quote the token.** A failed validation says why, not what.
+* **Session ids are validated.** A `sessionId` that is not `[A-Za-z0-9_-]{1,128}` is dropped rather than written to the log or used to route the request, so it cannot forge a log line.
+
 ---
 
 ### Advanced Plugin Restrictions (`plugins` Map)
@@ -345,13 +355,16 @@ plugins:
 
 5. **`allowed_commands`**:
     * **Type:** `list<string>`
-    * **Purpose:** Limits the commands that a plugin can execute via the `runCommand` method. Each item in the list should be a full command string (e.g., `"ls -l /tmp"`).
+    * **Purpose:** Limits the commands that a plugin can execute via the `runCommand` method. Each item names an **executable** (e.g. `"ls"`, `"git"`, `"date"`) — it is matched against the first word of the command and nothing else.
+    * **No shell is involved.** `runCommand("git status")` runs `/usr/bin/git` with the single argument `status`. Shell syntax is not interpreted: `;`, `&&`, `|`, `$(...)`, backticks and `*` are ordinary characters in an argument, so `runCommand("echo hi; rm -rf /")` prints the text and removes nothing. Quoting (`"two words"`, `'two words'`, `a\ b`) groups arguments; an unbalanced quote is an error rather than a guess. Use `host.fs`, `host.http` and `host.path` for what a shell pipeline would otherwise do.
+    * **Environment:** the child gets the variables in `allowed_env_vars` plus a small set every program needs (`PATH`, `HOME`, `LANG`, `LC_*`, `TMPDIR`, `TZ`, …) — not the daemon's whole environment, so `runCommand("env")` is not a way around `allowed_env_vars`.
+    * **Output** is capped at 1 MiB per call; a command that produces more is stopped and the call returns an error.
     * **Example:**
 
         ```yaml
         plugins:
           os_utility:
-            allowed_commands: ["ls -l", "pwd"]
+            allowed_commands: ["ls", "pwd"]
         ```
 
 6. **`allowed_env_vars`**:
@@ -375,6 +388,45 @@ plugins:
           ping:
             checksum: "sha256:708c66dc145c906505b3d3e881082991482eba98950947f149b46ffade7a9991"
         ```
+
+8. **`allowed_http_methods`**:
+    * **Type:** `list<string>`
+    * **Purpose:** Restricts which HTTP methods a plugin may use. **Every** `host.http` entry point honours it — `request`, `get`, `post`, `put`, `patch`, `delete`, `head` and `options` — so `allowed_http_methods: ["GET"]` really does mean "read-only".
+    * **Example:**
+
+        ```yaml
+        plugins:
+          get_ip:
+            allowed_domains: ["ifconfig.io"]
+            allowed_http_methods: ["GET"]
+        ```
+
+9. **`allowed_headers`**:
+    * **Type:** `list<string>`
+    * **Purpose:** Restricts the request headers a plugin may send, on every entry point, including headers passed inside the `{"headers": {...}}` wrapper. An absent key (or an empty list) allows all headers.
+    * **Example:**
+
+        ```yaml
+        plugins:
+          api_client:
+            allowed_headers: ["Accept", "Content-Type"]
+        ```
+
+10. **`http_timeout_seconds`**:
+    * **Type:** `int`
+    * **Purpose:** Per-plugin override for the HTTP client timeout. Values outside `1..3600` are ignored in favour of the global `http_client_timeout_seconds`: `0` means "no timeout at all" to Go's HTTP client, which is never what an operator meant.
+    * **Example:**
+
+        ```yaml
+        plugins:
+          slow_api:
+            http_timeout_seconds: 120
+        ```
+
+11. **`options`**:
+    * **Type:** `map`
+    * **Purpose:** The plugin's own settings — base URLs, credentials, feature flags. This is the block to use for anything secret, because it is only ever visible to that plugin. `host.config.options` reads it from JavaScript.
+    * **Note:** a plugin's `config:` key may name a *plugin-specific* file (`config: "file:///etc/mcphe/proxmox.yaml"`), but pointing it at the daemon's own `config.yaml` is refused at startup: the resolved content is handed to the plugin through `host.config`, so it would receive `token_secret` and every other plugin's credentials.
 
 ### Plugin Integrity (`checksums`)
 
@@ -415,6 +467,8 @@ With a manifest configured, any file the loader reads must be listed and must ma
 **Making coverage mandatory:** set `require_plugin_checksums: true` to abort startup when a loaded plugin declares no checksum. Disabled plugins are exempt, and the default is `false` so existing deployments keep working unchanged.
 
 **Failure behaviour:** a mismatch is a startup failure, exactly like a missing plugin directory or a syntax error in a plugin — the process prints the expected and actual digests to stderr and exits with status 1. It never serves a plugin it could not verify.
+
+**Scope: the file's bytes, not its configuration.** A digest covers exactly the `.js` bytes and nothing else. It does *not* cover the entry that grants the plugin its powers — `options`, `allowed_domains`, `allowed_read_file_paths`, `allowed_commands`, `allowed_env_vars`, `enabled`, or the `plugin:` alias. So a checksum-verified plugin can still be re-pointed at a different host, handed different credentials, or switched off entirely by an edit to `config.yaml` that touches no byte of the file the checksum pins. Pinning the config itself (`-config-checksum`, see [Config Integrity](#config-integrity-configyaml-itself)) closes that gap today, at the cost of re-pinning the whole file for any unrelated edit. Folding a plugin's resolved config into its identity is **not implemented** — it is tracked as future work in [FIXUP.md](FIXUP.md#plugin-integrity-cover-configmetadata-not-just-file-bytes).
 
 **What this does not do:** a checksum is not a signature. It proves the file matches the value in your config; it does not prove who wrote it. Anyone who can edit both the plugin and `config.yaml` can update both. Keep `config.yaml` under the same access control you apply to the binary (and prefer `vault://`/`env://` sources if you want the expected digests out of a world-readable file — any config value supports those schemes, so `checksum: "env://PING_CHECKSUM"` works).
 
@@ -569,6 +623,8 @@ mcphe digest -verify
 `-verify` prints one line per file — `ok`, `mismatch`, `missing` or `unchecked` — plus a summary, and exits 1 if anything failed, so it drops straight into a pipeline. `-format yaml` keys entries by the name the plugin *exports*, not its file name (`date_time.js` exports `get_datetime`), because that is the key `config.yaml` uses; each entry carries its source file as a comment.
 
 Note that `digest` scans recursively while the loader only globs the top level: files under `plugins/lib/` are reachable through `require()` and belong in a manifest.
+
+`digest` hashes **files only**. It reads no config values and produces nothing that describes a plugin's permissions, so a `checksum:` says "these are the bytes I reviewed", never "this is what I reviewed them for". Covering the config side is future work — see [FIXUP.md](FIXUP.md#plugin-integrity-cover-configmetadata-not-just-file-bytes).
 
 ## Config Checksum (`config verify`)
 

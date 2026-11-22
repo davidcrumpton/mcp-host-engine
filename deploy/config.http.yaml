@@ -75,9 +75,14 @@ plugins:
       # environment and falls back to these literals.
       ApiUrl: "http://homeassistant.local:8123"
 
-  # --- anything reading config via file:// must see the *container* path ---
+  # --- a plugin's own options file is fine; the daemon's config is not ---
   # proxmox_api:
   #   allowed_env_vars: ["PROXMOX_BASE_URL", "PROXMOX_API_TOKEN"]
   #   allowed_domains: ["pve02.crumpton.org"]
   #   invocation_user: "env://USER"
-  #   config: "file:///etc/mcphe/config.yaml"
+  #   options:
+  #     base_url: "https://pve02.crumpton.org:8006"
+  #
+  # config: "file:///etc/mcphe/config.yaml" is refused at startup: that value is
+  # handed to the plugin through host.config, so it would receive token_secret
+  # and every other plugin's credentials.
