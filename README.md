@@ -725,6 +725,12 @@ docker compose up -d --build            # HTTP daemon
 docker compose run --rm -T mcphe-stdio  # stdio, for an MCP client
 ```
 
-Without compose (Apple `container` CLI), `./deploy/run.sh build|http|stdio|logs|stop` does the same thing with the same files. To run the server locally, see `tests/README.md` for instructions on building and running the server locally.
+Without compose (Apple `container` CLI), `./deploy/run.sh build|http|stdio|logs|stop` does the same thing with the same files.
+
+To run the server locally, see [Running the server locally](tests/README.md#running-the-server-locally). To run the test suite — 141 end-to-end cases against the real binary, offline, in one command:
+
+```bash
+python3 -m tests        # or: make pytests
+```
 
 ![MCP Inspector](./images/MCP_Inspector.png)

@@ -24,8 +24,12 @@ test:
   stage: test
   script:
     - make test
+    # The end-to-end suite drives the binary this job just built. It is offline
+    # and stdlib-only, so it needs nothing but an interpreter.
+    - apt-get update && apt-get install -y python3
+    - make pytests
     # The plugins are JavaScript, so they need node and tsc.
-    - apt-get update && apt-get install -y curl git
+    - apt-get install -y curl git
     - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     - apt-get install -y nodejs
     - npm install -g typescript@5.8.3

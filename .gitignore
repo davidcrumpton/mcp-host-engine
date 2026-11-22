@@ -1,11 +1,13 @@
 mcp-server
+# Python bytecode from the test suite
+tests/**/__pycache__/
+*.pyc
 # GoReleaser output: built artifacts, never source.
 dist/
 FAIL-wikipedia.md
 config/config-8000.yaml
 configuration/
 mcphe
-tests/results
 *.swp
 tls/
 plugins/microsoft_outlook.js

@@ -23,6 +23,10 @@ clean:
 test:
 	go test ./...
 
+## pytests: Run the end-to-end suite against the real binary (offline)
+pytests:
+	python3 -m tests
+
 ## help: Show this help message
 help:
 	@echo "Usage: make [target]"
