@@ -35,6 +35,28 @@ const plugin = {
       },
       language: {
         type: "string",
+        enum: [
+          "en",
+          "fr",
+          "de",
+          "es",
+          "it",
+          "pt",
+          "nl",
+          "ru",
+          "ja",
+          "zh",
+          "ar",
+          "ko",
+          "pl",
+          "sv",
+          "fa",
+          "tr",
+          "uk",
+          "vi",
+          "he",
+          "id"
+        ],
         default: "en",
         description: "Wikipedia language edition as ISO 639-1 code (e.g. 'fr', 'de', 'es', 'ja'). Defaults to 'en'."
       },
@@ -49,8 +71,14 @@ const plugin = {
   },
   call(params) {
     const query = String(params.query || "").trim();
-    const language = String(params.language || "en").trim().toLowerCase() || "en";
+    const language = resolveLang(params.language);
     const mode = String(params.mode || "lookup").trim().toLowerCase();
+    if (language === null) {
+      return {
+        success: false,
+        result: "Unsupported language " + JSON.stringify(String(params.language || "")) + ". Supported ISO 639-1 codes: " + SUPPORTED_LANGS.join(", ") + "."
+      };
+    }
     const detailAliases = { intro: "brief", short: "brief", long: "full", all: "full" };
     let detail = String(params.detail || "standard").trim().toLowerCase();
     detail = detailAliases[detail] || detail;
@@ -89,6 +117,19 @@ const LANG_NAMES = {
   he: "Hebrew",
   id: "Indonesian"
 };
+const DEFAULT_LANG = "en";
+const SUPPORTED_LANGS = Object.keys(LANG_NAMES);
+function resolveLang(input) {
+  const raw = String(input === void 0 || input === null ? "" : input).trim().toLowerCase();
+  const code = raw || DEFAULT_LANG;
+  return Object.prototype.hasOwnProperty.call(LANG_NAMES, code) ? code : null;
+}
+function wikiHost(lang) {
+  if (!Object.prototype.hasOwnProperty.call(LANG_NAMES, lang)) {
+    throw new Error("unsupported language: " + lang);
+  }
+  return lang + ".wikipedia.org";
+}
 const SKIP_SECTIONS = /* @__PURE__ */ new Set([
   "see also",
   "references",
@@ -113,7 +154,7 @@ function httpGet(url, extraHeaders) {
   return response;
 }
 function apiUrl(lang, params) {
-  const base = "https://" + lang + ".wikipedia.org/w/api.php";
+  const base = "https://" + wikiHost(lang) + "/w/api.php";
   const parts = ["format=json", "utf8=1"];
   for (const k in params) {
     parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
@@ -121,10 +162,10 @@ function apiUrl(lang, params) {
   return base + "?" + parts.join("&");
 }
 function restSummaryUrl(lang, title) {
-  return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(title.replace(/ /g, "_"));
+  return "https://" + wikiHost(lang) + "/api/rest_v1/page/summary/" + encodeURIComponent(title.replace(/ /g, "_"));
 }
 function pageUrl(title, lang) {
-  return "https://" + lang + ".wikipedia.org/wiki/" + encodeURIComponent(title.replace(/ /g, "_"));
+  return "https://" + wikiHost(lang) + "/wiki/" + encodeURIComponent(title.replace(/ /g, "_"));
 }
 function cleanText(text) {
   if (!text) return "";

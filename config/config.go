@@ -95,8 +95,21 @@ var DefaultConfig = Config{
 	Verbosity: 0,
 	Plugins: map[string]map[string]interface{}{
 		"wikipedia_search": {
-			"enabled":         true,
-			"allowed_domains": []string{"en.wikipedia.org"},
+			"enabled": true,
+			// Must stay in sync with LANG_NAMES in the plugin: the plugin
+			// rejects any language code not in that map, and this list is the
+			// set of hosts those codes resolve to. Previously only "en" was
+			// listed, so 19 of the 20 advertised language editions failed with
+			// "access to <lang>.wikipedia.org is not allowed".
+			"allowed_domains": []string{
+				"en.wikipedia.org", "fr.wikipedia.org", "de.wikipedia.org",
+				"es.wikipedia.org", "it.wikipedia.org", "pt.wikipedia.org",
+				"nl.wikipedia.org", "ru.wikipedia.org", "ja.wikipedia.org",
+				"zh.wikipedia.org", "ar.wikipedia.org", "ko.wikipedia.org",
+				"pl.wikipedia.org", "sv.wikipedia.org", "fa.wikipedia.org",
+				"tr.wikipedia.org", "uk.wikipedia.org", "vi.wikipedia.org",
+				"he.wikipedia.org", "id.wikipedia.org",
+			},
 		},
 		"ping": {
 			"enabled": true,

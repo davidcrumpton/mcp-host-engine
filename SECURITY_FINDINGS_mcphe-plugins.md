@@ -26,9 +26,9 @@ Severity summary: **10 High · 17 Medium · 19 Low**.
 
 ## Fix status
 
-First remediation tranche applied: **H1, H2, H3, H4, H5, H6, H7, H8, H9**, plus M1 and M2 in
-the files touched. Each fix has a regression test that was confirmed to **fail against
-the pre-fix source** and pass after (see "Verification" below).
+First remediation tranche applied: **H1–H10** (all High findings), plus M1 and M2 in the files
+touched. Each fix has a regression test that was confirmed to **fail against the pre-fix
+source** and pass after (see "Verification" below).
 
 | ID | Status | Notes |
 |----|--------|-------|
@@ -41,7 +41,7 @@ the pre-fix source** and pass after (see "Verification" below).
 | H7 | Fixed | `gitea`: `headers.toString()` → `headers` (7 sites) |
 | H8 | Fixed | `gitea`: success now from `response.status`, not `body.includes("ok")` (13 sites) |
 | H9 | Fixed | `gitea`: `config.options` guarded |
-| H10 | Open | `wikipedia_search` SSRF via agent-controlled host |
+| H10 | Fixed | `wikipedia_search`: `language` validated against an allow-list; **severity downgraded — was not a live SSRF**, but the same config bug broke 19 of 20 languages |
 
 Two corrections to the original write-up, found while writing the tests:
 
@@ -54,14 +54,19 @@ Two corrections to the original write-up, found while writing the tests:
   allow-listed, `process.env` throws first and the plugin returns early, so the raw-token
   log line was never reached. The leak was real but conditional on config — which is why
   the regression test allow-lists the env vars to exercise the true path.
+- **H10 was overstated.** It was rated High as a live SSRF to the cloud metadata endpoint.
+  Running the payloads through the real `isDomainAllowed` showed every one was blocked by
+  the host allow-list. The plugin flaw was genuine but contained; the *actual* shipped
+  defect was the mirror image — `allowed_domains` was en-only, so 19 of 20 languages failed.
 
-**Not yet fixed:** H10, and the Medium/Low findings except M1/M2 in the files touched.
+**Not yet fixed:** the Medium/Low findings except M1/M2 in the files touched.
 
 ### Verification
 
-Regression tests were added to `gmail`, `microsoft_outlook`, `proxmox`, `gitea` and
-`gitlab` (32 new cases; suite 100 → 132, all passing). Each was run against the stashed
-pre-fix source to confirm it actually catches the bug:
+Regression tests were added to `gmail`, `microsoft_outlook`, `proxmox`, `gitea`, `gitlab`
+and `wikipedia_search` (51 new cases; suite 100 → 149, all passing), plus 3 Go tests in
+`config/wikipedia_langs_test.go`. Each was run against the stashed pre-fix source to confirm
+it actually catches the bug:
 
 | Plugin | Failing before fix |
 |--------|--------------------|
@@ -69,10 +74,14 @@ pre-fix source to confirm it actually catches the bug:
 | `gmail` | 5 of 8 |
 | `gitea` | 10 of 14 |
 | `gitlab` | 2 of 6 |
+| `wikipedia_search` | 12 of 19 |
+| `config` (Go) | 2 of 3 |
 
-`tsc --noEmit` error count went **417 → 403** with no new error kinds. Notably the type
-checker had been flagging H2 all along: 7 × `TS2322: Type '{ Authorization: ... }' is not
-assignable to type 'string'`, now gone.
+`tsc --noEmit` error count went **417 → 403** with no new error kinds in plugin source (the
+17 additional errors are all inside the two new test files, matching the existing pattern for
+plugin tests). Notably the type checker had been flagging H2 all along: 7 × `TS2322: Type
+'{ Authorization: ... }' is not assignable to type 'string'`, now gone. `go build ./...` and
+`go test ./...` are clean.
 
 One deployment caveat: `plugins/microsoft_outlook.js` is listed in `.gitignore` (as are
 `elastic7.js` and `elastic8.js`), so the Outlook fix does not ship via the repo until that
@@ -248,25 +257,63 @@ and the right-hand side evaluates → `TypeError: Cannot read property 'giteaApi
 
 **Fix:** `const opts = host.config.options || {};` and read from `opts`.
 
-## H10. `wikipedia_search` — agent-controlled `language` becomes the request *host* (SSRF)
-`wikipedia_search/plugin.ts:72, 131, 140, 145` **[V]**
+## H10. `wikipedia_search` — agent-controlled `language` becomes the request *host*
+`wikipedia_search/plugin.ts:72, 131, 140, 145` **[V]** — **FIXED (severity downgraded: was not a live SSRF)**
 
 ```ts
 const language = String(params.language || "en").trim().toLowerCase() || "en";
 const base = "https://" + lang + ".wikipedia.org/w/api.php";
 ```
 
-`language` is only trimmed and lowercased — never validated against the `LANG_NAMES` map that
-already exists at line 98, and never pattern-checked. It is concatenated into the **authority**
-of the URL, so `/`, `?` and `#` retarget the request.
+`language` was only trimmed and lowercased — never validated against the `LANG_NAMES` map that
+already existed, and never pattern-checked. It was concatenated into the **authority** of the
+URL, so `/`, `?` and `#` retargeted the request.
 
-**Trigger:** `{"query":"x","language":"169.254.169.254/latest/meta-data#"}` →
-`https://169.254.169.254/latest/meta-data#.wikipedia.org/w/api.php` → a GET to the cloud
-metadata endpoint from the daemon's network position. `mode:"lookup"` fires up to 9 such
-requests per call. Exfiltration is limited by the response parsers, but the request itself is
-fully attacker-directed, and `articleUrl` is returned to the model verbatim.
+**Correction to the original write-up.** I rated this High and claimed it reached the cloud
+metadata endpoint. That was wrong, and I checked it by running the real payloads through the
+real `isDomainAllowed` with the shipped allow-list:
 
-**Fix:** `if (!LANG_NAMES[language]) language = "en";` (or reject), and build the host from that allow-list only.
+| `language` | parsed host | allowed |
+|---|---|---|
+| `169.254.169.254/latest/meta-data#` | `169.254.169.254` | **false** |
+| `en.wikipedia.org@evil.com#` | `evil.com` | **false** |
+| `evil.com?x#` | `evil.com` | **false** |
+| `../internal` | `..` | **false** |
+| `localhost:8080/x#` | `localhost` | **false** |
+
+The Go host checks `allowed_domains` on the *parsed* hostname before issuing the request
+(`host/httpclient/httpclient.go:78`), so every injected host was blocked. The plugin-level
+flaw was real but was **contained by the host allow-list** — defence in depth held. It is a
+latent vulnerability, not an active one: it would become live the moment anyone widened
+`allowed_domains` (see below), which is exactly what the natural fix invites.
+
+**The real bug it exposed was the opposite.** `allowed_domains` was `["en.wikipedia.org"]`, and
+`isDomainAllowed` matches a host or a subdomain of it — so `fr.wikipedia.org` was **blocked**.
+19 of the 20 advertised language editions failed:
+
+```
+{"query":"OpenBSD","language":"fr"}
+→ {"success":false,"result":"Unexpected error: GoError: access to fr.wikipedia.org is not allowed"}
+```
+
+So the plugin advertised 20 languages and shipped exactly one.
+
+**Fix:**
+- `resolveLang()` validates against `LANG_NAMES` and **rejects** an unknown code with the list
+  of valid ones. Rejecting rather than silently falling back to English: returning English
+  text to a caller who asked for French presents the wrong language as the right answer.
+- `wikiHost()` is now the single place a language code becomes a hostname; `apiUrl`,
+  `restSummaryUrl` and `pageUrl` all go through it and it throws on an unknown code. A future
+  call path cannot reintroduce the injection by forgetting to validate first.
+- The `language` schema property gained an `enum` matching `LANG_NAMES`, so the agent is
+  guided to a valid code instead of learning by error.
+- `allowed_domains` (both `config.yaml` and `config/config.go`'s `DefaultConfig`) now lists all
+  20 language hosts **explicitly** — no wildcard, so the boundary stays exact and auditable —
+  which is what makes the advertised feature actually work.
+
+**Regression guard:** `config/wikipedia_langs_test.go` reads `LANG_NAMES` out of the plugin
+source and asserts both configs cover every code, so the two lists cannot drift apart again.
+That is the invariant whose violation caused this bug.
 
 ## H11. `memory` — agent-supplied `session_id` overrides the session header (cross-tenant read/write)
 `memory/plugin.ts:62, 67-73` **[V]**

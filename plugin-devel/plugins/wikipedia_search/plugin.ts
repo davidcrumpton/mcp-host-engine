@@ -54,6 +54,8 @@ const plugin = {
       },
       language: {
         type: "string",
+        enum: ["en", "fr", "de", "es", "it", "pt", "nl", "ru", "ja", "zh",
+               "ar", "ko", "pl", "sv", "fa", "tr", "uk", "vi", "he", "id"],
         default: "en",
         description: "Wikipedia language edition as ISO 639-1 code (e.g. 'fr', 'de', 'es', 'ja'). Defaults to 'en'."
       },
@@ -69,8 +71,20 @@ const plugin = {
 
   call(params: Record<string, unknown>) {
     const query    = String(params.query || "").trim();
-    const language = String(params.language || "en").trim().toLowerCase() || "en";
+    // H10: `language` used to be trimmed and lowercased only, then concatenated
+    // into the URL *authority*, so `/`, `?` and `#` could retarget the request
+    // to an arbitrary host. Validate against the fixed allow-list below before
+    // it is used anywhere.
+    const language = resolveLang(params.language);
     const mode     = String(params.mode || "lookup").trim().toLowerCase();
+
+    if (language === null) {
+      return {
+        success: false,
+        result: "Unsupported language " + JSON.stringify(String(params.language || "")) +
+                ". Supported ISO 639-1 codes: " + SUPPORTED_LANGS.join(", ") + "."
+      };
+    }
 
     // Normalise detail with alias support
     const detailAliases = { intro: "brief", short: "brief", long: "full", all: "full" };
@@ -102,6 +116,37 @@ const LANG_NAMES = {
   tr: "Turkish", uk: "Ukrainian", vi: "Vietnamese", he: "Hebrew", id: "Indonesian"
 };
 
+const DEFAULT_LANG = "en";
+const SUPPORTED_LANGS = Object.keys(LANG_NAMES);
+
+/**
+ * Normalise an agent-supplied language to a known code, or null.
+ *
+ * Returns null rather than silently falling back to English: quietly returning
+ * English text to a caller who asked for French presents the wrong language as
+ * the right answer. The caller turns null into an error listing valid codes.
+ */
+function resolveLang(input: any) {
+  const raw = String(input === undefined || input === null ? "" : input).trim().toLowerCase();
+  const code = raw || DEFAULT_LANG;
+  return Object.prototype.hasOwnProperty.call(LANG_NAMES, code) ? code : null;
+}
+
+/**
+ * The only place a language code becomes a hostname.
+ *
+ * Every URL this plugin builds goes through here, so a language code can never
+ * reach the authority component of a URL -- not even from a future call path
+ * that forgets to validate first. Throws on an unknown code, which the handlers
+ * surface through call()'s catch.
+ */
+function wikiHost(lang: string) {
+  if (!Object.prototype.hasOwnProperty.call(LANG_NAMES, lang)) {
+    throw new Error("unsupported language: " + lang);
+  }
+  return lang + ".wikipedia.org";
+}
+
 const SKIP_SECTIONS = new Set([
   "see also", "references", "external links", "further reading",
   "notes", "bibliography", "citations", "footnotes", "sources"
@@ -128,7 +173,7 @@ function httpGet(url: string, extraHeaders: { [key: string]: any }) {
 }
 
 function apiUrl(lang: string, params: { [key: string]: any }) {
-  const base = "https://" + lang + ".wikipedia.org/w/api.php";
+  const base = "https://" + wikiHost(lang) + "/w/api.php";
   const parts = ["format=json", "utf8=1"];
   for (const k in params) {
     parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
@@ -137,12 +182,12 @@ function apiUrl(lang: string, params: { [key: string]: any }) {
 }
 
 function restSummaryUrl(lang: string, title: string) {
-  return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" +
+  return "https://" + wikiHost(lang) + "/api/rest_v1/page/summary/" +
          encodeURIComponent(title.replace(/ /g, "_"));
 }
 
 function pageUrl(title: string, lang: string) {
-  return "https://" + lang + ".wikipedia.org/wiki/" +
+  return "https://" + wikiHost(lang) + "/wiki/" +
          encodeURIComponent(title.replace(/ /g, "_"));
 }
 
