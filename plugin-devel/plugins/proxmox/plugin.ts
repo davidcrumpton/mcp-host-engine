@@ -127,6 +127,53 @@ const plugin = {
       }
     }
 
+    /**
+     * Validate and normalise an agent-supplied path for mode="raw".
+     *
+     * `path` was previously concatenated straight into the URL, unencoded. The
+     * host's allow-list bounds the host and port only, so `/../../` escaped the
+     * /api2/json prefix, and `#` / `?` truncated the path while reaching the
+     * log line verbatim (log forging). Each segment is now decoded and
+     * re-encoded, and traversal/empty segments are rejected outright rather
+     * than silently normalised -- a caller sending `..` is not doing something
+     * the plugin should guess at.
+     */
+    function sanitiseRawPath(rawPath: any) {
+      const path = String(rawPath);
+
+      if (/[\u0000-\u001f\u007f]/.test(path)) {
+        throw new Error("mode=raw path contains control characters");
+      }
+      if (path.indexOf("#") !== -1 || path.indexOf("?") !== -1) {
+        throw new Error("mode=raw path must not contain '#' or '?'; pass the path only");
+      }
+
+      const segments = path.split("/").filter(function (s) { return s.length > 0; });
+      if (!segments.length) {
+        throw new Error("mode=raw path is empty");
+      }
+
+      const out = [];
+      for (let i = 0; i < segments.length; i++) {
+        let seg;
+        try {
+          seg = decodeURIComponent(segments[i]);
+        } catch (e) {
+          throw new Error("mode=raw path has an invalid percent-encoding: " + segments[i]);
+        }
+        // Checked after decoding, so %2e%2e is caught as well as ..
+        if (seg === "." || seg === "..") {
+          throw new Error("mode=raw path must not contain '.' or '..' segments");
+        }
+        if (seg.indexOf("/") !== -1 || seg.indexOf("\\") !== -1) {
+          throw new Error("mode=raw path segment must not contain a slash: " + seg);
+        }
+        out.push(encodeURIComponent(seg));
+      }
+
+      return "/" + out.join("/");
+    }
+
     const mode = params.mode;
 
     // ROUTING BY MODE (all read-only)
@@ -186,8 +233,22 @@ const plugin = {
 
     } else if (mode === "raw") {
       requireField("path");
-      // Allow arbitrary /api2/json path for advanced use
-      return httpGet(params.path);
+
+      // M2: `raw` forwards an agent-supplied path to the authenticated API, so
+      // it exposes the whole PVE surface under the token -- /access/users dumps
+      // every user and realm, /access/acl every grant. The other modes are a
+      // curated read-only subset; this one is not, so it is opt-in.
+      if (cfg.allow_raw_paths !== true) {
+        return {
+          success: false,
+          error: "mode=\"raw\" is disabled. It forwards an arbitrary path to the " +
+                 "Proxmox API under the plugin's token, so an operator must opt in " +
+                 "with `allow_raw_paths: true` in the proxmox plugin config. " +
+                 "Prefer one of the specific modes."
+        };
+      }
+
+      return httpGet(sanitiseRawPath(params.path));
 
     } else {
       throw new Error("Unsupported mode: " + mode);

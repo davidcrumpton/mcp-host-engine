@@ -1,5 +1,41 @@
 /// <reference path="../../types/mcphe.d.ts" />
 
+/**
+ * Clamp an agent-supplied `limit` AFTER the defaults have been merged.
+ *
+ * M6: Object.assign({limit: 100, ...}, p) let the caller override the bounding
+ * default, so {limit: 10000000} -- or a negative, which Zabbix treats as
+ * unlimited for some objects -- defeated it entirely. Re-applying the bound
+ * after the merge is the fix; the default is only a starting point.
+ *
+ * The ceiling is operator-configurable (options.MaxLimit) so a large deployment
+ * is not silently truncated at an arbitrary number chosen here.
+ */
+function boundLimit(rpcParams: Record<string, any>, def: number, max: number): Record<string, any> {
+  const raw = rpcParams.limit;
+  let n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+
+  if (!isFinite(n) || isNaN(n) || n <= 0) {
+    n = def;
+  }
+  if (n > max) {
+    n = max;
+  }
+
+  rpcParams.limit = n;
+  return rpcParams;
+}
+
+const DEFAULT_LIMIT = 100;
+const FALLBACK_MAX_LIMIT = 1000;
+
+/** Operator-configurable ceiling for a single RPC result set. */
+function maxLimit(): number {
+  const opts = (host.config.options || {}) as Record<string, any>;
+  const v = parseInt(String(opts.MaxLimit), 10);
+  return isFinite(v) && v > 0 ? v : FALLBACK_MAX_LIMIT;
+}
+
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
@@ -7,7 +43,10 @@ const plugin = {
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    // M4: this plugin exposes delete_host and update_item, so the hint must
+    // say so. These hints are permission signals surfaced to the model; an
+    // inaccurate one is a safety defect, not metadata.
+    destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true
   },
@@ -46,6 +85,12 @@ const plugin = {
     const self = module.exports;
     const { CommandEvent } = params;
 
+    // M1: host.process.env THROWS for keys outside allowed_env_vars rather than
+    // returning undefined, so `env(k) || options.X` never reached the fallback.
+    function envOr(key: string, fallback: string): string {
+      try { return host.process.env(key) || fallback; } catch (_e) { return fallback; }
+    }
+
     let apiUrl: string;
     let username: string | undefined;
     let password: string | undefined;
@@ -53,21 +98,15 @@ const plugin = {
 
     // Load config exactly like the GitLab plugin does
     try {
+      const opts = (host.config.options || {}) as Record<string, any>;
       apiUrl =
-        host.process.env("ZABBIX_API_URL") ||
-        host.config.options.ApiUrl ||
-        undefined;
-
-
-
-      authToken =
-        host.process.env("ZABBIX_AUTH_TOKEN") ||
-        host.config.options.AuthToken ||
+        envOr("ZABBIX_API_URL", "") ||
+        opts.ApiUrl ||
         undefined;
 
       authToken =
-        host.process.env("ZABBIX_AUTH_TOKEN") ||
-        host.config.options.AuthToken ||
+        envOr("ZABBIX_AUTH_TOKEN", "") ||
+        opts.AuthToken ||
         undefined;
 
       // skip user and password when token is defined
@@ -76,12 +115,12 @@ const plugin = {
         password = undefined;
       } else {
         username =
-          host.process.env("ZABBIX_USER") ||
-          host.config.options.User ||
+          envOr("ZABBIX_USER", "") ||
+          opts.User ||
           undefined;
         password =
-          host.process.env("ZABBIX_PASSWORD") ||
-          host.config.options.zabbixPassword ||
+          envOr("ZABBIX_PASSWORD", "") ||
+          opts.zabbixPassword ||
           undefined;
       }
 
@@ -212,8 +251,9 @@ const plugin = {
 
       case "get_hosts": {
         const p = params.params || {};
-        // Provide a sane default if none given
-        const rpcParams = Object.assign({ output: "extend" }, p);
+        // Provide a sane default if none given, then bound it: previously this
+        // had no limit at all and the caller's value went straight through.
+        const rpcParams = boundLimit(Object.assign({ output: "extend" }, p), DEFAULT_LIMIT, maxLimit());
         return rpc("host.get", rpcParams, true);
       }
 
@@ -222,24 +262,28 @@ const plugin = {
 
         const p = params.params || {};
         // can't sort by lastvalue and clock as they are not allowed
-        const rpcParams = Object.assign({ output: "extend", limit: 100, sortfield: "itemid", sortorder: "DESC" }, p);
+        const rpcParams = boundLimit(
+          Object.assign({ output: "extend", limit: DEFAULT_LIMIT, sortfield: "itemid", sortorder: "DESC" }, p),
+          DEFAULT_LIMIT, maxLimit());
         return rpc("item.get", rpcParams, true);
       }
 
       case "get_triggers": {
         const p = params.params || {};
-        const rpcParams = Object.assign({ output: "extend", limit: 100, sortfield: "lastchange", sortorder: "DESC" }, p);
+        const rpcParams = boundLimit(
+          Object.assign({ output: "extend", limit: DEFAULT_LIMIT, sortfield: "lastchange", sortorder: "DESC" }, p),
+          DEFAULT_LIMIT, maxLimit());
         return rpc("trigger.get", rpcParams, true);
       }
 
       case "get_events": {
         const p = params.params || {};
-        const rpcParams = Object.assign({
+        const rpcParams = boundLimit(Object.assign({
           output: "extend",
-          limit: 100,
+          limit: DEFAULT_LIMIT,
           sortfield: "eventid",
           sortorder: "DESC"
-        }, p);
+        }, p), DEFAULT_LIMIT, maxLimit());
         return rpc("event.get", rpcParams, true);
       }
 

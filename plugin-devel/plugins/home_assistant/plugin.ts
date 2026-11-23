@@ -28,7 +28,11 @@ const plugin = {
   Tags: ["home-automation", "iot", "utility"],
   annotations: {
     readOnlyHint:    false,
-    destructiveHint: false,
+    // M4: this plugin exposes delete_state, and call_service reaches
+    // lock.unlock / homeassistant.restart / shell_command.*. These hints are
+    // permission signals surfaced to the model; an inaccurate one is a safety
+    // defect, not metadata.
+    destructiveHint: true,
     idempotentHint:  false,
     openWorldHint:   true,
   },
@@ -157,16 +161,28 @@ const plugin = {
   call(params: Record<string, unknown>) {
     const self = module.exports;
 
+    // M1: host.process.env THROWS for keys outside allowed_env_vars rather than
+    // returning undefined, so `env(k) || options.X` never reached the fallback.
+    function envOr(key: string, fallback: string): string {
+      try { return host.process.env(key) || fallback; } catch (_e) { return fallback; }
+    }
+
     // ── Load configuration ────────────────────────────────────────────────
+    // M1: host.process.env THROWS for a key outside allowed_env_vars rather
+    // than returning undefined, so `env(k) || options.X` never reached the
+    // config value. envOr degrades to the fallback instead of letting that
+    // throw fall into the catch below and be reported as a config error
+    // naming an env var the operator never set.
     let apiUrl: string, apiToken: string;
     try {
+      const opts = (host.config.options || {}) as Record<string, any>;
       apiUrl =
-        host.process.env("HASS_URL") ||
-        host.config.options.ApiUrl ||
+        envOr("HASS_URL", "") ||
+        opts.ApiUrl ||
         "https://homeassistant.local:8123";
       apiToken =
-        host.process.env("HASS_TOKEN") ||
-        host.config.options.ApiToken ||
+        envOr("HASS_TOKEN", "") ||
+        opts.ApiToken ||
         undefined;
     } catch (err) {
       return { success: false, error: `Failed to load Home Assistant configuration: ${err.message}` };

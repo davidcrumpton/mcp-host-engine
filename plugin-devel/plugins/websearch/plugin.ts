@@ -66,12 +66,18 @@ const plugin = {
         title = title.replace(/<[^>]+>/g, '').trim();
         snippet = snippet.replace(/<[^>]+>/g, '').trim();
 
+        // M13: `new URL()` does not exist in goja, so this threw a
+        // ReferenceError on every iteration and the catch below swallowed it --
+        // results[].url was always the raw
+        // //duckduckgo.com/l/?uddg=... wrapper instead of the target page.
+        // Silent, permanent wrong output. Use the injected host.url.
         try {
-          const u = new URL(href, 'https://duckduckgo.com');
-          const uddg = u.searchParams.get('uddg');
+          const parsed = host.url.parse(href, 'https://duckduckgo.com');
+          const uddg = parsed.searchParams.get('uddg');
           if (uddg) href = decodeURIComponent(uddg);
-        } catch {
-          // ignore invalid URLs
+        } catch (err) {
+          // Not every href is a redirect wrapper; leave it as-is but say so.
+          host.server.logger(4, `websearch: could not de-redirect ${href}: ${(err as Error).message}`);
         }
 
         results.push({

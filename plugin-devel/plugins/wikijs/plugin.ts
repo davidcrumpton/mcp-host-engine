@@ -47,14 +47,26 @@ const plugin = {
   },
 
   call(params: Record<string, unknown>) {
+    // M1: host.process.env THROWS for keys outside allowed_env_vars rather than
+    // returning undefined, so `env(k) || options.X` never reached the fallback
+    // and a config-only setup failed inside the enclosing catch.
+    function envOr(key: string, fallback: string): string {
+      try { return host.process.env(key) || fallback; } catch (_e) { return fallback; }
+    }
+
     const { CommandEvent } = params;
     let apiUrl;
     let apiToken;
 
     // Load config
     try {
-      apiUrl = host.process.env("WIKIJS_API_URL") || host.config.options.ApiUrl as string;
-      apiToken = host.process.env("WIKIJS_API_TOKEN") || host.config.options.ApiToken as string;
+      // M1: host.process.env THROWS for a key outside allowed_env_vars rather
+      // than returning undefined, so `env(k) || options.X` never reached the
+      // config value and the catch below reported a config failure for an
+      // operator who only ever used options.
+      const opts = (host.config.options || {}) as Record<string, any>;
+      apiUrl = envOr("WIKIJS_API_URL", "") || opts.ApiUrl as string;
+      apiToken = envOr("WIKIJS_API_TOKEN", "") || opts.ApiToken as string;
     } catch (e) {
       return { success: false, error: "Failed to load WikiJS configuration." };
     }
@@ -71,15 +83,53 @@ const plugin = {
       };
 
       try {
-        var resp = host.http.request({
+        const resp = host.http.request({
           method: "POST",
           url: `${apiUrl}/graphql`,
           headers: headers,
           body: JSON.stringify({ query, variables })
-        });
-        return resp;
+        }) as any;
+
+        // M17: this used to `return resp` -- the whole {status, headers, body}
+        // transport object. That put every upstream header (including auth
+        // challenges) in the model's context, left the payload an unparsed
+        // string, and made a 401 from an expired token look like a normal
+        // result with no success:false. Check status, parse, return data only.
+        const status = resp && (resp.status || resp.statusCode);
+        const raw = resp && typeof resp.body === "string" ? resp.body : "";
+
+        if (typeof status === "number" && (status < 200 || status >= 300)) {
+          return {
+            success: false,
+            error: `WikiJS returned HTTP ${status}` + (status === 401 || status === 403
+              ? " -- the API token was rejected or has insufficient permissions."
+              : "")
+          };
+        }
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (_parseErr) {
+          return {
+            success: false,
+            error: "WikiJS returned a non-JSON response" +
+                   (raw ? ` (first 200 chars: ${raw.slice(0, 200)})` : " (empty body)")
+          };
+        }
+
+        // GraphQL reports failures in-band with HTTP 200.
+        if (parsed && Array.isArray(parsed.errors) && parsed.errors.length) {
+          const first = parsed.errors[0] || {};
+          return {
+            success: false,
+            error: "WikiJS GraphQL error: " + (first.message || JSON.stringify(first))
+          };
+        }
+
+        return { success: true, result: parsed && parsed.data !== undefined ? parsed.data : parsed };
       } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, error: (error as any)?.message || String(error) };
       }
     };
 

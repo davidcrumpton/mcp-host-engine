@@ -56,8 +56,11 @@ function makeMockSearchParams(init = ""): URLSearchParamsObject {
 // Mock ParsedURL
 // ---------------------------------------------------------------------------
 
-function makeMockParsedURL(href: string): ParsedURL {
-  const u = new URL(href);
+function makeMockParsedURL(href: string, base?: string): ParsedURL {
+  // Honour the base argument, like Go's url.Parse/ResolveReference does. Without
+  // this a protocol-relative href such as "//host/path?q=1" throws, and the
+  // caller silently falls back to the raw value.
+  const u = new URL(href, base);
   return {
     href: u.href,
     origin: u.origin,
@@ -162,7 +165,7 @@ export function buildMockHost(options: {
   };
 
   const url: HostURL = {
-    parse:        (href: string) => makeMockParsedURL(href),
+    parse:        (href: string, base?: string) => makeMockParsedURL(href, base),
     canParse:     (href: string) => { try { new URL(href); return true; } catch { return false; } },
     resolve:      (base: string, rel: string) => new URL(rel, base).href,
     searchParams: (init: string) => makeMockSearchParams(init),

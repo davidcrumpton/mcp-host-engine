@@ -57,6 +57,10 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+// M7: bound on retained workspace tokens. Without a cap the map only ever grew,
+// keeping every destroyed workspace's bearer token for the process lifetime.
+const MAX_WORKSPACE_TOKENS = 256;
+
 const wsdPlugin = {
   name: "mcwsd",
   description:
@@ -242,7 +246,6 @@ const wsdPlugin = {
   },
 
   call(params: Params) {
-    const self = module.exports as any;
     const CommandEvent = str(params.CommandEvent);
 
     // Per-instance options take precedence over process-wide environment
@@ -273,6 +276,20 @@ const wsdPlugin = {
 
     baseUrl = baseUrl.replace(/\/$/, "");
     host.server.logger(3, `mcwsd: CommandEvent=${CommandEvent} baseUrl=${baseUrl}`);
+
+    // H12: _workspaceHeaders refuses an unowned workspace by throwing, so that
+    // the check cannot be forgotten at any of the 13 call sites. Catch it here
+    // and turn it into a normal tool error rather than an uncaught exception.
+    try {
+      return this._dispatch(CommandEvent, params, token, baseUrl);
+    } catch (err) {
+      host.server.logger(1, `mcwsd: ${CommandEvent} refused: ${(err as Error).message}`);
+      return { success: false, error: (err as Error).message || String(err) };
+    }
+  },
+
+  _dispatch(CommandEvent: string, params: Params, token: string, baseUrl: string): any {
+    const self = module.exports as any;
 
     switch (CommandEvent) {
       case "prepare_workspace":
@@ -322,9 +339,12 @@ const wsdPlugin = {
 
   // Workspace tokens learned from prepare_workspace and terminal provisioning
   // job responses. They live on the plugin object so they survive across calls
-  // in the same MCP host process. If a workspace has no registered token we
-  // fall back to the admin token (which the daemon accepts only in scoped
-  // mode); strict mode rejects that fallback.
+  // in the same MCP host process.
+  //
+  // H12: entries are keyed by caller identity AND workspace id, not by
+  // workspace id alone. The map is instance-level and shared, so keying on the
+  // id alone let any caller present a workspace id that some *other* caller had
+  // provisioned and authenticate as that workspace.
   _workspaceTokens: {} as Record<string, string>,
 
   _headers(token: string, json: boolean) {
@@ -333,16 +353,139 @@ const wsdPlugin = {
     return h;
   },
 
+  /** The host-provided caller identity ("-" when the daemon has none). */
+  _identity(): string {
+    const id = (host as any).identity;
+    return typeof id === "string" && id !== "" ? id : "-";
+  },
+
+  _tokenKey(workspaceId: string): string {
+    return this._identity() + "\u0000" + workspaceId;
+  },
+
   _rememberWorkspaceToken(workspaceId: unknown, token: unknown) {
     const id = str(workspaceId);
     const tok = str(token);
-    if (id && tok) this._workspaceTokens[id] = tok;
+    if (!id || !tok) return;
+
+    const key = this._tokenKey(id);
+
+    // M7: the map only ever grew -- a workspace's bearer token stayed in memory
+    // for the process lifetime after the workspace was destroyed. Bound it, and
+    // evict the oldest entry when full (insertion order is stable for string
+    // keys, so keys[0] is the oldest).
+    if (!(key in this._workspaceTokens)) {
+      const keys = Object.keys(this._workspaceTokens);
+      if (keys.length >= MAX_WORKSPACE_TOKENS) {
+        delete this._workspaceTokens[keys[0]];
+      }
+    }
+    this._workspaceTokens[key] = tok;
   },
 
+  /** M7: drop a workspace's token when it is destroyed. */
+  _forgetWorkspaceToken(workspaceId: unknown) {
+    const id = str(workspaceId);
+    if (!id) return;
+    delete this._workspaceTokens[this._tokenKey(id)];
+  },
+
+  /**
+   * Record a workspace token from a provisioning response.
+   *
+   * Reads the RAW response body, because _handleResponse redacts
+   * workspace_token (M8) before the result reaches the model. The plugin still
+   * needs the real value to authenticate later calls, so it is captured here
+   * from the unredacted body and never from the returned object.
+   */
+  _rememberTokenFromResponse(resp: any) {
+    const raw = resp && typeof resp.body === "string" ? resp.body : "";
+    if (!raw) return;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_e) {
+      return;
+    }
+    if (!isObj(parsed)) return;
+
+    this._rememberWorkspaceToken(parsed.workspace_id, parsed.workspace_token);
+
+    const ws = parsed.workspace;
+    if (isObj(ws)) {
+      this._rememberWorkspaceToken(ws.workspace_id, ws.workspace_token);
+    }
+  },
+
+  /**
+   * Headers for a workspace-scoped request.
+   *
+   * H12 (part 2, fixed): tokens are keyed by caller identity AND workspace id,
+   * so supplying a workspace id that some *other* caller provisioned no longer
+   * authenticates as that workspace.
+   *
+   * H12 (part 1, narrowed): an unknown workspace still falls back to the
+   * control-plane token by default. That fallback is documented daemon
+   * behaviour -- the daemon accepts the admin token only in scoped mode and
+   * rejects it in strict mode -- and refusing it outright broke every caller
+   * that creates workspaces out of band. It is now logged on every use, and
+   * `allow_admin_token_fallback: false` refuses instead. Set that to close it.
+   */
   _workspaceHeaders(params: Params, adminToken: string, json: boolean) {
     const id = str(params.workspace_id);
-    const token = this._workspaceTokens[id] || adminToken;
-    return this._headers(token, json);
+    const key = this._tokenKey(id);
+    const known = this._workspaceTokens[key];
+
+    if (known) {
+      return this._headers(known, json);
+    }
+
+    if (this._allowAdminTokenFallback()) {
+      host.server.logger(
+        1,
+        `mcwsd: no workspace token for ${id} owned by ${this._identity()}; using the admin token ` +
+        `(set allow_admin_token_fallback: false to refuse this)`
+      );
+      return this._headers(adminToken, json);
+    }
+
+    throw new Error(
+      `no workspace token is held for workspace ${id} under the current caller identity, and ` +
+      `allow_admin_token_fallback is disabled. Provision it with prepare_workspace first.`
+    );
+  },
+
+  _allowAdminTokenFallback(): boolean {
+    const opts = ((host.config as Record<string, any>) || {}).options;
+    return !(opts && opts.allow_admin_token_fallback === false);
+  },
+
+  /**
+   * M8: strip workspace bearer tokens from anything returned to the model.
+   *
+   * The provisioning responses carry `workspace_token` (the plugin reads it at
+   * the call site), and _handleResponse used to return the whole parsed body --
+   * handing that bearer secret to the agent, where a prompt-injected
+   * instruction can exfiltrate it. The plugin keeps the token; the model does
+   * not need it.
+   */
+  _stripSecrets(value: any, depth: number): any {
+    if (depth > 8 || value === null || typeof value !== "object") {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map((v: any) => this._stripSecrets(v, depth + 1));
+    }
+    const out: Record<string, any> = {};
+    for (const k of Object.keys(value)) {
+      if (k === "workspace_token" || k === "token") {
+        out[k] = "[redacted]";
+        continue;
+      }
+      out[k] = this._stripSecrets(value[k], depth + 1);
+    }
+    return out;
   },
 
   _handleResponse(resp: any, label: string) {
@@ -350,7 +493,7 @@ const wsdPlugin = {
     const bodyText = typeof resp.body === "string" ? resp.body : "";
     if (status >= 200 && status < 300) {
       try {
-        return { success: true, result: JSON.parse(bodyText) };
+        return { success: true, result: this._stripSecrets(JSON.parse(bodyText), 0) };
       } catch (e) {
         return { success: true, result: bodyText };
       }
@@ -420,11 +563,9 @@ const wsdPlugin = {
 
     try {
       const resp = host.http.post(baseUrl + "/workspaces", this._headers(token, true), JSON.stringify(payload));
-      const handled = this._handleResponse(resp, "prepare_workspace");
-      if (handled.success && isObj(handled.result)) {
-        this._rememberWorkspaceToken(handled.result.workspace_id, handled.result.workspace_token);
-      }
-      return handled;
+      // Capture the workspace token from the raw body before it is redacted.
+      this._rememberTokenFromResponse(resp);
+      return this._handleResponse(resp, "prepare_workspace");
     } catch (err) {
       return { success: false, error: `Error preparing workspace: ${(err as Error).message}` };
     }
@@ -538,6 +679,8 @@ const wsdPlugin = {
     try {
       const resp = host.http.delete(this._wsUrl(baseUrl, params.workspace_id, ""), this._workspaceHeaders(params, token, false));
       if (resp.status >= 200 && resp.status < 300) {
+        // M7: do not retain a destroyed workspace's bearer token.
+        this._forgetWorkspaceToken(params.workspace_id);
         return { success: true, result: `Workspace ${params.workspace_id} destroyed.` };
       }
       return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
@@ -644,14 +787,9 @@ const wsdPlugin = {
     if (cursor) url += "?cursor=" + encodeURIComponent(cursor);
     try {
       const resp = host.http.get(url, this._workspaceHeaders(params, token, false));
-      const handled = this._handleResponse(resp, "get_job");
-      if (handled.success && isObj(handled.result) && isObj(handled.result.workspace)) {
-        this._rememberWorkspaceToken(
-          handled.result.workspace.workspace_id,
-          handled.result.workspace.workspace_token
-        );
-      }
-      return handled;
+      // Capture the workspace token from the raw body before it is redacted.
+      this._rememberTokenFromResponse(resp);
+      return this._handleResponse(resp, "get_job");
     } catch (err) {
       return { success: false, error: `Error getting job: ${(err as Error).message}` };
     }
