@@ -11,7 +11,10 @@ before:
 
 builds:
   - id: mcphe
-    main: ./main.go
+    # Build the whole main package, not just main.go: the daemon now spans
+    # several root-level files (configguard.go, pidfile*.go), so a single-file
+    # build fails with "undefined: configGuard".
+    main: .
     binary: mcphe
     env:
       - CGO_ENABLED=0
