@@ -10,10 +10,7 @@ configuration/
 mcphe
 *.swp
 tls/
-plugins/microsoft_outlook.js
 plugins/README for agentic AI to rapidly build.js
-plugins/elastic7.js
-plugins/elastic8.js
 plugins/AGENT.md
 plugins/README for agentic AI to rapidly build.md
 plugin-devel/plugins/README for agentic AI to rapidly build
