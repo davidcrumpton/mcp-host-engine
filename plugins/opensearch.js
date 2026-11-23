@@ -1,4 +1,21 @@
 "use strict";
+function opensearchErrText(err) {
+  const e = err;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+function opensearchTruncate(value, max) {
+  const s = String(value === void 0 || value === null ? "" : value);
+  return s.length > max ? s.slice(0, max) + "\u2026 (truncated)" : s;
+}
+function opensearchBoundedInt(raw, dflt, min, max) {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw === void 0 || raw === null ? "" : raw), 10);
+  if (!isFinite(n)) return dflt;
+  const v = Math.floor(n);
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
+}
 function opensearchGlobMatch(pattern, value) {
   let re = "^";
   for (let i = 0; i < pattern.length; i++) {
@@ -85,8 +102,8 @@ const plugin = {
     if (username && password) {
       headers["Authorization"] = "Basic " + host.utils.btoa(username + ":" + password);
     }
-    const size = params.size || 10;
-    const from = params.from || 0;
+    const size = opensearchBoundedInt(params.size, 10, 1, 1e3);
+    const from = opensearchBoundedInt(params.from, 0, 0, 1e5);
     const indexProblem = opensearchIndexGuard(params.indexName, cfg);
     if (indexProblem) {
       throw new Error(indexProblem);
@@ -100,11 +117,20 @@ const plugin = {
         body: params.query
       });
       if (resp.status !== 200) {
-        return { success: false, error: "HTTP " + resp.status, body: resp.body };
+        host.server.logger(4, `opensearch: upstream HTTP ${resp.status}: ${opensearchTruncate(resp.body, 512)}`);
+        return { success: false, error: "HTTP " + resp.status, status: resp.status };
       }
-      return { success: true, data: JSON.parse(resp.body) };
+      try {
+        return { success: true, data: JSON.parse(resp.body) };
+      } catch (parseErr) {
+        return {
+          success: false,
+          error: "OpenSearch returned a non-JSON body: " + opensearchErrText(parseErr),
+          status: resp.status
+        };
+      }
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: opensearchErrText(err) };
     }
   }
 };

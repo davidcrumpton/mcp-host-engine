@@ -106,8 +106,7 @@ const plugin = {
         return { success: false, error: (error == null ? void 0 : error.message) || String(error) };
       }
     };
-    host.server.logger(4, `CommandEvent: ${CommandEvent}`);
-    host.server.logger(4, `Params: ${JSON.stringify(params.params)}`);
+    host.server.logger(4, `wikijs: CommandEvent=${CommandEvent}`);
     switch (CommandEvent) {
       // Search for pages
       case "search_pages": {
@@ -128,8 +127,6 @@ const plugin = {
             }
             }
         `;
-        host.server.logger(1, `GraphQL Query: ${graphqlQuery}`);
-        host.server.logger(1, `GraphQL Variables: ${JSON.stringify({ query })}`);
         return graphqlRequest(graphqlQuery, { query });
       }
       // Get a specific page

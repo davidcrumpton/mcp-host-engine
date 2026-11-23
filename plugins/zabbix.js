@@ -1,4 +1,9 @@
 "use strict";
+function zabbixErrText(err) {
+  const e = err;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
 function boundLimit(rpcParams, def, max) {
   const raw = rpcParams.limit;
   let n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
@@ -95,10 +100,10 @@ const plugin = {
         `Zabbix plugin config: apiUrl=${apiUrl}, user=${username}, authToken=${authToken ? "***" : "MISSING"}`
       );
     } catch (err) {
-      host.server.logger(1, `Zabbix plugin configuration error: ${err.message}`);
+      host.server.logger(1, `Zabbix plugin configuration error: ${zabbixErrText(err)}`);
       return {
         success: false,
-        error: `Zabbix plugin configuration error: ${err.message}`
+        error: `Zabbix plugin configuration error: ${zabbixErrText(err)}`
       };
     }
     if (!apiUrl) {
@@ -107,7 +112,7 @@ const plugin = {
       return { success: false, error: errorMsg };
     }
     function rpc(method, rpcParams = {}, useAuth = true) {
-      var _a, _b, _c;
+      var _a;
       const body = {
         jsonrpc: "2.0",
         method,
@@ -131,7 +136,7 @@ const plugin = {
           body: payload
         });
         const status = (_a = response.status) != null ? _a : response.statusCode;
-        const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
+        const bodyText = typeof response.body === "string" ? response.body : "";
         if (status >= 200 && status < 300) {
           let parsed;
           try {
@@ -139,7 +144,7 @@ const plugin = {
           } catch (e) {
             return {
               success: false,
-              error: `Failed to parse Zabbix response JSON: ${e.message}, raw=${bodyText}`
+              error: `Failed to parse Zabbix response JSON: ${zabbixErrText(e)}`
             };
           }
           if (parsed.error) {
@@ -155,13 +160,14 @@ const plugin = {
         } else {
           return {
             success: false,
-            error: `Zabbix API HTTP error ${status}: ${bodyText}`
+            status,
+            error: `Zabbix API HTTP error ${status}`
           };
         }
       } catch (err) {
         return {
           success: false,
-          error: `Zabbix API request error: ${err.message}`
+          error: `Zabbix API request error: ${zabbixErrText(err)}`
         };
       }
     }
@@ -233,7 +239,8 @@ const plugin = {
       }
       case "delete_host": {
         const p = params.params || {};
-        const hostids = p.hostids || p.hostid ? [p.hostid || p.hostids].flat() : [];
+        const rawIds = p.hostid !== void 0 && p.hostid !== null && p.hostid !== "" ? p.hostid : p.hostids;
+        const hostids = Array.isArray(rawIds) ? rawIds : rawIds === void 0 || rawIds === null || rawIds === "" ? [] : [rawIds];
         if (!hostids.length) {
           return {
             success: false,

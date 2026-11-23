@@ -84,13 +84,14 @@ const plugin = {
     detail = detailAliases[detail] || detail;
     if (!["brief", "standard", "full"].includes(detail)) detail = "standard";
     if (!query) return { success: false, result: "query parameter is required." };
+    lastTransportFailure = null;
     try {
       if (mode === "search") {
         return searchMode(query, language);
       }
       return lookupMode(query, detail, language);
     } catch (err) {
-      return { success: false, result: "Unexpected error: " + err.message };
+      return { success: false, result: "Unexpected error: " + wikiErrText(err) };
     }
   }
 };
@@ -119,6 +120,27 @@ const LANG_NAMES = {
 };
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = Object.keys(LANG_NAMES);
+const MAX_WIKITEXT = 262144;
+let lastTransportFailure = null;
+function noteTransport(resp, url) {
+  const status = resp && typeof resp.status === "number" ? resp.status : 0;
+  if (status === 200) return false;
+  lastTransportFailure = { status, url };
+  return true;
+}
+function transportFailureResult() {
+  if (!lastTransportFailure) return null;
+  return {
+    success: false,
+    error: "Wikipedia request failed: HTTP " + lastTransportFailure.status,
+    status: lastTransportFailure.status
+  };
+}
+function wikiErrText(err) {
+  const e = err;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
 function resolveLang(input) {
   const raw = String(input === void 0 || input === null ? "" : input).trim().toLowerCase();
   const code = raw || DEFAULT_LANG;
@@ -180,6 +202,7 @@ function stripHtml(text) {
 }
 function stripWikitext(text) {
   if (!text) return "";
+  if (text.length > MAX_WIKITEXT) text = text.slice(0, MAX_WIKITEXT);
   let prev;
   let iterations = 0;
   do {
@@ -222,7 +245,7 @@ function searchTitles(query, lang, limit) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     return data.query && data.query.search || [];
@@ -236,7 +259,7 @@ function fetchRestSummary(lang, title) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return null;
+  if (noteTransport(resp, url)) return null;
   try {
     return JSON.parse(resp.body);
   } catch (e) {
@@ -257,7 +280,7 @@ function fetchExtract(title, lang, introOnly) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return "";
+  if (noteTransport(resp, url)) return "";
   try {
     const data = JSON.parse(resp.body);
     const pages = data.query && data.query.pages || {};
@@ -278,7 +301,7 @@ function fetchSections(title, lang) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     return data.parse && data.parse.sections || [];
@@ -299,7 +322,7 @@ function fetchSectionText(title, lang, sectionIndex) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return "";
+  if (noteTransport(resp, url)) return "";
   try {
     const data = JSON.parse(resp.body);
     const wikitext = data.parse && data.parse.wikitext && data.parse.wikitext["*"] || "";
@@ -321,7 +344,7 @@ function fetchLinks(title, lang, limit) {
     method: "GET",
     url
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     const pages = data.query && data.query.pages || {};
@@ -351,6 +374,8 @@ function handleDisambiguation(title, lang, searchResults) {
 function searchMode(query, lang) {
   const results = searchTitles(query, lang, 8);
   if (!results.length) {
+    const failure = transportFailureResult();
+    if (failure) return failure;
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
     return { success: false, result: 'No Wikipedia results found for "' + query + '"' + label };
   }
@@ -368,6 +393,8 @@ function searchMode(query, lang) {
 function lookupMode(query, detail, lang) {
   const searchResults = searchTitles(query, lang, 6);
   if (!searchResults.length) {
+    const failure = transportFailureResult();
+    if (failure) return failure;
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
     return { success: false, result: 'No Wikipedia articles found for "' + query + '"' + label };
   }

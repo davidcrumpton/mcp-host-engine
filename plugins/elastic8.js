@@ -1,4 +1,9 @@
 "use strict";
+function elastic8ErrText(err) {
+  const e = err;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
 function elastic8GlobMatch(pattern, value) {
   let re = "^";
   for (let i = 0; i < pattern.length; i++) {
@@ -74,7 +79,8 @@ const plugin = {
     if (indexProblem) {
       throw new Error(indexProblem);
     }
-    const url = baseUrl + "/" + encodeURIComponent(params.index) + "_search";
+    const root = baseUrl.replace(/\/+$/, "");
+    const url = root + "/" + encodeURIComponent(params.index) + "/_search";
     const headers = {
       "Authorization": "Bearer " + apiKey,
       "Accept": "application/json"
@@ -83,15 +89,27 @@ const plugin = {
       const resp = host.http.rawPost(url, headers, JSON.stringify(params.query));
       host.server.logger(3, "elastic8: response status=" + resp.status);
       if (resp.status === 404) {
-        return { success: false, error: "Record not found" };
+        return {
+          success: false,
+          error: "Index not found: " + params.index,
+          status: 404
+        };
       }
       if (resp.status !== 200) {
-        return { success: false, error: "HTTP error " + resp.status };
+        return { success: false, error: "HTTP error " + resp.status, status: resp.status };
       }
-      return { success: true, data: JSON.parse(resp.body) };
+      try {
+        return { success: true, data: JSON.parse(resp.body) };
+      } catch (parseErr) {
+        return {
+          success: false,
+          error: "Elastic8 returned a non-JSON body: " + elastic8ErrText(parseErr),
+          status: resp.status
+        };
+      }
     } catch (err) {
-      host.server.logger(1, "elastic8 error: " + err.message);
-      return { success: false, error: err.message };
+      host.server.logger(1, "elastic8 error: " + elastic8ErrText(err));
+      return { success: false, error: elastic8ErrText(err) };
     }
   }
 };

@@ -35,6 +35,9 @@ function safeSessionName(session) {
   }
   return /^\.+$/.test(out) ? out.replace(/\./g, "%2E") : out;
 }
+function hasOwnKey(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
 function loadAll(memoryFile) {
   let exists = false;
   try {
@@ -185,7 +188,7 @@ const plugin = {
       }
       case "get": {
         if (!key) return 'Error: "key" is required for action "get"';
-        if (!(String(key) in ns)) {
+        if (!hasOwnKey(ns, String(key))) {
           return { success: false, error: `No memory found for key: ${key}` };
         }
         return {
@@ -195,7 +198,7 @@ const plugin = {
       }
       case "delete": {
         if (!key) return 'Error: "key" is required for action "delete"';
-        if (!(String(key) in ns)) return `No memory found for key: ${key}`;
+        if (!hasOwnKey(ns, String(key))) return `No memory found for key: ${key}`;
         delete ns[String(key)];
         const writeErr = saveAll(ns, memoryFile, tempFile);
         if (writeErr) {

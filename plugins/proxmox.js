@@ -110,9 +110,14 @@ const plugin = {
       }
     }
     function requireField(name) {
-      if (!params[name]) {
+      const v = params[name];
+      if (v === void 0 || v === null || v === "") {
         throw new Error("Missing required field: " + name + " for mode=" + params.mode);
       }
+      if (typeof v !== "string" && typeof v !== "number") {
+        throw new Error("Field " + name + " must be a string or number for mode=" + params.mode);
+      }
+      return v;
     }
     function sanitiseRawPath(rawPath) {
       const path = String(rawPath);

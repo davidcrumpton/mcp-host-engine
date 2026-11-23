@@ -103,6 +103,14 @@ module.exports = {
         type: "boolean",
         description: "Initialize with README"
       },
+      license: {
+        type: "string",
+        description: 'License template for a new repository, e.g. "MIT", "Apache-2.0". Omitted means no license file.'
+      },
+      gitignore: {
+        type: "string",
+        description: 'gitignore template for a new repository, e.g. "Node", "Go". Omitted means no .gitignore.'
+      },
       ref: {
         type: "string",
         description: "Branch/tag/commit to get contents from"
@@ -309,7 +317,7 @@ module.exports = {
     };
   },
   createRepository: function(params, headers, baseUrl) {
-    const { name, description, visibility, initialize_with_readme } = params;
+    const { name, description, visibility, initialize_with_readme, license, gitignore } = params;
     const apiUrl = `${baseUrl}/api/v1/user/repos`;
     if (visibility !== void 0 && visibility !== "private" && visibility !== "public") {
       return {
@@ -321,8 +329,12 @@ module.exports = {
       name,
       description,
       private: visibility !== "public",
-      gitignores: "Node",
-      license: "MIT",
+      // L11: these were hardcoded to "Node"/"MIT", so every repository this
+      // plugin created was stamped MIT-licensed and Node-gitignored with no way
+      // to change it -- a licensing statement the caller never made. Now
+      // caller-supplied, and absent means absent.
+      gitignores: typeof gitignore === "string" ? gitignore : "",
+      license: typeof license === "string" ? license : "",
       readme: initialize_with_readme ? "default" : ""
     };
     const response = host.http.request({

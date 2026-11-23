@@ -1,4 +1,9 @@
 "use strict";
+function haErrText(err) {
+  const e = err;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
 const plugin = {
   name: "home_assistant",
   description: "Control and query Home Assistant via its REST API. Supports getting/setting entity states, calling services (turn lights on/off, etc.), firing events, listing calendars, rendering templates, and more.",
@@ -144,7 +149,7 @@ const plugin = {
       apiUrl = envOr("HASS_URL", "") || opts.ApiUrl || "https://homeassistant.local:8123";
       apiToken = envOr("HASS_TOKEN", "") || opts.ApiToken || void 0;
     } catch (err) {
-      return { success: false, error: `Failed to load Home Assistant configuration: ${err.message}` };
+      return { success: false, error: `Failed to load Home Assistant configuration: ${haErrText(err)}` };
     }
     if (!apiUrl) {
       return { success: false, error: "Missing Home Assistant URL. Set options.ApiUrl in config or the HASS_URL environment variable." };
@@ -163,7 +168,7 @@ const plugin = {
         const resp = host.http.request({ method: "GET", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `GET ${path} failed: ${err.message}` };
+        return { success: false, error: `GET ${path} failed: ${haErrText(err)}` };
       }
     }
     function post(path, body = null) {
@@ -171,7 +176,7 @@ const plugin = {
         const resp = host.http.request({ method: "POST", url: `${apiUrl}${path}`, headers: authHeaders, body: body ? JSON.stringify(body) : "{}" });
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `POST ${path} failed: ${err.message}` };
+        return { success: false, error: `POST ${path} failed: ${haErrText(err)}` };
       }
     }
     function del(path) {
@@ -179,7 +184,7 @@ const plugin = {
         const resp = host.http.request({ method: "DELETE", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `DELETE ${path} failed: ${err.message}` };
+        return { success: false, error: `DELETE ${path} failed: ${haErrText(err)}` };
       }
     }
     switch (params.CommandEvent) {
@@ -334,8 +339,8 @@ const plugin = {
     const hint = errorMessages[status] || "";
     return {
       success: false,
-      error: `HTTP ${status}${hint ? ": " + hint : ""}`,
-      detail: bodyText || void 0
+      status,
+      error: `HTTP ${status}${hint ? ": " + hint : ""}`
     };
   }
 };
