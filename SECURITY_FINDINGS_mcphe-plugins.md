@@ -65,6 +65,25 @@ findings are untouched.
 | M15 | Fixed | `env`: description no longer presents an agent-chosen env var read as inert |
 | M16 | Fixed | `run_command`: description matches the host — no shell, the allow-list is the boundary |
 | M17 | Fixed | `wikijs`, `gmail`: response bodies parsed; upstream headers no longer returned to the model |
+| L1 | **Open** | `(err && err.message) \|\| String(err)` not applied — 37 raw `err.message` sites remain, 5 use the safe form |
+| L2 | **Open** | `.flat()` still at `zabbix:305`; `response.text?.()` dead code remains in `gitlab` (13 sites) and `zabbix:182` |
+| L3 | **Open** | `websearch`: status still unchecked; `max_results` still unvalidated |
+| L4 | **Open** | `wikipedia_search`: a 429/5xx still returns "No Wikipedia articles found" |
+| L5 | **Open** | `google_search`, `get_ip`: no status check, `JSON.parse` still unguarded |
+| L6 | **Open** | `elastic7`/`elastic8`: no trailing-slash normalisation; a `_search` 404 still reports "Record not found" |
+| L7 | **Open** | `kibana:128`, `opensearch:128`: `params.size \|\| 10` unchanged |
+| L8 | **Open** | `kibana:151`, `opensearch:151` still return the raw upstream body to the model |
+| L9 | **Open** | `proxmox:124`: `requireField` is still a truthiness test |
+| L10 | **Open** | `gitlab`: enum still omits `update_file` while `case` at `:222` handles it; `page`/`per_page` still unguarded |
+| L11 | **Open** | `gitea:335-336`: every repo still stamped Node/MIT |
+| L12 | Fixed | Incidental — the H1 rewrite made the config-error path return `error`, not `result` |
+| L13 | **Open** | `wikijs:161-162`: GraphQL query and variables still logged verbatim |
+| L14 | Partial | `get` of an absent key now returns `{success:false}`; `delete` still uses `in`, so prototype keys report a deletion that never happened |
+| L15 | Fixed | `memory`: `safeSessionName` percent-escapes everything outside `[A-Za-z0-9._-]`, added with the H11 work |
+| L16 | **Open** | Regex cost untouched — `websearch:56` `[\s\S]*?`, `wikipedia_search` `[[` scan |
+| L17 | **Open** | `types/mcphe.d.ts:36` still declares positional `request(method, url, headers?, body?)` |
+| L18 | **Open** | `mock-host.ts:115,120` still `startsWith` with no directory boundary |
+| L19 | Partial | `gitlab`, `gitea`, `proxmox` now invoke `call()` via the H/M regression tests; `elastic7`, `elastic8`, `kibana`, `opensearch`, `google_search` are still metadata-only |
 
 Every plugin touched by the remediation was patch-bumped in `ed01f4a`, so `plugin list` reports a
 version that matches the behaviour actually installed. A plugin whose behaviour changed without a
@@ -87,7 +106,9 @@ Two corrections to the original write-up, found while writing the tests:
   the host allow-list. The plugin flaw was genuine but contained; the *actual* shipped
   defect was the mirror image — `allowed_domains` was en-only, so 19 of 20 languages failed.
 
-**Not yet fixed:** the 19 Low findings.
+**Low findings: 2 fixed, 2 partial, 15 open.** None were worked directly; L12 and L15 fell out of the
+H1 and H11 fixes, and L14/L19 are half-done for the same reason. Each row above was re-checked
+against source at this revision rather than carried over from the original write-up.
 
 ### Verification
 
