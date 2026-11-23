@@ -152,8 +152,18 @@ module.exports = {
     const self = module.exports;
     const { CommandEvent } = params;
 
-    const giteaApiKey = host.process.env("GITEA_API_KEY") || host.config.options.giteaApiKey;
-    const giteaApiUrl = host.process.env("GITEA_API_URL") || host.config.options.giteaApiUrl || "https://try.gitea.io";
+    const opts = (host.config.options || {}) as Record<string, any>;
+
+    // host.process.env THROWS for a key outside allowed_env_vars rather than
+    // returning undefined, so treat a throw as "not configured via env" and
+    // fall through to the config value.
+    let envKey = "";
+    let envUrl = "";
+    try { envKey = host.process.env("GITEA_API_KEY") || ""; } catch (envErr) { envKey = ""; }
+    try { envUrl = host.process.env("GITEA_API_URL") || ""; } catch (envErr) { envUrl = ""; }
+
+    const giteaApiKey = envKey || opts.giteaApiKey;
+    const giteaApiUrl = envUrl || opts.giteaApiUrl || "https://try.gitea.io";
     if (!giteaApiKey) {
       return {
         success: false,
@@ -208,7 +218,7 @@ module.exports = {
     const fileResponse = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     })
     let sha = null;
     if (fileResponse.body) {
@@ -285,7 +295,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {
@@ -351,7 +361,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {
@@ -381,7 +391,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {
@@ -541,7 +551,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {
@@ -568,7 +578,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {
@@ -595,7 +605,7 @@ module.exports = {
     const response = host.http.request({
       method: 'GET',
       url: apiUrl,
-      headers: headers.toString()
+      headers: headers
     });
     if (!response.body) {
       return {

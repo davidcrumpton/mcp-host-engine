@@ -156,10 +156,20 @@ const plugin = {
     const perPage = params.per_page ?? 20;
 
     let apiKey;
+    let baseUrl = "https://gitlab.com";
     try {
-      apiKey = host.process.env("GITLAB_API_KEY") || host.config.options.gitlabApiKey || undefined;
-      const baseUrl = host.config.options.gitlabBaseUrl || "https://gitlab.com";
-      
+      // host.process.env THROWS for a key outside allowed_env_vars rather than
+      // returning undefined, so a throw here means "not configured that way" --
+      // fall back to config instead of treating it as a fatal error.
+      try {
+        apiKey = host.process.env("GITLAB_API_KEY") || undefined;
+      } catch (envErr) {
+        apiKey = undefined;
+      }
+      const opts = (host.config.options || {}) as Record<string, any>;
+      apiKey = apiKey || opts.gitlabApiKey || undefined;
+      baseUrl = opts.gitlabBaseUrl || "https://gitlab.com";
+
       host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
       host.server.logger(1, `GitLab plugin config: apiKey=${apiKey ? '***' : 'MISSING'}, baseUrl=${baseUrl}`);
     } catch (err) {
@@ -170,18 +180,13 @@ const plugin = {
       };
     }
 
-    const baseUrl = host.config.options.gitlabBaseUrl || "https://gitlab.com";
-
-    host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
-    host.server.logger(1, `GitLab plugin config: apiKey=${apiKey}, baseUrl=${baseUrl}`);
-
     // Check for API key first
     if (!apiKey) {
       const errorMsg = "Missing GitLab API key in host.config.options.gitlabApiKey";
       host.server.logger(1, errorMsg);
       return {
         success: false,
-        result: errorMsg
+        error: errorMsg
       };
     }
 
@@ -251,11 +256,9 @@ const plugin = {
 
     try {
       const response = host.httpPut(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -303,11 +306,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -346,10 +347,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;
@@ -394,11 +393,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -441,10 +438,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;
@@ -486,10 +481,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;
@@ -537,11 +530,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -591,11 +582,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -633,11 +622,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -679,11 +666,9 @@ const plugin = {
 
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
@@ -731,10 +716,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;
@@ -781,10 +764,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;
@@ -831,10 +812,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       
       const status = response.status ?? response.statusCode;

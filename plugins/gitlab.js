@@ -155,11 +155,18 @@ const plugin = {
     const page = (_a = params.page) != null ? _a : 1;
     const perPage = (_b = params.per_page) != null ? _b : 20;
     let apiKey;
+    let baseUrl = "https://gitlab.com";
     try {
-      apiKey = host.process.env("GITLAB_API_KEY") || host.config.options.gitlabApiKey || void 0;
-      const baseUrl2 = host.config.options.gitlabBaseUrl || "https://gitlab.com";
+      try {
+        apiKey = host.process.env("GITLAB_API_KEY") || void 0;
+      } catch (envErr) {
+        apiKey = void 0;
+      }
+      const opts = host.config.options || {};
+      apiKey = apiKey || opts.gitlabApiKey || void 0;
+      baseUrl = opts.gitlabBaseUrl || "https://gitlab.com";
       host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
-      host.server.logger(1, `GitLab plugin config: apiKey=${apiKey ? "***" : "MISSING"}, baseUrl=${baseUrl2}`);
+      host.server.logger(1, `GitLab plugin config: apiKey=${apiKey ? "***" : "MISSING"}, baseUrl=${baseUrl}`);
     } catch (err) {
       host.server.logger(1, `GitLab plugin configuration error: ${err.message}`);
       return {
@@ -167,15 +174,12 @@ const plugin = {
         error: `GitLab plugin configuration error: ${err.message}`
       };
     }
-    const baseUrl = host.config.options.gitlabBaseUrl || "https://gitlab.com";
-    host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
-    host.server.logger(1, `GitLab plugin config: apiKey=${apiKey}, baseUrl=${baseUrl}`);
     if (!apiKey) {
       const errorMsg = "Missing GitLab API key in host.config.options.gitlabApiKey";
       host.server.logger(1, errorMsg);
       return {
         success: false,
-        result: errorMsg
+        error: errorMsg
       };
     }
     const token = `Bearer ${apiKey}`;
@@ -238,11 +242,9 @@ const plugin = {
     }
     try {
       const response = host.httpPut(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -285,11 +287,9 @@ const plugin = {
     };
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -324,10 +324,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -367,11 +365,9 @@ const plugin = {
     };
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -410,10 +406,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -451,10 +445,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -497,11 +489,9 @@ const plugin = {
     };
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -546,11 +536,9 @@ const plugin = {
     };
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -583,11 +571,9 @@ const plugin = {
     const body = namespace ? { namespace } : {};
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -624,11 +610,9 @@ const plugin = {
     };
     try {
       const response = host.httpPost(url, {
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/json",
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "Content-Type": "application/json",
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       }, JSON.stringify(body));
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -667,10 +651,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -709,10 +691,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";
@@ -751,10 +731,8 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url,
-        headers: {
-          "Authorization": token,
-          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
-        }
+        "Authorization": token,
+        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
       });
       const status = (_a = response.status) != null ? _a : response.statusCode;
       const bodyText = typeof response.body === "string" ? response.body : (_c = (_b = response.text) == null ? void 0 : _b.call(response)) != null ? _c : "";

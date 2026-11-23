@@ -55,16 +55,20 @@ const plugin = {
 
   // call() must NOT be async. All host.* calls are synchronous — no await needed.
   call(params: Record<string, unknown>) {
-    const cfg = host.server.config();
+    const cfg = (host.server.config() || {}) as Record<string, any>;
 
-    // ENV VARS ALWAYS OVERRIDE CONFIG
-    const baseUrl =
-      host.process.env("PROXMOX_BASE_URL") ||
-      cfg.base_url;
+    // ENV VARS ALWAYS OVERRIDE CONFIG.
+    // host.process.env THROWS for a key outside allowed_env_vars rather than
+    // returning undefined, so treat a throw as "not configured via env" --
+    // otherwise a config-only deployment fails on an env var it never used.
+    let envBaseUrl = "";
+    let envApiToken = "";
+    try { envBaseUrl = host.process.env("PROXMOX_BASE_URL") || ""; } catch (envErr) { envBaseUrl = ""; }
+    try { envApiToken = host.process.env("PROXMOX_API_TOKEN") || ""; } catch (envErr) { envApiToken = ""; }
+
+    const baseUrl = envBaseUrl || cfg.base_url;
     // <USERNAME>@<REALM>!<TOKEN_NAME>=<GUID>
-    const apiToken =
-      host.process.env("PROXMOX_API_TOKEN") ||
-      cfg.api_token;
+    const apiToken = envApiToken || cfg.api_token;
 
     if (!baseUrl || !apiToken) {
       throw new Error("base_url and api_token must be set via env vars or plugin config");
@@ -79,35 +83,41 @@ const plugin = {
 
     // Headers must be a FLAT object: { "Key": "value" }
     function httpGet(apiPath) {
-      const url = buildUrl("/api2/json" + apiPath);
       const headers = {
         "Authorization": "PVEAPIToken=" + apiToken,
         "Accept":        "application/json"
       };
 
       try {
+        // buildUrl can throw on a non-string path, so keep it inside the try.
+        const url = buildUrl("/api2/json" + apiPath);
         host.server.logger(4, "proxmox_api GET " + url);
-        const resp = JSON.parse(host.http.request({ method: "GET", url, headers }));
+        // host.http.request returns {status, headers, body}; body is the string.
+        const resp = host.http.request({ method: "GET", url, headers });
 
         if (resp.status < 200 || resp.status >= 300) {
           host.server.logger(2, "proxmox_api HTTP error " + resp.status + " for " + url);
           return {
             success: false,
             status:  resp.status,
-            error:   "HTTP " + resp.status,
-            body:    resp.body
+            error:   "HTTP " + resp.status
           };
         }
 
-        const parsed = JSON.parse(resp.body);
-        return {
-          success: true,
-          status:  resp.status,
-          data:    parsed.data !== undefined ? parsed.data : parsed
-        };
+        try {
+          const parsed = JSON.parse(resp.body);
+          return {
+            success: true,
+            status:  resp.status,
+            data:    parsed.data !== undefined ? parsed.data : parsed
+          };
+        } catch (parseErr) {
+          return { success: false, status: resp.status, error: "response was not JSON" };
+        }
       } catch (err) {
-        host.server.logger(1, "proxmox_api error: " + err.message);
-        return { success: false, error: err.message };
+        const msg = (err as any)?.message || String(err);
+        host.server.logger(1, "proxmox_api error: " + msg);
+        return { success: false, error: msg };
       }
     }
 

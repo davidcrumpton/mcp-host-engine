@@ -52,12 +52,21 @@ const plugin = {
   },
   // call() must NOT be async. All host.* calls are synchronous — no await needed.
   call(params) {
-    const cfg = host.server.config();
-    // Options live in the plugin's options: block; the flat keys are kept as a
-    // fallback for older configs.
-    const opts = (cfg && cfg.options) || {};
-    const baseUrl = host.process.env("PROXMOX_BASE_URL") || opts.base_url || cfg.base_url;
-    const apiToken = host.process.env("PROXMOX_API_TOKEN") || opts.api_token || cfg.api_token;
+    const cfg = host.server.config() || {};
+    let envBaseUrl = "";
+    let envApiToken = "";
+    try {
+      envBaseUrl = host.process.env("PROXMOX_BASE_URL") || "";
+    } catch (envErr) {
+      envBaseUrl = "";
+    }
+    try {
+      envApiToken = host.process.env("PROXMOX_API_TOKEN") || "";
+    } catch (envErr) {
+      envApiToken = "";
+    }
+    const baseUrl = envBaseUrl || cfg.base_url;
+    const apiToken = envApiToken || cfg.api_token;
     if (!baseUrl || !apiToken) {
       throw new Error("base_url and api_token must be set via env vars or plugin config");
     }
@@ -68,32 +77,36 @@ const plugin = {
       return base + path;
     }
     function httpGet(apiPath) {
-      const url = buildUrl("/api2/json" + apiPath);
       const headers = {
         "Authorization": "PVEAPIToken=" + apiToken,
         "Accept": "application/json"
       };
       try {
+        const url = buildUrl("/api2/json" + apiPath);
         host.server.logger(4, "proxmox_api GET " + url);
-        const resp = JSON.parse(host.http.request({ method: "GET", url, headers }));
+        const resp = host.http.request({ method: "GET", url, headers });
         if (resp.status < 200 || resp.status >= 300) {
           host.server.logger(2, "proxmox_api HTTP error " + resp.status + " for " + url);
           return {
             success: false,
             status: resp.status,
-            error: "HTTP " + resp.status,
-            body: resp.body
+            error: "HTTP " + resp.status
           };
         }
-        const parsed = JSON.parse(resp.body);
-        return {
-          success: true,
-          status: resp.status,
-          data: parsed.data !== void 0 ? parsed.data : parsed
-        };
+        try {
+          const parsed = JSON.parse(resp.body);
+          return {
+            success: true,
+            status: resp.status,
+            data: parsed.data !== void 0 ? parsed.data : parsed
+          };
+        } catch (parseErr) {
+          return { success: false, status: resp.status, error: "response was not JSON" };
+        }
       } catch (err) {
-        host.server.logger(1, "proxmox_api error: " + err.message);
-        return { success: false, error: err.message };
+        const msg = (err == null ? void 0 : err.message) || String(err);
+        host.server.logger(1, "proxmox_api error: " + msg);
+        return { success: false, error: msg };
       }
     }
     function requireField(name) {

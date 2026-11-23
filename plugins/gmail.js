@@ -40,13 +40,21 @@ const plugin = {
     required: ["CommandEvent"]
   },
   call(params) {
-    let apiUrl, apiToken;
+    const opts = host.config.options || {};
+    let envUrl = "";
+    let envToken = "";
     try {
-      apiUrl = host.process.env("GMAIL_API_URL") || host.config.options.ApiUrl || "https://gmail.googleapis.com/gmail/v1";
-      apiToken = host.process.env("GMAIL_API_TOKEN") || host.config.options.ApiToken || void 0;
-    } catch (err) {
-      return { success: false, error: `Failed to load Gmail configuration: ${err.message}` };
+      envUrl = host.process.env("GMAIL_API_URL") || "";
+    } catch (envErr) {
+      envUrl = "";
     }
+    try {
+      envToken = host.process.env("GMAIL_API_TOKEN") || "";
+    } catch (envErr) {
+      envToken = "";
+    }
+    let apiUrl = envUrl || opts.ApiUrl || "https://gmail.googleapis.com/gmail/v1";
+    const apiToken = envToken || opts.ApiToken || void 0;
     if (!apiUrl) {
       return { success: false, error: "Missing Gmail URL. Set options.ApiUrl in config or the GMAIL_API_URL environment variable." };
     }
@@ -55,39 +63,55 @@ const plugin = {
     }
     apiUrl = apiUrl.replace(/\/$/, "");
     host.server.logger(3, `gmail: CommandEvent=${params.CommandEvent} apiUrl=${apiUrl}`);
+    const get = (path, label) => {
+      try {
+        const response = host.http.request({
+          method: "GET",
+          url: apiUrl + path,
+          headers: { "Authorization": `Bearer ${apiToken}` }
+        });
+        const status = response.status;
+        if (status < 200 || status >= 300) {
+          return { success: false, status, error: `${label}: HTTP ${status}` };
+        }
+        try {
+          return { success: true, status, data: JSON.parse(response.body) };
+        } catch (parseErr) {
+          return { success: false, status, error: `${label}: response was not JSON` };
+        }
+      } catch (err) {
+        const msg = (err == null ? void 0 : err.message) || String(err);
+        return { success: false, error: `${label}: ${msg}` };
+      }
+    };
+    const requireStr = (name) => {
+      const v = params[name];
+      return typeof v === "string" && v !== "" ? v : null;
+    };
     switch (params.CommandEvent) {
       case "list_labels":
-        try {
-          const url = `${apiUrl}/users/me/labels?access_token=${apiToken}`;
-          const response = host.http.request({ method: "GET", url });
-          return response;
-        } catch (err) {
-          return { success: false, error: `Failed to list labels: ${err.message}` };
+        return get("/users/me/labels", "Failed to list labels");
+      case "list_messages": {
+        const label = requireStr("label");
+        if (!label) {
+          return { success: false, error: "label is required for list_messages" };
         }
-      case "list_messages":
-        try {
-          const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&labelIds=${params.label}`;
-          const response = host.http.request({ method: "GET", url });
-          return response;
-        } catch (err) {
-          return { success: false, error: `Failed to list messages: ${err.message}` };
+        return get(`/users/me/messages?labelIds=${encodeURIComponent(label)}`, "Failed to list messages");
+      }
+      case "read_message": {
+        const messageId = requireStr("message_id");
+        if (!messageId) {
+          return { success: false, error: "message_id is required for read_message" };
         }
-      case "read_message":
-        try {
-          const url = `${apiUrl}/users/me/messages/${params.message_id}?access_token=${apiToken}`;
-          const response = host.http.request({ method: "GET", url });
-          return response;
-        } catch (err) {
-          return { success: false, error: `Failed to read message: ${err.message}` };
+        return get(`/users/me/messages/${encodeURIComponent(messageId)}`, "Failed to read message");
+      }
+      case "search_messages": {
+        const query = requireStr("query");
+        if (!query) {
+          return { success: false, error: "query is required for search_messages" };
         }
-      case "search_messages":
-        try {
-          const url = `${apiUrl}/users/me/messages?access_token=${apiToken}&q=${params.query}`;
-          const response = host.http.request({ method: "GET", url });
-          return response;
-        } catch (err) {
-          return { success: false, error: `Failed to search messages: ${err.message}` };
-        }
+        return get(`/users/me/messages?q=${encodeURIComponent(query)}`, "Failed to search messages");
+      }
       default:
         return { success: false, error: `Unknown CommandEvent: ${params.CommandEvent}` };
     }
