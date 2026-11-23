@@ -2,12 +2,16 @@
 const plugin = {
   name: "home_assistant",
   description: "Control and query Home Assistant via its REST API. Supports getting/setting entity states, calling services (turn lights on/off, etc.), firing events, listing calendars, rendering templates, and more.",
-  version: "1.1.4",
+  version: "1.1.5",
   commit: "none",
   Tags: ["home-automation", "iot", "utility"],
   annotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    // M4: this plugin exposes delete_state, and call_service reaches
+    // lock.unlock / homeassistant.restart / shell_command.*. These hints are
+    // permission signals surfaced to the model; an inaccurate one is a safety
+    // defect, not metadata.
+    destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true
   },
@@ -127,10 +131,18 @@ const plugin = {
   },
   call(params) {
     const self = module.exports;
+    function envOr(key, fallback) {
+      try {
+        return host.process.env(key) || fallback;
+      } catch (_e) {
+        return fallback;
+      }
+    }
     let apiUrl, apiToken;
     try {
-      apiUrl = host.process.env("HASS_URL") || host.config.options.ApiUrl || "https://homeassistant.local:8123";
-      apiToken = host.process.env("HASS_TOKEN") || host.config.options.ApiToken || void 0;
+      const opts = host.config.options || {};
+      apiUrl = envOr("HASS_URL", "") || opts.ApiUrl || "https://homeassistant.local:8123";
+      apiToken = envOr("HASS_TOKEN", "") || opts.ApiToken || void 0;
     } catch (err) {
       return { success: false, error: `Failed to load Home Assistant configuration: ${err.message}` };
     }

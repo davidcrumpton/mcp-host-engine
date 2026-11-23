@@ -2,7 +2,7 @@
 const plugin = {
   name:        "outlook_365",
   description: "Microsoft Outlook 365.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit:      "none",
   Tags:        ["office365", "email"],
   annotations: {

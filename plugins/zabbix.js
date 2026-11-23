@@ -1,12 +1,34 @@
 "use strict";
+function boundLimit(rpcParams, def, max) {
+  const raw = rpcParams.limit;
+  let n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+  if (!isFinite(n) || isNaN(n) || n <= 0) {
+    n = def;
+  }
+  if (n > max) {
+    n = max;
+  }
+  rpcParams.limit = n;
+  return rpcParams;
+}
+const DEFAULT_LIMIT = 100;
+const FALLBACK_MAX_LIMIT = 1e3;
+function maxLimit() {
+  const opts = host.config.options || {};
+  const v = parseInt(String(opts.MaxLimit), 10);
+  return isFinite(v) && v > 0 ? v : FALLBACK_MAX_LIMIT;
+}
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
-  version: "1.1.3",
+  version: "1.1.4",
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    // M4: this plugin exposes delete_host and update_item, so the hint must
+    // say so. These hints are permission signals surfaced to the model; an
+    // inaccurate one is a safety defect, not metadata.
+    destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true
   },
@@ -42,20 +64,27 @@ const plugin = {
   call(params) {
     const self = module.exports;
     const { CommandEvent } = params;
+    function envOr(key, fallback) {
+      try {
+        return host.process.env(key) || fallback;
+      } catch (_e) {
+        return fallback;
+      }
+    }
     let apiUrl;
     let username;
     let password;
     let authToken;
     try {
-      apiUrl = host.process.env("ZABBIX_API_URL") || host.config.options.ApiUrl || void 0;
-      authToken = host.process.env("ZABBIX_AUTH_TOKEN") || host.config.options.AuthToken || void 0;
-      authToken = host.process.env("ZABBIX_AUTH_TOKEN") || host.config.options.AuthToken || void 0;
+      const opts = host.config.options || {};
+      apiUrl = envOr("ZABBIX_API_URL", "") || opts.ApiUrl || void 0;
+      authToken = envOr("ZABBIX_AUTH_TOKEN", "") || opts.AuthToken || void 0;
       if (authToken) {
         username = void 0;
         password = void 0;
       } else {
-        username = host.process.env("ZABBIX_USER") || host.config.options.User || void 0;
-        password = host.process.env("ZABBIX_PASSWORD") || host.config.options.zabbixPassword || void 0;
+        username = envOr("ZABBIX_USER", "") || opts.User || void 0;
+        password = envOr("ZABBIX_PASSWORD", "") || opts.zabbixPassword || void 0;
       }
       host.server.logger(
         1,
@@ -163,27 +192,35 @@ const plugin = {
       }
       case "get_hosts": {
         const p = params.params || {};
-        const rpcParams = Object.assign({ output: "extend" }, p);
+        const rpcParams = boundLimit(Object.assign({ output: "extend" }, p), DEFAULT_LIMIT, maxLimit());
         return rpc("host.get", rpcParams, true);
       }
       case "get_items": {
         const p = params.params || {};
-        const rpcParams = Object.assign({ output: "extend", limit: 100, sortfield: "itemid", sortorder: "DESC" }, p);
+        const rpcParams = boundLimit(
+          Object.assign({ output: "extend", limit: DEFAULT_LIMIT, sortfield: "itemid", sortorder: "DESC" }, p),
+          DEFAULT_LIMIT,
+          maxLimit()
+        );
         return rpc("item.get", rpcParams, true);
       }
       case "get_triggers": {
         const p = params.params || {};
-        const rpcParams = Object.assign({ output: "extend", limit: 100, sortfield: "lastchange", sortorder: "DESC" }, p);
+        const rpcParams = boundLimit(
+          Object.assign({ output: "extend", limit: DEFAULT_LIMIT, sortfield: "lastchange", sortorder: "DESC" }, p),
+          DEFAULT_LIMIT,
+          maxLimit()
+        );
         return rpc("trigger.get", rpcParams, true);
       }
       case "get_events": {
         const p = params.params || {};
-        const rpcParams = Object.assign({
+        const rpcParams = boundLimit(Object.assign({
           output: "extend",
-          limit: 100,
+          limit: DEFAULT_LIMIT,
           sortfield: "eventid",
           sortorder: "DESC"
-        }, p);
+        }, p), DEFAULT_LIMIT, maxLimit());
         return rpc("event.get", rpcParams, true);
       }
       case "create_host": {

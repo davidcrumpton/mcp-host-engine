@@ -1,8 +1,43 @@
 "use strict";
+function opensearchGlobMatch(pattern, value) {
+  let re = "^";
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern.charAt(i);
+    if (ch === "*") {
+      re += ".*";
+    } else if ("\\^$.|?+()[]{}".indexOf(ch) !== -1) {
+      re += "\\" + ch;
+    } else {
+      re += ch;
+    }
+  }
+  return new RegExp(re + "$").test(value);
+}
+function opensearchIndexGuard(index, cfg) {
+  const name = typeof index === "string" ? index : "";
+  if (!name) {
+    return "index is required";
+  }
+  const configured = cfg && Array.isArray(cfg.allowed_index_patterns) ? cfg.allowed_index_patterns.map(function(p) {
+    return String(p);
+  }) : [];
+  if (configured.length) {
+    for (let i = 0; i < configured.length; i++) {
+      if (opensearchGlobMatch(configured[i], name)) {
+        return null;
+      }
+    }
+    return `index ${JSON.stringify(name)} is not permitted by allowed_index_patterns (${configured.join(", ")}).`;
+  }
+  if (name.indexOf("*") !== -1 && cfg.allow_wildcard_index !== true) {
+    return `index ${JSON.stringify(name)} contains '*', which expands to every index the credential can see, security indices included. Set allowed_index_patterns (or allow_wildcard_index: true) in the plugin config to permit it.`;
+  }
+  return null;
+}
 const plugin = {
   name: "opensearch",
   description: "Fetch data from OpenSearch Dashboard/OpenSearch using query string syntax.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit: "none",
   Tags: ["search", "opensearch"],
   annotations: {
@@ -23,12 +58,24 @@ const plugin = {
   },
   // call() must NOT be async. All host.* calls are synchronous — no await needed.
   call(params) {
+    function envOr(key, fallback) {
+      try {
+        return host.process.env(key) || fallback;
+      } catch (_e) {
+        return fallback;
+      }
+    }
     const cfg = host.config;
-    const baseUrl = host.process.env("OPENSEARCH_BASE_URL") || cfg.opensearch_base_url;
-    const username = host.process.env("OPENSEARCH_USERNAME") || cfg.opensearch_username;
-    const password = host.process.env("OPENSEARCH_PASSWORD") || cfg.opensearch_password;
+    const baseUrl = envOr("OPENSEARCH_BASE_URL", cfg.opensearch_base_url);
+    const username = envOr("OPENSEARCH_USERNAME", cfg.opensearch_username);
+    const password = envOr("OPENSEARCH_PASSWORD", cfg.opensearch_password);
     if (!baseUrl) {
       throw new Error("opensearch_base_url must be set in plugin config");
+    }
+    if (username && !password || !username && password) {
+      throw new Error(
+        "opensearch_username and opensearch_password must both be set, or neither. Only one is configured, so the request would be sent unauthenticated."
+      );
     }
     const headers = {
       "Content-Type": "application/json",
@@ -40,6 +87,10 @@ const plugin = {
     }
     const size = params.size || 10;
     const from = params.from || 0;
+    const indexProblem = opensearchIndexGuard(params.indexName, cfg);
+    if (indexProblem) {
+      throw new Error(indexProblem);
+    }
     const url = baseUrl.replace(/\/$/, "") + "/api/console/proxy?path=" + encodeURIComponent("/" + params.indexName + "/_search?size=" + size + "&from=" + from) + "&method=POST";
     try {
       const resp = host.http.request({

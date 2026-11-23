@@ -39,7 +39,7 @@ function maxLimit(): number {
 const plugin = {
   name: "zabbix",
   description: "Zabbix 6+ MCP tools for monitoring, host management, items, triggers, and events.",
-  version: "1.1.3",
+  version: "1.1.4",
   Tags: ["monitoring", "zabbix", "infrastructure"],
   annotations: {
     readOnlyHint: false,

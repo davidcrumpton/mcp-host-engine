@@ -3,7 +3,7 @@
 const plugin = {
   name: "gitlab",
   description: "Extended GitLab tools for project management, file operations, and collaboration.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit: "none",
   Tags: ["development", "utility", "gitlab"],
   annotations: {

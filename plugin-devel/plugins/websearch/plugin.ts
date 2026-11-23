@@ -7,7 +7,7 @@
 const plugin = {
   name: 'websearch',
   description: 'Search DuckDuckGo',
-  version: '1.1.1',
+  version: '1.1.2',
   commit: 'none',
   tags: ['websearch', 'duckduckgo'],
   annotations: {

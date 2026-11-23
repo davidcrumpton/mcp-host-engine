@@ -2,7 +2,7 @@
 const plugin = {
   name: "wikijs",
   description: "WikiJS MCP tools for page management, search, and content operations using GraphQL API.",
-  version: "1.1.2",
+  version: "1.1.3",
   Tags: ["wiki", "documentation", "content-management", "graphql"],
   annotations: {
     readOnlyHint: false,
@@ -45,12 +45,20 @@ const plugin = {
     required: ["CommandEvent"]
   },
   call(params) {
+    function envOr(key, fallback) {
+      try {
+        return host.process.env(key) || fallback;
+      } catch (_e) {
+        return fallback;
+      }
+    }
     const { CommandEvent } = params;
     let apiUrl;
     let apiToken;
     try {
-      apiUrl = host.process.env("WIKIJS_API_URL") || host.config.options.ApiUrl;
-      apiToken = host.process.env("WIKIJS_API_TOKEN") || host.config.options.ApiToken;
+      const opts = host.config.options || {};
+      apiUrl = envOr("WIKIJS_API_URL", "") || opts.ApiUrl;
+      apiToken = envOr("WIKIJS_API_TOKEN", "") || opts.ApiToken;
     } catch (e) {
       return { success: false, error: "Failed to load WikiJS configuration." };
     }
@@ -63,15 +71,39 @@ const plugin = {
         Authorization: `Bearer ${apiToken}`
       };
       try {
-        var resp = host.http.request({
+        const resp = host.http.request({
           method: "POST",
           url: `${apiUrl}/graphql`,
           headers,
           body: JSON.stringify({ query, variables })
         });
-        return resp;
+        const status = resp && (resp.status || resp.statusCode);
+        const raw = resp && typeof resp.body === "string" ? resp.body : "";
+        if (typeof status === "number" && (status < 200 || status >= 300)) {
+          return {
+            success: false,
+            error: `WikiJS returned HTTP ${status}` + (status === 401 || status === 403 ? " -- the API token was rejected or has insufficient permissions." : "")
+          };
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (_parseErr) {
+          return {
+            success: false,
+            error: "WikiJS returned a non-JSON response" + (raw ? ` (first 200 chars: ${raw.slice(0, 200)})` : " (empty body)")
+          };
+        }
+        if (parsed && Array.isArray(parsed.errors) && parsed.errors.length) {
+          const first = parsed.errors[0] || {};
+          return {
+            success: false,
+            error: "WikiJS GraphQL error: " + (first.message || JSON.stringify(first))
+          };
+        }
+        return { success: true, result: parsed && parsed.data !== void 0 ? parsed.data : parsed };
       } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, error: (error == null ? void 0 : error.message) || String(error) };
       }
     };
     host.server.logger(4, `CommandEvent: ${CommandEvent}`);

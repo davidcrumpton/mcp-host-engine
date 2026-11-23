@@ -1,7 +1,7 @@
 module.exports = {
   name: "gitea",
   description: "Extended Gitea tools for project management, file operations, and collaboration.",
-  version: "1.0.3",
+  version: "1.0.4",
   commit: "none",
   Tags: ["development", "utility", "gitea"],
   annotations: {
@@ -95,8 +95,8 @@ module.exports = {
       },
       visibility: {
         type: "string",
-        description: "Visibility level",
-        enum: ["private", "internal", "public"]
+        description: "Visibility level. Defaults to private. Gitea's instance-wide \"internal\" level is not supported: the API call would otherwise create a public repository.",
+        enum: ["private", "public"]
       },
       initialize_with_readme: {
         type: "boolean",
@@ -313,10 +313,25 @@ module.exports = {
   createRepository:  function (params: Record<string, unknown>, headers: Record<string, unknown>, baseUrl: string): Record<string, unknown> {
     const { name, description, visibility, initialize_with_readme } = params;
     const apiUrl = `${baseUrl}/api/v1/user/repos`;
+
+    // M5: `private: visibility === 'private'` made every unrecognised or omitted
+    // value public. Gitea's "internal" means "any logged-in user on this
+    // instance", which is not something this plugin can express as a boolean,
+    // so it is refused rather than silently downgraded to public. Anything that
+    // is not an explicit "public" is created private.
+    if (visibility !== undefined && visibility !== "private" && visibility !== "public") {
+      return {
+        success: false,
+        error: `visibility ${JSON.stringify(visibility)} is not supported; use "private" or "public". ` +
+               `Gitea's "internal" visibility is instance-wide and is not exposed here, ` +
+               `because the request would otherwise be sent as a public repository.`
+      };
+    }
+
     const body = {
       name: name,
       description: description,
-      private: visibility === 'private',
+      private: visibility !== "public",
       gitignores: "Node",
       license: "MIT",
       readme: initialize_with_readme ? "default" : ""

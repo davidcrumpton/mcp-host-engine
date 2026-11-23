@@ -3,7 +3,7 @@
 const plugin = {
   name: "wikijs",
   description: "WikiJS MCP tools for page management, search, and content operations using GraphQL API.",
-  version: "1.1.2",
+  version: "1.1.3",
   Tags: ["wiki", "documentation", "content-management", "graphql"],
   annotations: {
     readOnlyHint: false,

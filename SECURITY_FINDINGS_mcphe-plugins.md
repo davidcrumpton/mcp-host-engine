@@ -30,6 +30,9 @@ First remediation tranche applied: **H1–H10** (all High findings), plus M1 and
 touched. Each fix has a regression test that was confirmed to **fail against the pre-fix
 source** and pass after (see "Verification" below).
 
+Second tranche: **H11–H12 and M1–M17** (all remaining High and all Medium findings). The Low
+findings are untouched.
+
 | ID | Status | Notes |
 |----|--------|-------|
 | H1 | Fixed | Duplicate config block deleted; `baseUrl` hoisted to `let` |
@@ -42,6 +45,25 @@ source** and pass after (see "Verification" below).
 | H8 | Fixed | `gitea`: success now from `response.status`, not `body.includes("ok")` (13 sites) |
 | H9 | Fixed | `gitea`: `config.options` guarded |
 | H10 | Fixed | `wikipedia_search`: `language` validated against an allow-list; **severity downgraded — was not a live SSRF**, but the same config bug broke 19 of 20 languages |
+| H11 | Fixed | `memory`: agent-supplied `session_id` must match the `Mcp-Session-Id` header; traversal ids rejected |
+| H12 | Fixed | `mcwsd`: workspace credential is keyed off the session, not an agent-supplied id |
+| M1 | Fixed | `envOr` helper applied across every plugin; config-only setups reach the fallback |
+| M2 | Fixed | `proxmox`: `mode:"raw"` is opt-in and traversal-sanitised |
+| M3 | Fixed | `kibana`, `opensearch`: half-configured credentials throw instead of sending unauthenticated |
+| M4 | Fixed | `home_assistant`, `zabbix`: `destructiveHint` corrected to `true` |
+| M5 | Fixed | `gitea`: omitted visibility defaults to private; `internal` refused rather than sent as public |
+| M6 | Fixed | `zabbix`: `limit` bound re-applied after agent `params` are merged |
+| M7 | Fixed | `mcwsd`: workspace tokens pruned on destroy |
+| M8 | Fixed | `mcwsd`: token redacted from tool results |
+| M9 | Fixed | `memory`: write failures propagate; `set` no longer reports false success |
+| M10 | Fixed | `memory`: a corrupt store is refused, not silently replaced with `{}` |
+| M11 | Fixed | `memory`: retention and per-call rewrite bounded |
+| M12 | Fixed | `memory`: `data_dir` is required; predictable `/tmp` default removed |
+| M13 | Fixed | `websearch`: de-redirects via `host.url` instead of `new URL()` |
+| M14 | Fixed | `gitea`, `elastic7`, `elastic8`, `kibana`, `opensearch`: agent-chosen index/repo validated against `allowed_index_patterns`; wildcards refused by default |
+| M15 | Fixed | `env`: description no longer presents an agent-chosen env var read as inert |
+| M16 | Fixed | `run_command`: description matches the host — no shell, the allow-list is the boundary |
+| M17 | Fixed | `wikijs`, `gmail`: response bodies parsed; upstream headers no longer returned to the model |
 
 Two corrections to the original write-up, found while writing the tests:
 
@@ -59,7 +81,7 @@ Two corrections to the original write-up, found while writing the tests:
   the host allow-list. The plugin flaw was genuine but contained; the *actual* shipped
   defect was the mirror image — `allowed_domains` was en-only, so 19 of 20 languages failed.
 
-**Not yet fixed:** the Medium/Low findings except M1/M2 in the files touched.
+**Not yet fixed:** the 19 Low findings.
 
 ### Verification
 
@@ -76,6 +98,13 @@ it actually catches the bug:
 | `gitlab` | 2 of 6 |
 | `wikipedia_search` | 12 of 19 |
 | `config` (Go) | 2 of 3 |
+
+The second tranche adds `plugins/medium_fixes.test.ts` (25 cases) covering M1, M2, M3, M5, M6,
+M9–M14, H11 and H12. Suite is now **174 tests across 25 files, all passing**.
+
+Two fixes in this tranche (`elastic7` M1/M14 and `gitea` M5) were written, lost to a bad
+backup during the commit, and re-applied afterwards — the committed test file caught them,
+which is why they are listed here rather than silently absent.
 
 `tsc --noEmit` error count went **417 → 403** with no new error kinds in plugin source (the
 17 additional errors are all inside the two new test files, matching the existing pattern for

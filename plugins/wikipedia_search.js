@@ -7,7 +7,7 @@ const plugin = {
     "or 'full' (complete article). Supports 20+ languages via ISO 639-1 codes.",
     "Handles disambiguation pages and returns related article links."
   ].join(" "),
-  version: "2.1.4",
+  version: "2.1.5",
   commit: "none",
   Tags: ["search", "utility"],
   annotations: {

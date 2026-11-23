@@ -65,7 +65,7 @@ const wsdPlugin = {
   name: "mcwsd",
   description:
     "MC Workspace Daemon (mcwsd): prepare ephemeral dev workspaces, run commands, edit/read/write files, manage background jobs (start/poll/cancel with incremental output), pull diffs/artifacts, open pull/merge requests, check status, and tear down via the local mcwsd Go daemon.",
-  version: "1.5.0",
+  version: "1.5.1",
   commit: "none",
   Tags: ["devtools", "workspace", "gitlab", "automation"],
   annotations: {

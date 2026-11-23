@@ -65,7 +65,7 @@ function kibanaIndexGuard(index: unknown, cfg: Record<string, any>): string | nu
 const plugin = {
   name:        "kibana",
   description: "Fetch data from Kibana/Elasticsearch using query string syntax.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit:      "none",
   Tags:        ["search", "kibana"],
   annotations: {

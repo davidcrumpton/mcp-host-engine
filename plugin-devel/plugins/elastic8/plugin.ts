@@ -64,7 +64,7 @@ function elastic8IndexGuard(index: unknown, cfg: Record<string, any>): string | 
 const plugin = {
   name:        "elastic8",
   description: "Fetch data from Elastic8",
-  version: "1.1.0",
+  version: "1.1.1",
   commit:      "none",
   Tags:        ["search", "elastic8"],
   annotations: {

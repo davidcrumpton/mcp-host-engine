@@ -3,7 +3,7 @@
 const plugin = {
   name:        "proxmox_api",
   description: "Query Proxmox for LXCs, VMs, and cluster/node information.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit:      "none",
   Tags:        ["infrastructure", "proxmox", "virtualization"],
   annotations: {

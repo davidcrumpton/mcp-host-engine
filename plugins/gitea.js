@@ -2,7 +2,7 @@
 module.exports = {
   name: "gitea",
   description: "Extended Gitea tools for project management, file operations, and collaboration.",
-  version: "1.0.3",
+  version: "1.0.4",
   commit: "none",
   Tags: ["development", "utility", "gitea"],
   annotations: {
@@ -96,8 +96,8 @@ module.exports = {
       },
       visibility: {
         type: "string",
-        description: "Visibility level",
-        enum: ["private", "internal", "public"]
+        description: `Visibility level. Defaults to private. Gitea's instance-wide "internal" level is not supported: the API call would otherwise create a public repository.`,
+        enum: ["private", "public"]
       },
       initialize_with_readme: {
         type: "boolean",
@@ -311,10 +311,16 @@ module.exports = {
   createRepository: function(params, headers, baseUrl) {
     const { name, description, visibility, initialize_with_readme } = params;
     const apiUrl = `${baseUrl}/api/v1/user/repos`;
+    if (visibility !== void 0 && visibility !== "private" && visibility !== "public") {
+      return {
+        success: false,
+        error: `visibility ${JSON.stringify(visibility)} is not supported; use "private" or "public". Gitea's "internal" visibility is instance-wide and is not exposed here, because the request would otherwise be sent as a public repository.`
+      };
+    }
     const body = {
       name,
       description,
-      private: visibility === "private",
+      private: visibility !== "public",
       gitignores: "Node",
       license: "MIT",
       readme: initialize_with_readme ? "default" : ""

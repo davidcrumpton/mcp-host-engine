@@ -2,7 +2,7 @@
 const plugin = {
   name: "proxmox_api",
   description: "Query Proxmox for LXCs, VMs, and cluster/node information.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit: "none",
   Tags: ["infrastructure", "proxmox", "virtualization"],
   annotations: {
@@ -114,6 +114,38 @@ const plugin = {
         throw new Error("Missing required field: " + name + " for mode=" + params.mode);
       }
     }
+    function sanitiseRawPath(rawPath) {
+      const path = String(rawPath);
+      if (/[\u0000-\u001f\u007f]/.test(path)) {
+        throw new Error("mode=raw path contains control characters");
+      }
+      if (path.indexOf("#") !== -1 || path.indexOf("?") !== -1) {
+        throw new Error("mode=raw path must not contain '#' or '?'; pass the path only");
+      }
+      const segments = path.split("/").filter(function(s) {
+        return s.length > 0;
+      });
+      if (!segments.length) {
+        throw new Error("mode=raw path is empty");
+      }
+      const out = [];
+      for (let i = 0; i < segments.length; i++) {
+        let seg;
+        try {
+          seg = decodeURIComponent(segments[i]);
+        } catch (e) {
+          throw new Error("mode=raw path has an invalid percent-encoding: " + segments[i]);
+        }
+        if (seg === "." || seg === "..") {
+          throw new Error("mode=raw path must not contain '.' or '..' segments");
+        }
+        if (seg.indexOf("/") !== -1 || seg.indexOf("\\") !== -1) {
+          throw new Error("mode=raw path segment must not contain a slash: " + seg);
+        }
+        out.push(encodeURIComponent(seg));
+      }
+      return "/" + out.join("/");
+    }
     const mode = params.mode;
     if (mode === "list_vms") {
       return httpGet("/cluster/resources?type=vm");
@@ -153,7 +185,13 @@ const plugin = {
       return httpGet("/nodes/" + encodeURIComponent(params.node) + "/status");
     } else if (mode === "raw") {
       requireField("path");
-      return httpGet(params.path);
+      if (cfg.allow_raw_paths !== true) {
+        return {
+          success: false,
+          error: 'mode="raw" is disabled. It forwards an arbitrary path to the Proxmox API under the plugin\'s token, so an operator must opt in with `allow_raw_paths: true` in the proxmox plugin config. Prefer one of the specific modes.'
+        };
+      }
+      return httpGet(sanitiseRawPath(params.path));
     } else {
       throw new Error("Unsupported mode: " + mode);
     }

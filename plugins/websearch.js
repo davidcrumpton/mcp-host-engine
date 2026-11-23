@@ -2,7 +2,7 @@
 const plugin = {
   name: "websearch",
   description: "Search DuckDuckGo",
-  version: "1.1.1",
+  version: "1.1.2",
   commit: "none",
   tags: ["websearch", "duckduckgo"],
   annotations: {
@@ -53,10 +53,11 @@ const plugin = {
         title = title.replace(/<[^>]+>/g, "").trim();
         snippet = snippet.replace(/<[^>]+>/g, "").trim();
         try {
-          const u = new URL(href, "https://duckduckgo.com");
-          const uddg = u.searchParams.get("uddg");
+          const parsed = host.url.parse(href, "https://duckduckgo.com");
+          const uddg = parsed.searchParams.get("uddg");
           if (uddg) href = decodeURIComponent(uddg);
-        } catch (e) {
+        } catch (err) {
+          host.server.logger(4, `websearch: could not de-redirect ${href}: ${err.message}`);
         }
         results.push({
           title,

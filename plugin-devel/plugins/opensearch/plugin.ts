@@ -65,7 +65,7 @@ function opensearchIndexGuard(index: unknown, cfg: Record<string, any>): string 
 const plugin = {
   name:        "opensearch",
   description: "Fetch data from OpenSearch Dashboard/OpenSearch using query string syntax.",
-  version: "1.1.2",
+  version: "1.1.3",
   commit:      "none",
   Tags:        ["search", "opensearch"],
   annotations: {
