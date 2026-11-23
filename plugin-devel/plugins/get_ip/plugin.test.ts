@@ -48,16 +48,23 @@ describe("get_ip plugin", () => {
     expect(plugin.call({})).toBe("US: unknown");
   });
 
-  it("throws when domain is blocked", () => {
+  // L5: these used to throw out of call(). A transport or parse failure is now
+  // a structured failure, so the model gets a reason instead of an exception
+  // (or, worse, an uncaught SyntaxError from JSON.parse).
+  it("returns a structured error when the domain is blocked", () => {
     // Reinstall host with ifconfig.io blocked
     installMockHost({ allowedDomains: ["example.com"] });
-    expect(() => plugin.call({})).toThrow(/not allowed/);
+    const res = plugin.call({}) as unknown as Record<string, unknown>;
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/not allowed/);
   });
 
-  it("throws on invalid JSON response", () => {
+  it("returns a structured error on invalid JSON response", () => {
     vi.mocked(mockHost.http.request).mockReturnValueOnce(
       mockHTTPResponse({ body: "not json" })
     );
-    expect(() => plugin.call({})).toThrow();
+    const res = plugin.call({}) as unknown as Record<string, unknown>;
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/non-JSON/);
   });
 });

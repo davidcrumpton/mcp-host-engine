@@ -632,7 +632,9 @@ describe("mcwsd plugin", () => {
       mockHTTPResponse({ status: 404, body: "not found" })
     );
     const res = plugin.call({ CommandEvent: "workspace_status", workspace_id: "w1" });
-    expect(res).toEqual({ success: false, error: "HTTP 404", detail: "not found" });
+    // L8: the raw daemon body is no longer returned to the model -- it carries
+    // workspace paths, process output and stack traces. Status only.
+    expect(res).toEqual({ success: false, status: 404, error: "HTTP 404" });
   });
 
   it("reports an error when the domain is blocked", () => {

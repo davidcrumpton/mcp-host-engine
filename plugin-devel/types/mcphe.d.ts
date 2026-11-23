@@ -19,6 +19,40 @@ export interface HTTPResponse {
   body: string;
 }
 
+/**
+ * Options object for `host.http.request`.
+ *
+ * L17: this used to be declared as a positional signature
+ * `request(method, url, headers?, body?)`, which is NOT what the Go binding
+ * accepts. `host/host.go` reads exactly these four keys out of one map:
+ *
+ *     "request": func(opts map[string]interface{}) (...)
+ *         urlVal, _ := opts["url"].(string)      // required
+ *         methodVal, _ := opts["method"].(string) // defaults to GET
+ *         h, _ := opts["headers"].(map[string]interface{})
+ *         body := opts["body"]
+ *
+ * Anything else in the map is ignored, so a plugin written against the old
+ * declaration did not fail to compile -- it failed in production. Two ways:
+ * a positional call put the method string where the map was expected (a type
+ * error at the Go boundary), and headers passed as top-level keys of the
+ * options object were silently dropped, sending the request unauthenticated.
+ * The `gitlab` plugin shipped the second form for seven GET handlers.
+ */
+export interface HTTPRequestOptions {
+  /** Absolute URL. Required; an empty or missing value is an error. */
+  url: string;
+  /** HTTP method. Defaults to "GET" when absent. */
+  method?: string;
+  /**
+   * Request headers as a flat object, nested under `headers` -- never as
+   * top-level keys of the options object, where they are ignored.
+   */
+  headers?: Record<string, string>;
+  /** String body, or an object/array which is JSON-serialised for you. */
+  body?: string | Record<string, unknown> | unknown[];
+}
+
 export interface HostHTTP {
   get(url: string, headers?: Record<string, string>): HTTPResponse;
   post(url: string, headers: Record<string, string>, body: string): HTTPResponse;
@@ -29,11 +63,11 @@ export interface HostHTTP {
   /** Like post but accepts an already-serialized string body */
   rawPost(url: string, headers: Record<string, string>, body: string): HTTPResponse;
   /**
-   * Make an HTTP request with any HTTP method.
-   * `body` can be a string or a byte array (ArrayBuffer or Uint8Array).
-   * For binary bodies, set `Content-Type` in `headers` accordingly.
+   * Make an HTTP request with any HTTP method. Takes ONE options object.
+   * See HTTPRequestOptions for the shape and for why the old positional
+   * declaration was wrong.
    */
-  request(method: string, url: string, headers?: Record<string, string>, body?: string | ArrayBuffer | Uint8Array): HTTPResponse;
+  request(opts: HTTPRequestOptions): HTTPResponse;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,26 @@
 /// <reference path="../../types/mcphe.d.ts" />
 
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives "GitLab API request error: undefined" --
+// an error that names no cause. Fall back to String().
+function gitlabErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
+// L10: `page` and `per_page` were interpolated straight into the query string,
+// so an omitted value produced the literal `page=undefined&per_page=undefined`
+// and GitLab rejected the request. Coerce with defaults.
+function gitlabInt(raw: unknown, dflt: number, min: number, max: number): number {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw === undefined || raw === null ? "" : raw), 10);
+  if (!isFinite(n)) return dflt;
+  const v = Math.floor(n);
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
+}
+
 const plugin = {
   name: "gitlab",
   description: "Extended GitLab tools for project management, file operations, and collaboration.",
@@ -20,6 +41,9 @@ const plugin = {
         description: "The command to execute.",
         enum: [
           "create_or_update_file",
+          // L10: `case "update_file"` has always been handled below, but the
+          // enum omitted it, so a schema-validating client could never send it.
+          "update_file",
           "push_files",
           "search_repositories",
           "create_repository",
@@ -152,8 +176,6 @@ const plugin = {
   call(params: Record<string, unknown>) {
     const self = module.exports; 
     const { CommandEvent } = params;
-    const page = params.page ?? 1;
-    const perPage = params.per_page ?? 20;
 
     let apiKey;
     let baseUrl = "https://gitlab.com";
@@ -173,10 +195,10 @@ const plugin = {
       host.server.logger(1, `GitLab extended plugin called with CommandEvent=${CommandEvent}`);
       host.server.logger(1, `GitLab plugin config: apiKey=${apiKey ? '***' : 'MISSING'}, baseUrl=${baseUrl}`);
     } catch (err) {
-      host.server.logger(1, `GitLab plugin configuration error: ${err.message}`);
+      host.server.logger(1, `GitLab plugin configuration error: ${gitlabErrText(err)}`);
       return {
         success: false,
-        error: `GitLab plugin configuration error: ${err.message}`
+        error: `GitLab plugin configuration error: ${gitlabErrText(err)}`
       };
     }
 
@@ -262,7 +284,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -279,7 +301,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -293,7 +315,13 @@ const plugin = {
     } = params;
 
     const url = `${baseUrl}/api/v4/projects/${encodeURIComponent(project_id)}/repository/commits`;
-    
+
+    // L10: `files` is not a required field in the schema, so `files.map` threw a
+    // bare TypeError ("Cannot read properties of undefined") out of call().
+    if (!Array.isArray(files) || files.length === 0) {
+      return { success: false, error: "files must be a non-empty array of {file_path, content}" };
+    }
+
     const body = {
       branch: branch,
       commit_message: commit_message,
@@ -312,7 +340,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -329,7 +357,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -341,18 +369,22 @@ const plugin = {
       per_page
     } = params;
 
-    const url = `${baseUrl}/api/v4/projects/search?search=${encodeURIComponent(search)}&page=${page}&per_page=${per_page}`;
+    // L10: `page`/`per_page` used to interpolate as the literal string
+    // "undefined" when the caller omitted them.
+    const url = `${baseUrl}/api/v4/projects/search?search=${encodeURIComponent(search)}&page=${gitlabInt(page, 1, 1, 100000)}&per_page=${gitlabInt(per_page, 20, 1, 100)}`;
     
     try {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -369,7 +401,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -399,7 +431,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -416,7 +448,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -428,7 +460,8 @@ const plugin = {
       per_page
     } = params;
 
-    let url = `${baseUrl}/api/v4/projects/${encodeURIComponent(project_id)}/repository/tree?per_page=${per_page}&page=${page}`;
+    // L10: same "undefined" interpolation as searchRepositories.
+    let url = `${baseUrl}/api/v4/projects/${encodeURIComponent(project_id)}/repository/tree?per_page=${gitlabInt(per_page, 20, 1, 100)}&page=${gitlabInt(page, 1, 1, 100000)}`;
     
     if (ref) {
       url += `&ref=${encodeURIComponent(ref)}`;
@@ -438,12 +471,14 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -460,7 +495,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -481,12 +516,14 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -503,7 +540,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -536,7 +573,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -553,7 +590,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -588,7 +625,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -605,7 +642,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -628,7 +665,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -645,7 +682,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -672,7 +709,7 @@ const plugin = {
       }, JSON.stringify(body));
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -689,7 +726,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -716,12 +753,14 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -738,7 +777,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -764,12 +803,14 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -786,7 +827,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   },
@@ -812,12 +853,14 @@ const plugin = {
       const response = host.http.request({
         method: "GET",
         url: url,
-        "Authorization": token,
-        "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        headers: {
+          "Authorization": token,
+          "User-Agent": "mcphe-gitlab-extended-plugin/1.0 (node.js)"
+        }
       });
       
       const status = response.status ?? response.statusCode;
-      const bodyText = typeof response.body === "string" ? response.body : response.text?.() ?? "";
+      const bodyText = typeof response.body === "string" ? response.body : "";
 
       if (status >= 200 && status < 300) {
         const payload = JSON.parse(bodyText);
@@ -834,7 +877,7 @@ const plugin = {
     } catch (err) {
       return {
         success: false,
-        error: `GitLab API request error: ${err.message}`
+        error: `GitLab API request error: ${gitlabErrText(err)}`
       };
     }
   }

@@ -121,10 +121,22 @@ const plugin = {
       }
     }
 
+    /**
+     * L9: this was a truthiness test, so `{vmid: 0}` was rejected as "missing"
+     * and a non-string object passed and stringified into the URL as
+     * "[object Object]" -- addressing a different resource than the caller named,
+     * or none. Reject only genuinely absent values, and require something that
+     * can be a URL path segment.
+     */
     function requireField(name) {
-      if (!params[name]) {
+      const v = params[name];
+      if (v === undefined || v === null || v === "") {
         throw new Error("Missing required field: " + name + " for mode=" + params.mode);
       }
+      if (typeof v !== "string" && typeof v !== "number") {
+        throw new Error("Field " + name + " must be a string or number for mode=" + params.mode);
+      }
+      return v;
     }
 
     /**

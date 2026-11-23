@@ -499,7 +499,10 @@ const wsdPlugin = {
       }
     }
     host.server.logger(1, `mcwsd: ${label} \u2192 HTTP ${status}: ${bodyText}`);
-    return { success: false, error: `HTTP ${status}`, detail: bodyText || undefined };
+    // L8: `detail: bodyText` handed the raw daemon body to the model. mcwsd's
+    // error bodies carry workspace paths, process output and stack traces.
+    // Logged above; not returned.
+    return { success: false, status: status, error: `HTTP ${status}` };
   },
 
   _require(params: Params, fields: string[], event: string) {
@@ -683,7 +686,7 @@ const wsdPlugin = {
         this._forgetWorkspaceToken(params.workspace_id);
         return { success: true, result: `Workspace ${params.workspace_id} destroyed.` };
       }
-      return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
+      return { success: false, status: resp.status, error: `HTTP ${resp.status}` };
     } catch (err) {
       return { success: false, error: `Error destroying workspace: ${(err as Error).message}` };
     }
@@ -733,7 +736,7 @@ const wsdPlugin = {
       if (resp.status >= 200 && resp.status < 300) {
         return { success: true, result: `File ${path} written successfully.` };
       }
-      return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
+      return { success: false, status: resp.status, error: `HTTP ${resp.status}` };
     } catch (err) {
       return { success: false, error: `Error writing file: ${(err as Error).message}` };
     }
@@ -807,7 +810,7 @@ const wsdPlugin = {
       if (resp.status >= 200 && resp.status < 300) {
         return { success: true, result: `Job ${jobId} cancelled.` };
       }
-      return { success: false, error: `HTTP ${resp.status}`, detail: resp.body };
+      return { success: false, status: resp.status, error: `HTTP ${resp.status}` };
     } catch (err) {
       return { success: false, error: `Error cancelling job: ${(err as Error).message}` };
     }

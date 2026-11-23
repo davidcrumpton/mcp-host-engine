@@ -1,5 +1,13 @@
 /// <reference path="../../types/mcphe.d.ts" />
 
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives "Zabbix API request error: undefined".
+function zabbixErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
 /**
  * Clamp an agent-supplied `limit` AFTER the defaults have been merged.
  *
@@ -134,10 +142,10 @@ const plugin = {
         `Zabbix plugin config: apiUrl=${apiUrl}, user=${username}, authToken=${authToken ? "***" : "MISSING"}`
       );
     } catch (err) {
-      host.server.logger(1, `Zabbix plugin configuration error: ${err.message}`);
+      host.server.logger(1, `Zabbix plugin configuration error: ${zabbixErrText(err)}`);
       return {
         success: false,
-        error: `Zabbix plugin configuration error: ${err.message}`
+        error: `Zabbix plugin configuration error: ${zabbixErrText(err)}`
       };
     }
 
@@ -176,19 +184,20 @@ const plugin = {
         });
 
         const status = response.status ?? response.statusCode;
-        const bodyText =
-          typeof response.body === "string"
-            ? response.body
-            : response.text?.() ?? "";
+        // L2: `response.text?.()` was dead code -- the host returns {status,
+        // headers, body} and never a Response object, so the fallback never ran.
+        const bodyText = typeof response.body === "string" ? response.body : "";
 
         if (status >= 200 && status < 300) {
           let parsed;
           try {
             parsed = JSON.parse(bodyText);
           } catch (e) {
+            // L8: the raw body was echoed into the model's context. Zabbix
+            // error pages carry host names and item keys; keep it server-side.
             return {
               success: false,
-              error: `Failed to parse Zabbix response JSON: ${e.message}, raw=${bodyText}`
+              error: `Failed to parse Zabbix response JSON: ${zabbixErrText(e)}`
             };
           }
 
@@ -204,15 +213,17 @@ const plugin = {
             result: parsed.result
           };
         } else {
+          // L8: status only; the upstream body stays out of the model's context.
           return {
             success: false,
-            error: `Zabbix API HTTP error ${status}: ${bodyText}`
+            status: status,
+            error: `Zabbix API HTTP error ${status}`
           };
         }
       } catch (err) {
         return {
           success: false,
-          error: `Zabbix API request error: ${err.message}`
+          error: `Zabbix API request error: ${zabbixErrText(err)}`
         };
       }
     }
@@ -302,7 +313,15 @@ const plugin = {
       case "delete_host": {
         const p = params.params || {};
         // Zabbix expects an array of hostids
-        const hostids = p.hostids || p.hostid ? [p.hostid || p.hostids].flat() : [];
+        // L2: `.flat()` is ES2019; tsconfig targets ES2015 and esbuild does not
+        // polyfill it, so this depended on goja implementing a method the build
+        // does not guarantee. Unwrap by hand.
+        const rawIds = p.hostid !== undefined && p.hostid !== null && p.hostid !== ""
+          ? p.hostid
+          : p.hostids;
+        const hostids = Array.isArray(rawIds)
+          ? rawIds
+          : (rawIds === undefined || rawIds === null || rawIds === "" ? [] : [rawIds]);
         if (!hostids.length) {
           return {
             success: false,

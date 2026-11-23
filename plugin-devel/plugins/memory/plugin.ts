@@ -79,6 +79,16 @@ function safeSessionName(session: string): string {
 // ── Disk helpers ──────────────────────────────────────────────────────────────
 
 /**
+ * L14: `key in ns` walks the prototype chain, so {key:"toString"} or
+ * {key:"constructor"} was reported as a present entry -- `get` then returned the
+ * string "undefined" as a success, and `delete` claimed to have removed a key
+ * that never existed. Check own properties only.
+ */
+function hasOwnKey(obj: Record<string, any>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/**
  * Load the store.
  *
  * M10: this used to catch every error and return {}, so a corrupt file silently
@@ -271,7 +281,9 @@ const plugin = {
       }
       case 'get': {
         if (!key) return 'Error: "key" is required for action "get"'
-        if (!(String(key) in ns)) {
+        // L14: `in` walks the prototype chain, so {key:"toString"} was "found"
+        // and get returned the string "undefined" as a success. Own keys only.
+        if (!hasOwnKey(ns, String(key))) {
           return { success: false, error: `No memory found for key: ${key}` };
         }
         return {
@@ -281,7 +293,9 @@ const plugin = {
       }
       case 'delete': {
         if (!key) return 'Error: "key" is required for action "delete"'
-        if (!(String(key) in ns)) return `No memory found for key: ${key}`
+        // L14: same prototype-chain bug as `get` -- `delete ns["toString"]`
+        // reported a deletion that never happened.
+        if (!hasOwnKey(ns, String(key))) return `No memory found for key: ${key}`
         delete ns[String(key)]
 
         const writeErr = saveAll(ns, memoryFile, tempFile);

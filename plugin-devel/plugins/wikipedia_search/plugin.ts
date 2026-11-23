@@ -94,13 +94,17 @@ const plugin = {
 
     if (!query) return { success: false, result: "query parameter is required." };
 
+    // L4: reset the transport-failure marker so a previous call's failure
+    // cannot be attributed to this one.
+    lastTransportFailure = null;
+
     try {
       if (mode === "search") {
         return searchMode(query, language);
       }
       return lookupMode(query, detail, language);
     } catch (err) {
-      return { success: false, result: "Unexpected error: " + err.message };
+      return { success: false, result: "Unexpected error: " + wikiErrText(err) };
     }
   }
 };
@@ -118,6 +122,44 @@ const LANG_NAMES = {
 
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = Object.keys(LANG_NAMES);
+
+// L16: stripWikitext runs several quadratic regexes over the raw wikitext
+// (`[[`-heavy text against a lazy `[^\]]+`, multiplied by the `{{…}}` loop), and
+// the input is a whole article. Cap before matching; this is far above the
+// 9000-character output cap, so nothing the caller can see is lost.
+const MAX_WIKITEXT = 262144; // 256 KiB
+
+// L4: every fetcher below returned []/null/"" for a non-200, which the callers
+// could not distinguish from "no such article" -- so a 429 or a 5xx was reported
+// to the model as "No Wikipedia articles found", a wrong answer rather than an
+// error, and the caller had no reason to retry. Record the failure instead.
+let lastTransportFailure: { status: number; url: string } | null = null;
+
+/** Note a non-200 response. Returns true when the response was a failure. */
+function noteTransport(resp: any, url: string): boolean {
+  const status = resp && typeof resp.status === "number" ? resp.status : 0;
+  if (status === 200) return false;
+  lastTransportFailure = { status: status, url: url };
+  return true;
+}
+
+/** Build the distinguishable failure result, or null if nothing failed. */
+function transportFailureResult(): { success: boolean; error: string; status: number } | null {
+  if (!lastTransportFailure) return null;
+  return {
+    success: false,
+    error: "Wikipedia request failed: HTTP " + lastTransportFailure.status,
+    status: lastTransportFailure.status
+  };
+}
+
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives "Unexpected error: undefined".
+function wikiErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
 
 /**
  * Normalise an agent-supplied language to a known code, or null.
@@ -209,6 +251,9 @@ function stripHtml(text: string) {
 function stripWikitext(text: string) {
   if (!text) return "";
 
+  // L16: cap before the quadratic regexes below.
+  if (text.length > MAX_WIKITEXT) text = text.slice(0, MAX_WIKITEXT);
+
   // Remove templates {{...}} — iterate until stable (handles light nesting)
   let prev;
   let iterations = 0;
@@ -276,7 +321,7 @@ function searchTitles(query: string, lang: string, limit: number) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     return (data.query && data.query.search) || [];
@@ -291,7 +336,7 @@ function fetchRestSummary(lang: string, title: string) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return null;
+  if (noteTransport(resp, url)) return null;
   try {
     return JSON.parse(resp.body);
   } catch (e) {
@@ -318,7 +363,7 @@ function fetchExtract(title: string, lang: string, introOnly: boolean) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return "";
+  if (noteTransport(resp, url)) return "";
   try {
     const data = JSON.parse(resp.body);
     const pages = (data.query && data.query.pages) || {};
@@ -340,7 +385,7 @@ function fetchSections(title: string, lang: string) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     return (data.parse && data.parse.sections) || [];
@@ -362,7 +407,7 @@ function fetchSectionText(title: string, lang: string, sectionIndex: string) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return "";
+  if (noteTransport(resp, url)) return "";
   try {
     const data = JSON.parse(resp.body);
     const wikitext = (data.parse && data.parse.wikitext && data.parse.wikitext["*"]) || "";
@@ -385,7 +430,7 @@ function fetchLinks(title: string, lang: string, limit: number) {
     method: "GET",
     url,
   });
-  if (resp.status !== 200) return [];
+  if (noteTransport(resp, url)) return [];
   try {
     const data = JSON.parse(resp.body);
     const pages = (data.query && data.query.pages) || {};
@@ -419,6 +464,9 @@ function handleDisambiguation(title: string, lang: string, searchResults: string
 function searchMode(query: string, lang: any) {
   const results = searchTitles(query, lang, 8);
   if (!results.length) {
+    // L4: distinguish "the request failed" from "nothing matched".
+    const failure = transportFailureResult();
+    if (failure) return failure;
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
     return { success: false, result: "No Wikipedia results found for \"" + query + "\"" + label };
   }
@@ -443,6 +491,9 @@ function lookupMode(query: string, detail: string, lang: string) {
   // Step 1: find best matching article
   const searchResults = searchTitles(query, lang, 6);
   if (!searchResults.length) {
+    // L4: distinguish "the request failed" from "nothing matched".
+    const failure = transportFailureResult();
+    if (failure) return failure;
     const label = lang !== "en" ? " in " + (LANG_NAMES[lang] || lang) + " Wikipedia." : ".";
     return { success: false, result: "No Wikipedia articles found for \"" + query + "\"" + label };
   }

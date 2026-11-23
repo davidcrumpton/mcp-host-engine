@@ -2,6 +2,14 @@
 
 // I have not tested this but it looks like it should work.
 
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives {error: undefined}. Fall back to String().
+function elastic7ErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
 /**
  * Match an index name against one of the operator's glob patterns.
  * Only '*' is special; everything else is escaped.
@@ -111,7 +119,16 @@ const plugin = {
       throw new Error(indexProblem);
     }
 
-    const url = baseUrl + "/" + encodeURIComponent(params.index) + "_search";
+    // L6: the base URL was concatenated raw, so a configured trailing slash
+    // produced "//index/_search". Normalise it once, here.
+    const root = baseUrl.replace(/\/+$/, "");
+
+    // L6 also surfaced a straight bug while fixing the 404 handling: the URL was
+    // `/<index>_search`, with no separator between the index and `_search`. That
+    // addresses an *index named* "<index>_search", so every search 404'd -- and
+    // the 404 was then reported as "Record not found". The endpoint is
+    // /{index}/_search.
+    const url = root + "/" + encodeURIComponent(params.index as string) + "/_search";
 
     // Headers: flat object — do NOT nest under a "headers" key
     const headers = {
@@ -124,18 +141,33 @@ const plugin = {
 
       host.server.logger(3, "elastic7: response status=" + resp.status);
 
+      // L6: a 404 from _search means the *index* is missing, not that a record
+      // is absent. Reporting "Record not found" sent the caller looking for a
+      // different document rather than at its index name.
       if (resp.status === 404) {
-        return { success: false, error: "Record not found" };
+        return {
+          success: false,
+          error: "Index not found: " + params.index,
+          status: 404,
+        };
       }
       if (resp.status !== 200) {
-        return { success: false, error: "HTTP error " + resp.status };
+        return { success: false, error: "HTTP error " + resp.status, status: resp.status };
       }
 
-      return { success: true, data: JSON.parse(resp.body) };
+      try {
+        return { success: true, data: JSON.parse(resp.body) };
+      } catch (parseErr) {
+        return {
+          success: false,
+          error: "Elastic7 returned a non-JSON body: " + elastic7ErrText(parseErr),
+          status: resp.status,
+        };
+      }
 
     } catch (err) {
-      host.server.logger(1, "elastic7 error: " + err.message);
-      return { success: false, error: err.message };
+      host.server.logger(1, "elastic7 error: " + elastic7ErrText(err));
+      return { success: false, error: elastic7ErrText(err) };
     }
   },
 };

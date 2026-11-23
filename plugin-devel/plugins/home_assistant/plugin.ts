@@ -1,5 +1,13 @@
 /// <reference path="../../types/mcphe.d.ts" />
 
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives "GET /api/ failed: undefined".
+function haErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
 /**
  * Home Assistant REST API plugin for mcphe.
  *
@@ -185,7 +193,7 @@ const plugin = {
         opts.ApiToken ||
         undefined;
     } catch (err) {
-      return { success: false, error: `Failed to load Home Assistant configuration: ${err.message}` };
+      return { success: false, error: `Failed to load Home Assistant configuration: ${haErrText(err)}` };
     }
 
     if (!apiUrl) {
@@ -211,7 +219,7 @@ const plugin = {
         const resp: any = host.http.request({method: "GET", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `GET ${path} failed: ${err.message}` };
+        return { success: false, error: `GET ${path} failed: ${haErrText(err)}` };
       }
     }
 
@@ -220,7 +228,7 @@ const plugin = {
         const resp = host.http.request({method: "POST", url: `${apiUrl}${path}`, headers: authHeaders, body: body ? JSON.stringify(body) : "{}"});
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `POST ${path} failed: ${err.message}` };
+        return { success: false, error: `POST ${path} failed: ${haErrText(err)}` };
       }
     }
 
@@ -229,7 +237,7 @@ const plugin = {
         const resp = host.http.request({method: "DELETE", url: `${apiUrl}${path}`, headers: authHeaders });
         return self._handleResponse(resp, path);
       } catch (err) {
-        return { success: false, error: `DELETE ${path} failed: ${err.message}` };
+        return { success: false, error: `DELETE ${path} failed: ${haErrText(err)}` };
       }
     }
 
@@ -408,10 +416,13 @@ const plugin = {
       405: "Method not allowed."
     };
     const hint = errorMessages[status] || "";
+    // L8: `detail: bodyText` handed the raw upstream body to the model.
+    // Home Assistant error bodies carry entity ids, template source and
+    // sometimes the whole error log. It is already logged above.
     return {
       success: false,
-      error: `HTTP ${status}${hint ? ": " + hint : ""}`,
-      detail: bodyText || undefined
+      status: status,
+      error: `HTTP ${status}${hint ? ": " + hint : ""}`
     };
   }
 };

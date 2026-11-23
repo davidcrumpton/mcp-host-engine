@@ -3,6 +3,30 @@
 // This use Kiban's proxy for queries
 // GET https://<domain>:5601/api/console/proxy?path=%2Fapm%2F_search&method=POST
 
+// L1: a goja-surfaced Go error may not be an Error, so `err.message` is
+// undefined and the model receives {error: undefined}. Fall back to String().
+function kibanaErrText(err: unknown): string {
+  const e = err as { message?: unknown } | null | undefined;
+  if (e && typeof e.message === "string" && e.message) return e.message;
+  return String(err);
+}
+
+/** Cap a string for logging so an upstream error page cannot flood the log. */
+function kibanaTruncate(value: unknown, max: number): string {
+  const s = String(value === undefined || value === null ? "" : value);
+  return s.length > max ? s.slice(0, max) + "… (truncated)" : s;
+}
+
+/** L7: clamp a numeric parameter instead of `|| default`, which ate 0. */
+function kibanaBoundedInt(raw: unknown, dflt: number, min: number, max: number): number {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw === undefined || raw === null ? "" : raw), 10);
+  if (!isFinite(n)) return dflt;
+  const v = Math.floor(n);
+  if (v < min) return min;
+  if (v > max) return max;
+  return v;
+}
+
 /**
  * Match an index name against one of the operator's glob patterns.
  * Only '*' is special; everything else is escaped.
@@ -124,9 +148,11 @@ const plugin = {
       headers["Authorization"] = "Basic " + host.utils.btoa(username + ":" + password);
     }
 
-    // Build size and from into the URL
-    const size = params.size || 10;
-    const from = params.from || 0;
+    // Build size and from into the URL.
+    // L7: `params.size || 10` silently turned an explicit {size:0} into 10 and
+    // forwarded an arbitrarily large size unclamped. Bound both.
+    const size = kibanaBoundedInt(params.size, 10, 1, 1000);
+    const from = kibanaBoundedInt(params.from, 0, 0, 100000);
 
     // M14: indexName is agent-chosen with no allow-list. encodeURIComponent does
     // not escape '*', so {indexName:"*"} reached every index the credential can
@@ -148,12 +174,24 @@ const plugin = {
       });
 
       if (resp.status !== 200) {
-        return { success: false, error: "HTTP " + resp.status, body: resp.body };
+        // L8: the raw upstream body was returned to the model. Elasticsearch
+        // error bodies carry index names, mappings and stack traces -- internal
+        // topology on a path the model can retry at will. Keep it server-side.
+        host.server.logger(4, `kibana: upstream HTTP ${resp.status}: ${kibanaTruncate(resp.body, 512)}`);
+        return { success: false, error: "HTTP " + resp.status, status: resp.status };
       }
 
-      return { success: true, data: JSON.parse(resp.body) };
+      try {
+        return { success: true, data: JSON.parse(resp.body) };
+      } catch (parseErr) {
+        return {
+          success: false,
+          error: "Kibana returned a non-JSON body: " + kibanaErrText(parseErr),
+          status: resp.status,
+        };
+      }
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: kibanaErrText(err) };
     }
   },
 };

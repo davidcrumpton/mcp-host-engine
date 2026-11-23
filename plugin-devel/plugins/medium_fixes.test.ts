@@ -391,6 +391,8 @@ describe("M14: elastic7 refuses a wildcard index by default", () => {
   it("allows a plain index with no configuration", () => {
     const { requestSpy } = esHost();
     elastic7.call({ index: "logs", query: {} });
-    expect(String(requestSpy.mock.calls[0][0])).toContain("/logs_search");
+    // L6: the URL used to be `/<index>_search` -- no separator, so it addressed
+    // an index literally named "logs_search". The endpoint is /{index}/_search.
+    expect(String(requestSpy.mock.calls[0][0])).toContain("/logs/_search");
   });
 });

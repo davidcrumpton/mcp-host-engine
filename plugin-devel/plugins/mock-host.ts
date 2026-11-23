@@ -12,11 +12,31 @@
  */
 
 import { vi } from "vitest";
+import { realpathSync } from "node:fs";
+import { dirname, basename, resolve as pathResolve } from "node:path";
 import type {
   Host, HTTPResponse, HostFS, HostHTTP, HostProcess,
   HostExec, HostURL, HostUtils, HostServer, HostMCP,
-  URLSearchParamsObject, ParsedURL,
+  HTTPRequestOptions, URLSearchParamsObject, ParsedURL,
 } from "../types/mcphe";
+
+/**
+ * L18: resolve symlinks before comparing paths, the way host/fs/fs.go does.
+ * For a path that does not exist yet, resolve the parent and re-join the
+ * basename, so a non-existent child of a symlinked directory still compares
+ * against the same real root as the allow-list entry.
+ */
+function realish(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    try {
+      return pathResolve(realpathSync(dirname(p)), basename(p));
+    } catch {
+      return pathResolve(p);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Default HTTP response factory
@@ -87,6 +107,8 @@ export function buildMockHost(options: {
   allowedReadPaths?: string[];
   allowedWritePaths?: string[];
   allowedEnv?: string[];
+  allowedCommands?: string[];
+  allowedHeaders?: string[];
   env?: Record<string, string>;
   pluginConfig?: Record<string, unknown>;
 } = {}): Host {
@@ -96,6 +118,8 @@ export function buildMockHost(options: {
     env             = {},
     allowedReadPaths  = ["/tmp"],
     allowedWritePaths = ["/tmp"],
+    allowedCommands   = [],
+    allowedHeaders    = [],
     pluginConfig    = {},
   } = options;
 
@@ -111,29 +135,65 @@ export function buildMockHost(options: {
     }
   }
 
+  /**
+   * L18: this used to be a bare `startsWith`, so an allow-list entry of "/tmp"
+   * also permitted "/tmpfoo" and "/tmp/../etc/passwd". host/fs/fs.go compares on
+   * a directory boundary after resolving symlinks; mirror both halves or a test
+   * passes here and the plugin is refused in production.
+   */
+  function isWithin(path: string, root: string): boolean {
+    const resolvedPath = realish(path);
+    const resolvedRoot = realish(root);
+    if (resolvedPath === resolvedRoot) return true;
+    const prefix = resolvedRoot.endsWith("/") ? resolvedRoot : resolvedRoot + "/";
+    return resolvedPath.startsWith(prefix);
+  }
+
   function checkReadPath(path: string) {
-    const allowed = allowedReadPaths.some(p => path.startsWith(p));
+    const allowed = allowedReadPaths.some(p => isWithin(path, p));
     if (!allowed) throw new Error(`error: access to file "${path}" is not allowed`);
   }
 
   function checkWritePath(path: string) {
-    const allowed = allowedWritePaths.some(p => path.startsWith(p));
+    const allowed = allowedWritePaths.some(p => isWithin(path, p));
     if (!allowed) throw new Error(`error: writing to file "${path}" is not allowed`);
   }
 
+  /**
+   * L18: `allowed_headers` was not modelled at all, so a plugin that sent a
+   * header the operator never permitted passed its tests. The Go binding refuses
+   * it (applyHeaders), so model that.
+   */
+  function checkHeaders(headers?: Record<string, string>) {
+    if (!headers) return;
+    for (const key of Object.keys(headers)) {
+      // The Go side treats a "headers" container key as a wrapper, not a header.
+      if (key === "headers") continue;
+      const permitted = allowedHeaders.some(h => h.toLowerCase() === key.toLowerCase());
+      if (!permitted) {
+        throw new Error(`GoError: access to header "${key}" is not allowed`);
+      }
+    }
+  }
+
   const http: HostHTTP = {
-    get:     vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    post:    vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    put:     vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    delete:  vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    options: vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    head:    vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
-    request:    vi.fn((opts: string | { url: string; method?: string; headers?: Record<string, string>; body?: string }) => {
+    get:     vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    post:    vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    put:     vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    delete:  vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    options: vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    head:    vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
+    // L17: accepts a bare URL string as well, because that is the one thing the
+    // real binding refuses -- so a plugin written against the old positional
+    // .d.ts fails here rather than in production.
+    request: vi.fn((opts: HTTPRequestOptions | string): HTTPResponse => {
       const url = typeof opts === "string" ? opts : opts.url;
       checkDomain(url);
+      // L18: headers were never inspected, so an unpermitted header passed.
+      checkHeaders(typeof opts === "string" ? undefined : opts.headers);
       return mockHTTPResponse();
-    }),
-    rawPost: vi.fn((url: string) => { checkDomain(url); return mockHTTPResponse(); }),
+    }) as unknown as HostHTTP["request"],
+    rawPost: vi.fn((url: string, headers?: Record<string, string>) => { checkDomain(url); checkHeaders(headers); return mockHTTPResponse(); }),
   };
 
   const fs: HostFS = {
@@ -161,7 +221,19 @@ export function buildMockHost(options: {
   };
 
   const exec: HostExec = {
-    runCommand: vi.fn((_cmd: string) => ""),
+    /**
+     * L18: `runCommand` accepted anything, so command rejection -- one of the
+     * host's main guardrails -- was untestable. The Go side splits the string
+     * into an argv and requires argv[0] to be in `allowed_commands`.
+     */
+    runCommand: vi.fn((cmd: string) => {
+      const argv = String(cmd).match(/"[^"]*"|'[^']*'|\S+/g) || [];
+      const program = argv.length ? (argv[0] || "").replace(/^["']|["']$/g, "") : "";
+      if (!allowedCommands.includes(program)) {
+        throw new Error(`GoError: command "${program}" is not allowed`);
+      }
+      return "";
+    }),
   };
 
   const url: HostURL = {

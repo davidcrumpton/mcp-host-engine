@@ -133,9 +133,11 @@ const plugin = {
       }
     };
 
-    // Debug log
-    host.server.logger(4, `CommandEvent: ${CommandEvent}`);
-    host.server.logger(4, `Params: ${JSON.stringify(params.params)}`);
+    // L13: this used to log `JSON.stringify(params.params)` -- which for
+    // create_page/update_page is the whole page body, written to the log at
+    // error level on every call. Prompt-influenced content does not belong in a
+    // log an operator reads at level 1. Log the command and nothing else.
+    host.server.logger(4, `wikijs: CommandEvent=${CommandEvent}`);
     // Command handling
     switch (CommandEvent) {
       // Search for pages
@@ -158,8 +160,8 @@ const plugin = {
             }
             }
         `;
-        host.server.logger(1, `GraphQL Query: ${graphqlQuery}`);
-        host.server.logger(1, `GraphQL Variables: ${JSON.stringify({ query })}`);
+        // L13: the query text and its variables (including the search term)
+        // were logged at level 1. Dropped.
         return graphqlRequest(graphqlQuery, { query });
         }
 
