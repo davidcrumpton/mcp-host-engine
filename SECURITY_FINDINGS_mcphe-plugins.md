@@ -20,7 +20,8 @@ against the source by hand**, along with the host facts the review depends on:
 Marked **[V]** = verified by me against source. Marked **[U]** = reported by a reviewer,
 plausible, but not independently confirmed (usually because it depends on a remote API).
 
-Severity summary: **10 High · 17 Medium · 19 Low**.
+Severity summary: **11 High · 17 Medium · 19 Low**. Twelve findings were rated High as written;
+H10 was downgraded on re-verification (see below), leaving eleven.
 
 ---
 
@@ -65,6 +66,11 @@ findings are untouched.
 | M16 | Fixed | `run_command`: description matches the host — no shell, the allow-list is the boundary |
 | M17 | Fixed | `wikijs`, `gmail`: response bodies parsed; upstream headers no longer returned to the model |
 
+Every plugin touched by the remediation was patch-bumped in `ed01f4a`, so `plugin list` reports a
+version that matches the behaviour actually installed. A plugin whose behaviour changed without a
+version change is indistinguishable from an unpatched one, and the first pass through this work
+bumped only three of the seventeen.
+
 Two corrections to the original write-up, found while writing the tests:
 
 - **M2 was overstated for `gitlab`.** The unguarded `host.config.options` read at the old
@@ -106,20 +112,30 @@ Two fixes in this tranche (`elastic7` M1/M14 and `gitea` M5) were written, lost 
 backup during the commit, and re-applied afterwards — the committed test file caught them,
 which is why they are listed here rather than silently absent.
 
-`tsc --noEmit` error count went **417 → 403** with no new error kinds in plugin source (the
-17 additional errors are all inside the two new test files, matching the existing pattern for
-plugin tests). Notably the type checker had been flagging H2 all along: 7 × `TS2322: Type
-'{ Authorization: ... }' is not assignable to type 'string'`, now gone. `go build ./...` and
-`go test ./...` are clean.
+`tsc --noEmit` error count went **417 → 392** (re-measured at this revision) with no new error kinds
+in plugin source (the 17 additional errors are all inside the two new test files, matching the
+existing pattern for plugin tests). Notably the type checker had been flagging H2 all along: 7 ×
+`TS2322: Type '{ Authorization: ... }' is not assignable to type 'string'`, now gone.
+`go build ./...` and `go test ./...` are clean.
 
-One deployment caveat: `plugins/microsoft_outlook.js` is listed in `.gitignore` (as are
-`elastic7.js` and `elastic8.js`), so the Outlook fix does not ship via the repo until that
-entry is removed. The source fix is correct and tested regardless.
+**Deployment note — resolved.** `plugins/microsoft_outlook.js` was listed in `.gitignore`, as were
+`elastic7.js` and `elastic8.js`, so the fixes to those three stayed in source and never reached a
+checkout or a release tarball. mcphe loads plugins from `plugin_dir` on disk and embeds nothing, so
+the effect was not "stale artifact" but "plugin absent". For `microsoft_outlook` that left H3 (token
+in the query string, and therefore in every upstream access log on the path) and H6 (all four
+commands dead) live in the field; for `elastic7`/`elastic8` it left M1 and M14. Commit `d8f533b`
+removed the three entries and committed the artifacts, which are current with source
+(`build.js --check`: 0 stale of 25).
 
 ---
 
 
 # HIGH
+
+> **Reading the finding bodies below.** Each section records the defect *as found* and is written in
+> the present tense; that prose is the audit trail and is deliberately left in its original form. The
+> authority on what is fixed is the **Fix status** table above, not the tense here. H1–H12 are all
+> fixed.
 
 ## H1. `gitlab` — API token written to the log in clear text
 `gitlab/plugin.ts:176` **[V]**
@@ -382,6 +398,9 @@ Impact depends on the daemon's `--workspace-auth-mode` **[U]**; the fallback is 
 ---
 
 # MEDIUM
+
+> **Status:** as with the High findings, these sections describe the defects *as found*. All of
+> M1–M17 are fixed; see the **Fix status** table above for what each fix was.
 
 ## M1. Twelve plugins — `host.process.env(x) || cfg.y` is unreachable; config-only setup fails
 `gitea:155-156`, `gitlab:160`, `proxmox:61-67`, `elastic7:29-30`, `elastic8:28-29`,
