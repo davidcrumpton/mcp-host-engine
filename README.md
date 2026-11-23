@@ -190,6 +190,7 @@ This section details the available settings for the MCP Host Engine. These value
 | `cors_origin` | `string` | `""` | The single browser origin allowed to call `/rpc` (e.g. `"https://app.example.com"`). Empty disables CORS entirely. A request whose `Origin` names something else is refused `403` on state-changing methods. |
 | `cors_allow_any` | `bool` | `false` | Explicit opt-in for `cors_origin: "*"`. Without it the server refuses to start, because a wildcard origin plus a bearer token lets any website drive the server from a visitor's browser. |
 | `http_client_timeout_seconds` | `int` | `60` | Default timeout for `host.http.*` requests. Must be `> 0`; an unusable value falls back to 15 s rather than to "no timeout". |
+| `allowed_http_ports` | `list<string>` | *(none)* | Default for which destination ports a plugin may reach. Unset means **any port** — see [`allowed_domains`](#detailed-restrictions), which bounds the host but not the port. A plugin's own `allowed_ports` overrides this list rather than adding to it. |
 | `vault_addr` | `string` | *(none)* | The address of the Vault server.  This is required if you are using `vault://` scheme in your config. |
 | `vault_token` | `string` | *(none)* | The token to use for authentication with Vault but you should use approle instead. |
 | `vault_role_id` | `string` | *(none)* | The role ID to use for authentication with Vault approle. |
@@ -300,6 +301,7 @@ plugins:
     # Restrictions for this specific plugin
     enabled: true  # defaults true if defined at all. false if explicitly set to false. Remove it or false to disable
     allowed_domains: [...]
+    allowed_ports: [...]
     allowed_write_file_paths: [...]
     allowed_read_file_paths: [...]
     allowed_commands: [...]
@@ -322,7 +324,8 @@ plugins:
 
 2. **`allowed_domains`**:
     * **Type:** `list<string>`
-    * **Purpose:** Restricts which domains a plugin (like `wikipedia_search` or `google_search`) is allowed to connect to via HTTP requests.
+    * **Purpose:** Restricts which domains a plugin (like `wikipedia_search` or `google_search`) is allowed to connect to via HTTP requests. An entry matches that host and its subdomains, and the check applies to the first request and to every redirect hop.
+    * **It bounds the host, not the service.** With `allowed_domains: ["internal.example.com"]` a plugin can still reach `internal.example.com:6379` (redis), `:22` (ssh) or any other port. Use `allowed_ports` on the plugin — or `allowed_http_ports` globally — to bound the port as well. **Unset means any port**, so this is open by default; the port compared is the one the URL names, defaulted from the scheme, so an allow-list of `["443"]` is not bypassed by writing the URL without a port.
     * **Example:**
 
         ```yaml
@@ -427,6 +430,11 @@ plugins:
     * **Type:** `map`
     * **Purpose:** The plugin's own settings — base URLs, credentials, feature flags. This is the block to use for anything secret, because it is only ever visible to that plugin. `host.config.options` reads it from JavaScript.
     * **Note:** a plugin's `config:` key may name a *plugin-specific* file (`config: "file:///etc/mcphe/proxmox.yaml"`), but pointing it at the daemon's own `config.yaml` is refused at startup: the resolved content is handed to the plugin through `host.config`, so it would receive `token_secret` and every other plugin's credentials.
+
+12. **`allowed_ports`**:
+    * **Type:** `list<string>`
+    * **Purpose:** Restricts which destination ports a plugin may reach — the other half of `allowed_domains`, which bounds the host only. **Unset means any port**, and a plugin's list replaces (does not extend) the global `allowed_http_ports`. Enforced on the first request and on every redirect hop.
+    * **Caution:** set this per plugin rather than globally unless you have audited every plugin you run. Shipped plugins legitimately default to ports other than 443 (`home_assistant` 8123, `mcwsd` 9080), and several more reach whatever base URL their `options` name, so a global `allowed_http_ports: [443]` will break them.
 
 ### Plugin Integrity (`checksums`)
 

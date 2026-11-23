@@ -22,14 +22,22 @@ Agent-controlled means: a tool argument that an LLM produced from prompt-influen
 which reaches plugin JS unchanged. That is the main untrusted input path in this daemon, so
 most findings are reachable from it.
 
+Status updated after the fix set landed: all three tables are now marked fixed. Some code moved
+with the LOW fixes — `host/logger/` is deleted, and `pidfile*.go`, `auth/identity.go` and
+`plugin/detect.go` did not exist when the review was written — so line references below describe
+the code as reviewed, not as it stands.
+
 ---
 
-## Status: H1–H5 and M1–M11 fixed
+## Status: H1–H5, M1–M11 and L1–L20 fixed
 
-All five HIGH and all eleven MEDIUM findings are fixed, each with a regression
-test (Go, plus end-to-end Python cases through the real binary). `go test ./...`,
-`go test -race ./plugin/ ./host/... ./auth/ ./transport/ ./config/` and
-`python3 -m tests` (162 cases) pass. The LOW table is untouched.
+All five HIGH, all eleven MEDIUM and all twenty LOW findings are fixed. Every
+fix whose behaviour is observable from a test has one: Go tests in the package
+under test (the LOW ones in a per-package `lows_test.go`), plus end-to-end
+Python cases through the real binary. `go test ./...`,
+`go test -race ./plugin/ ./host/... ./auth/ ./transport/ ./config/`,
+`go vet ./...` and `python3 -m tests` (173 tests over 166 inventory cases) all
+pass.
 
 ### HIGH
 
@@ -56,6 +64,31 @@ test (Go, plus end-to-end Python cases through the real binary). `go test ./...`
 | M9 | `transport.SessionIDFromRequest` accepts only `[A-Za-z0-9_-]{1,128}`; anything else is treated as absent (and logged as malformed), so it can neither route a request to the SSE handler nor appear in a log line. `config.LogfWithContext` escapes control characters in the identity/session fields as defence in depth. | `transport/transport.go`, `config/config.go` (`escapeLogField`) | `TestValidSessionID`, `TestSessionIDFromRequestDropsAForgedValue`; `transport.session-id-forgery` |
 | M10 | `host.server.config(name)` ignores any name other than the caller's own (and logs it). A plugin entry whose `config:` resolves to the daemon's own `config.yaml` is refused at load, so `token_secret` can no longer be pulled into a plugin's `host.config`; the shipped `config.yaml` now uses an `options:` block, and `plugins/proxmox.js` reads `host.config.options`. | `host/host.go`, `config/config.go` (`refuseSelfReference`) | `TestServerConfigOnlyExposesTheCallersOwnPlugin`, `TestPluginConfigCannotPointAtTheDaemonConfig`, `TestPluginConfigMayReadAnotherFile`; `sandbox.server-config-scope`, `startup.plugin-config-self-reference` |
 | M11 | `HTTPTimeoutSecondsFor` validates the plugin value and the global one against `0 < seconds <= 3600`, falling back down the chain to a 15 s default. `0` no longer becomes `http.Client{Timeout: 0}` (no timeout at all). | `config/config.go` | `TestHTTPTimeoutSecondsFor`; `sandbox.http-timeout-invalid` |
+
+### LOW
+
+| # | Fix | Where | Test |
+|---|---|---|---|
+| L1 | `config.yaml` no longer carries a literal `token_secret`: it names `file://./secrets/token_secret`, `secrets/` is gitignored, and `config.example.yaml` ships an empty secret so no credential is baked into a downloadable artifact. The value that used to be in the file was a local development secret rather than a deployed one, so no rotation was needed — this was a repo-hygiene finding, and the hygiene is fixed. | `config.yaml`, `config.example.yaml`, `.gitignore` | none (packaging change); `config.yaml` is exercised by every `startup.*` case |
+| L2 | The legacy bearer token is compared with `subtle.ConstantTimeCompare`, matching the HMAC path. | `transport/transport.go` (`ValidateToken`) | none — a constant-time comparison has no observable behaviour; the chain around it is covered by `TestPreflightIsAnsweredWithoutAToken` |
+| L3 | `parseTokenDuration` rejects empty, non-positive, non-finite and overflowing spans (`scaleDuration` bounds the float→Duration conversion explicitly, since an out-of-range conversion yields a negative Duration); `auth.Create` also refuses `ttl <= 0`, so an already-expired entry can no longer be written and silently pruned. | `main.go` (`parseTokenDuration`, `scaleDuration`), `auth/token.go` (`Create`) | `TestParseTokenDurationRejectsNonPositiveAndNonFinite`, `TestParseTokenDurationAcceptsPositiveSpans`, `TestCreateRejectsNonPositiveTTL`; `token.negative-ttl` |
+| L4 | The pid file *is* the lock. `acquirePidLock` takes an exclusive lock on it, refuses a second instance with "another instance is already running (pid N)", writes its own pid, and unlinks while still holding the lock — so it can only ever delete its own file, never a successor's. An unset `pid_file` stays inert, as documented. | `pidfile.go`, `pidfile_unix.go`, `pidfile_windows.go`, `main.go:106` | `TestPidLockIsExclusive`, `TestPidLockIgnoresAStaleFile`, `TestPidLockReleaseDoesNotDeleteASuccessor`, `TestPidLockWithoutPidFileIsInert`; `startup.pid-lock`, `startup.pid-file` |
+| L5 | The resolver set is a per-config value (`Config.resolvers`), not a package global. `RegisterResolver` is gone and the vault client is attached with `builtinResolvers().with("vault", …)` per load, so two configs cannot share a client or its credentials. | `config/resolve.go`, `config/config.go` (`LoadConfigBytes`) | `TestLoadConfigBytesGivesEachConfigItsOwnResolvers` |
+| L6 | `file://` values are read through a 1 MiB limit (an overrun is an error) and trailing `\r\n` is stripped, so the secret that is configured is the secret that is used. | `config/file_resolver.go` | `TestFileResolverStripsTrailingNewlines`, `TestFileResolver_RejectsAFileOverTheLimit` |
+| L7 | `secretValue` treats a nil or empty Vault response, and a missing or non-string key, as errors instead of dereferencing `token.Auth` nil at startup. Both the role-secret and the read path go through it. | `config/vault_client_real.go`, `config/vault_client_role.go` | `TestSecretValueHandlesMissingData` |
+| L8 | `newVaultClient` validates `vault_addr`: `https://` anywhere, `http://` only on loopback (the token is a bearer credential and would travel in clear text otherwise), no scheme is an error. The client carries a 30 s timeout, so an unresponsive Vault no longer hangs startup forever with no message. | `config/vault_addr.go` | `TestValidateVaultAddr`, `TestNewVaultClientSetsATimeout` |
+| L9 | `randomBytes` returns lowercase hex (2n characters) instead of raw bytes, so goja's UTF-8 conversion can no longer fold ~2% of a draw into U+FFFD and quietly destroy the entropy. | `host/crypto/crypto.go` | `TestRandomBytesIsHexAndDoesNotRepeat`, `TestRandomBytesRejectsOutOfRangeLength` |
+| L10 | `host.sleep` routes through `host/time.SleepContext`: negative and >60 s values are errors, and the wait ends when the request is cancelled instead of `time.Sleep` holding the plugin's VM lock (and a handler, and shutdown) for as long as JS asked. | `host/host.go`, `host/time/time.go` | `TestSleepRejectsNegative`, `TestSleepRejectsOverTheCap`, `TestSleepContextIsCancelled`, `TestSleepContextWaits`, `TestSleepContextValidates` |
+| L11 | `readStream` refuses `chunkSize <= 0` and `> 8 MiB` instead of reporting a silent empty read as success; a non-numeric value still falls back to the 4 KiB default. | `host/fs/fs.go` (`ReadStream`, `numericToInt`) | `TestReadStream_RejectsBadChunkSize`, `TestReadStream_NonNumericChunkSizeUsesDefault`, `TestReadStream_ChunkSizeIsHonoured` |
+| L12 | The revocation-file scanner buffer is raised to 1 MiB, and a line beyond that is an error naming the file rather than every reload failing while `Watch` only logged it. | `auth/revoker.go` (`maxRevocationLine`) | `TestReadEntriesHandlesLongLines`, `TestReadEntriesReportsAnOverlongLine` |
+| L13 | `ValidateRevocationKey`/`ValidateIdentityName` restrict a key to `user[:label]` over `[A-Za-z0-9._@+-]`, at most 64 characters per half; `Create`, `Revoke` and `Unrevoke` refuse a key that cannot be written unambiguously, and a malformed line in an existing file is skipped rather than failing the whole reload. | `auth/identity.go`, `auth/revoker.go`, `auth/token.go` | `TestValidateRevocationKey`, `TestCreateRejectsUnrevocableIdentity`, `TestRevokeRejectsAnUnrepresentableKey`, `TestReadEntriesSkipsMalformedKeys`; `token.bad-identity` |
+| L14 | The context keys are a private `transport.contextKey` type (`HTTPHeadersContextKey`, `IdentityContextKey`, `SessionIDContextKey`), so a bare-string key cannot collide with another package's and `go vet`'s SA1029 is clean. | `transport/transport.go`, `main.go:503`, `host/host.go:24` | none directly — `go vet ./...` covers the class |
+| L15 | `pluginFilesIn` lists the directory with `os.ReadDir` and filters `.js`, so metacharacters in `plugin_dir` are data rather than part of a glob pattern. | `plugin/plugin.go` | `TestPluginFilesInTreatsTheDirectoryAsData`, `TestPluginFilesInMissingDirectory` |
+| L16 | `isLoopback` accepts `localhost`, `*.localhost`, any loopback IP (bracketed IPv6 included) and a name that resolves only to loopback; anything unresolvable counts as non-loopback, so the unauthenticated-API warning errs towards firing. | `main.go` (`isLoopback`) | `TestIsLoopback` |
+| L17 | The root check reads `run_as_root` out of the raw config bytes (`config.PeekRunAsRoot`) before `LoadConfigBytes` runs, so a root invocation no longer resolves `env://`/`vault://` or logs in to Vault before being refused. | `main.go`, `config/config.go` (`PeekRunAsRoot`) | `TestPeekRunAsRoot` |
+| L18 | The `host/logger` stub package is deleted — `host.logger` is `cfg.LogfForPlugin(pluginName)` — and the three unused `isXAllowed` helpers are gone from `host/env`. | `host/host.go`, `host/env/env.go`; `host/logger/` removed | `TestMakeHostObject_Keys` (still enumerates `logger` as part of the host surface) |
+| L19 | `isPortAllowed` bounds the port on the first request and on every redirect hop: per-plugin `allowed_ports`, falling back to the global `allowed_http_ports`, unset meaning "any port" as before. The no-op `TrimSuffix(hostname, ":")` is gone. Both keys are documented — `allowed_domains` now says explicitly that it bounds the host and not the port. | `host/httpclient/httpclient.go` (`isPortAllowed`, `do`, `clientFor`), `config/config.go` (`AllowedPortsFor`), `README.md` | `TestIsPortAllowed`, `TestIsAllowedDomain_PortIsNotPartOfTheHostname`; `sandbox.allowed-ports` |
+| L20 | `DetectPluginName` anchors on `module.exports` and reads only depth-1 properties of the exported object literal, skipping strings and comments, so a nested `name:` can no longer key the digest/`-verify` output to a different file than the loader loads. | `plugin/detect.go` | `TestDetectPluginName` (nested, comment, string and single-quote cases) |
 
 Behaviour changes worth knowing about:
 
@@ -88,15 +121,36 @@ Behaviour changes worth knowing about:
   and logs a warning, rather than throwing — an existing plugin that probes
   another name degrades instead of breaking.
 
-Not done, in the order I would take them next: the LOW table (L2 constant-time
-legacy token, L3 negative TTLs, L4 single-instance pid file, L6 trailing newline
-in `file://`, L9 non-UTF-8 `randomBytes`, L11 `chunkSize: 0`, L12 the 64 KB
-scanner limit, L13 revocation key validation, L19 port restriction, L20
-`DetectPluginName`). Two leftovers from H1 that the fixes do not cover: a
-cancelled context kills the child but not its grandchildren (no process-group
-kill), and there is still no per-command timeout of its own. One known residual
-from M2: the caps are per read, so N concurrent calls can still hold N × cap in
-memory — bounding that needs a per-plugin budget rather than a per-read limit.
+From the LOW fixes, six change what a plugin or an operator sees:
+
+* **`host.crypto.randomBytes(n)` now returns 2n lowercase hex characters, not n
+  raw bytes.** This is the only LOW fix that changes a plugin-visible contract.
+  A plugin that used the result as a byte string (a nonce, a key, an HMAC input)
+  must decode it or halve its length argument. No plugin in `plugins/` calls it
+  today; anything outside this repository needs the same check.
+* `host.sleep(ms)` refuses `ms < 0` and `ms > 60000`, and returns early when the
+  request is cancelled. A plugin that slept for longer than a minute has to
+  rethink why.
+* `host.fs.readStream` refuses a `chunkSize` outside `1..8 MiB`; `0` used to
+  come back as a successful empty read and now does not.
+* `file://` config values lose their trailing newlines and are capped at 1 MiB,
+  and `vault_addr` must be `https://` (or `http://` on loopback). A config
+  pointing at a remote `http://` Vault fails at startup instead of sending the
+  token in clear text.
+* A second instance on the same `pid_file` exits 1 with "another instance is
+  already running" instead of racing the first one. Leaving `pid_file` unset
+  keeps the old, unprotected behaviour.
+* `mcphe token create`/`revoke` refuse a username or label outside
+  `[A-Za-z0-9._@+-]{1,64}` and a non-positive TTL. A token minted before this
+  change whose username contains a colon can still be revoked by its exact key,
+  but no new one can be minted.
+
+Nothing from the review is outstanding. Two leftovers from H1 that the fixes do
+not cover: a cancelled context kills the child but not its grandchildren (no
+process-group kill), and there is still no per-command timeout of its own. One
+known residual from M2: the caps are per read, so N concurrent calls can still
+hold N × cap in memory — bounding that needs a per-plugin budget rather than a
+per-read limit.
 
 ---
 
@@ -459,28 +513,36 @@ not the documented default. Same for negatives (immediate failure). Validate
 
 ## LOW
 
-| # | Where | Issue |
-|---|---|---|
-| L1 | `config.yaml:6` | A real-looking `token_secret` is committed in plaintext. Rotate it and move it to `env://`. |
-| L2 | `transport/transport.go:48` | Legacy bearer token compared with `==` (not constant time), while the HMAC path correctly uses `hmac.Equal`. Use `subtle.ConstantTimeCompare`. |
-| L3 | `main.go:374-391` | `parseTokenDuration` accepts `-1h`, `NaNd`, `1e400d`; `time.Duration(float)` overflow yields a negative TTL. `mcphe token revoke bob -1h` writes an already-expired entry that `readEntries` (219) prunes on the next reload — the revocation silently vanishes. Reject `ttl <= 0` and non-finite values. |
-| L4 | `main.go:531-541`, `config.go:508` | No single-instance guard. The pid file is written unconditionally (no flock, no live-pid check), so a second instance overwrites it and the first instance's `removePidFile` then deletes the *second's* file. |
-| L5 | `config/resolve.go:14-27` | `resolvers` is a process-global map mutated by `RegisterResolver` with no lock, and `LoadConfigBytes` registers the vault client globally (140). A second config load in the same process silently inherits the first's client. Harmless today (one load per process), wrong the moment a reload exists. |
-| L6 | `config/file_resolver.go:14` | No size cap (`file:///dev/zero` hangs startup), and the trailing newline is preserved, so `token_secret: file:///etc/secret` includes `\n`. |
-| L7 | `config/vault_client_role.go:29` | `token.Auth.ClientToken` is dereferenced without a nil check; a 204/empty login response panics at startup. |
-| L8 | `config/vault_client_real.go:16` | No client timeout; `vault_addr: http://…` sends the token in clear text (no scheme check, no TLS verification policy). |
-| L9 | `host/crypto/crypto.go:14` | `string(b)` of raw random bytes: goja converts invalid UTF-8 to U+FFFD, so `randomBytes` is not uniform and loses entropy if used for nonces/tokens. Return hex or base64. |
-| L10 | `host/host.go:79-82` | `host.sleep` calls `time.Sleep` directly, bypassing the validated `host/time.Sleep` (which rejects negatives), and has no cap or cancellation. |
-| L11 | `host/fs/fs.go:142-149` | `chunkSize: 0` produces `make([]byte,0)`; `Read` returns `n=0, err=nil` and the loop breaks — a silent empty read reported as success. |
-| L12 | `auth/revoker.go:206` | `bufio.Scanner`'s 64 KB line limit: one long line makes every reload fail permanently while the stale snapshot stays live (`Watch` only logs). |
-| L13 | `auth/revoker.go:110-129` | Revocation keys are unvalidated. A username containing `:` (allowed by `token create`) makes `alice:laptop` both a blanket username and a label key; a username containing whitespace breaks the file format entirely. |
-| L14 | `main.go:429`, `host/host.go:24` | `context.WithValue(ctx, "http_headers", …)` uses a bare `string` key — collision risk and a `go vet` SA1029 violation. Use a typed key. |
-| L15 | `plugin/plugin.go:76` | `filepath.Glob(filepath.Join(dir, "*.js"))` — glob metacharacters in `plugin_dir` change the match set; a directory named `*.js` breaks startup. |
-| L16 | `main.go:544` | `isLoopback` misses `localhost` (false-positive warning) and any hostname that resolves to loopback. |
-| L17 | `main.go:57-73` | The root check runs *after* `guard.load`, so a root invocation parses the config and performs a Vault login before being rejected. |
-| L18 | `host/logger/logger.go` | `NewLogger` returns a `NoOpLogger` and is wired to nothing — a stub presented as an implementation. `host/env/env.go:31-56` has three unused `isXAllowed` helpers. |
-| L19 | `host/httpclient/httpclient.go:596` | `strings.TrimSuffix(hostname, ":")` is a no-op (`Hostname()` never has a trailing colon); it looks like a defence but is not. There is also no port restriction, so `allowed_domains: ["x"]` permits `x:8443`. |
-| L20 | `plugin/checksum.go:193` | `DetectPluginName`'s regex can match a nested object's `name:` property, so `digest -format yaml` / `-verify` may key on the wrong name and check a different file than the loader loads. `-verify` also skips disabled entries that the loader still executes (see H3). |
+All twenty are fixed; the fix for each is in the LOW table above. The rows are
+kept as written, with a status column so the original list stays checkable.
+
+One correction to the record: **L1's row overstates the severity.** The value
+committed in `config.yaml` was a local development secret, not a deployed
+credential, so nothing had to be rotated. What was wrong was keeping any
+literal secret in a tracked file, and that is what changed.
+
+| # | Where | Issue | Status |
+|---|---|---|---|
+| L1 | `config.yaml:6` | A real-looking `token_secret` is committed in plaintext. Rotate it and move it to `env://`. | fixed |
+| L2 | `transport/transport.go:48` | Legacy bearer token compared with `==` (not constant time), while the HMAC path correctly uses `hmac.Equal`. Use `subtle.ConstantTimeCompare`. | fixed |
+| L3 | `main.go:374-391` | `parseTokenDuration` accepts `-1h`, `NaNd`, `1e400d`; `time.Duration(float)` overflow yields a negative TTL. `mcphe token revoke bob -1h` writes an already-expired entry that `readEntries` (219) prunes on the next reload — the revocation silently vanishes. Reject `ttl <= 0` and non-finite values. | fixed |
+| L4 | `main.go:531-541`, `config.go:508` | No single-instance guard. The pid file is written unconditionally (no flock, no live-pid check), so a second instance overwrites it and the first instance's `removePidFile` then deletes the *second's* file. | fixed |
+| L5 | `config/resolve.go:14-27` | `resolvers` is a process-global map mutated by `RegisterResolver` with no lock, and `LoadConfigBytes` registers the vault client globally (140). A second config load in the same process silently inherits the first's client. Harmless today (one load per process), wrong the moment a reload exists. | fixed |
+| L6 | `config/file_resolver.go:14` | No size cap (`file:///dev/zero` hangs startup), and the trailing newline is preserved, so `token_secret: file:///etc/secret` includes `\n`. | fixed |
+| L7 | `config/vault_client_role.go:29` | `token.Auth.ClientToken` is dereferenced without a nil check; a 204/empty login response panics at startup. | fixed |
+| L8 | `config/vault_client_real.go:16` | No client timeout; `vault_addr: http://…` sends the token in clear text (no scheme check, no TLS verification policy). | fixed |
+| L9 | `host/crypto/crypto.go:14` | `string(b)` of raw random bytes: goja converts invalid UTF-8 to U+FFFD, so `randomBytes` is not uniform and loses entropy if used for nonces/tokens. Return hex or base64. | fixed |
+| L10 | `host/host.go:79-82` | `host.sleep` calls `time.Sleep` directly, bypassing the validated `host/time.Sleep` (which rejects negatives), and has no cap or cancellation. | fixed |
+| L11 | `host/fs/fs.go:142-149` | `chunkSize: 0` produces `make([]byte,0)`; `Read` returns `n=0, err=nil` and the loop breaks — a silent empty read reported as success. | fixed |
+| L12 | `auth/revoker.go:206` | `bufio.Scanner`'s 64 KB line limit: one long line makes every reload fail permanently while the stale snapshot stays live (`Watch` only logs). | fixed |
+| L13 | `auth/revoker.go:110-129` | Revocation keys are unvalidated. A username containing `:` (allowed by `token create`) makes `alice:laptop` both a blanket username and a label key; a username containing whitespace breaks the file format entirely. | fixed |
+| L14 | `main.go:429`, `host/host.go:24` | `context.WithValue(ctx, "http_headers", …)` uses a bare `string` key — collision risk and a `go vet` SA1029 violation. Use a typed key. | fixed |
+| L15 | `plugin/plugin.go:76` | `filepath.Glob(filepath.Join(dir, "*.js"))` — glob metacharacters in `plugin_dir` change the match set; a directory named `*.js` breaks startup. | fixed |
+| L16 | `main.go:544` | `isLoopback` misses `localhost` (false-positive warning) and any hostname that resolves to loopback. | fixed |
+| L17 | `main.go:57-73` | The root check runs *after* `guard.load`, so a root invocation parses the config and performs a Vault login before being rejected. | fixed |
+| L18 | `host/logger/logger.go` | `NewLogger` returns a `NoOpLogger` and is wired to nothing — a stub presented as an implementation. `host/env/env.go:31-56` has three unused `isXAllowed` helpers. | fixed |
+| L19 | `host/httpclient/httpclient.go:596` | `strings.TrimSuffix(hostname, ":")` is a no-op (`Hostname()` never has a trailing colon); it looks like a defence but is not. There is also no port restriction, so `allowed_domains: ["x"]` permits `x:8443`. | fixed |
+| L20 | `plugin/checksum.go:193` | `DetectPluginName`'s regex can match a nested object's `name:` property, so `digest -format yaml` / `-verify` may key on the wrong name and check a different file than the loader loads. `-verify` also skips disabled entries that the loader still executes (see H3). | fixed |
 
 ---
 
@@ -489,10 +551,12 @@ not the documented default. Same for negatives (immediate failure). Validate
 **Definitely wrong (demonstrable from the code as written):** H1, H2, H3, H4, H5, M1, M2, M4,
 M5, M6, M7, M8, M9, M10, M11, L2, L3, L4, L6, L9, L11, L12, L14, L15, L19.
 
-Everything above is a record of the review as written. H1–H5 and M1–M11 have
-since been fixed; the Low items below have not.
+Everything above is a record of the review as written. H1–H5, M1–M11 and L1–L20
+have since been fixed, each with the tests named in the tables, and L19's two
+config keys are now described in `README.md`.
 
-**Likely wrong if X:**
+**Likely wrong if X:** (all five are fixed now; the bullets are kept because
+they record why each was rated LOW rather than MEDIUM)
 
 * L5 (`resolvers` map) — only bites if a second `LoadConfigBytes` ever runs concurrently with
   the first, i.e. if config reload or parallel tests are added.
@@ -548,7 +612,8 @@ allowlist". Worth auditing every `allowed_commands` block in `configuration/` an
 
 ## Suggested fix order
 
-Kept as written, for the record. Steps 1–10 are done (see the status table).
+Kept as written, for the record. Steps 1–10 are done (see the status tables),
+and so is L1–L20.
 
 Security first, then availability, then correctness:
 

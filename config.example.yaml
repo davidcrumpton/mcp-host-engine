@@ -85,6 +85,27 @@ token_secret: ""
 # require_config_checksum: true
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Outbound HTTP ports (optional, open by default).
+#
+# allowed_domains bounds the host a plugin may reach, not the service on it:
+# with allowed_domains: ["internal.example.com"] a plugin can still reach
+# internal.example.com:6379 (redis) or :22 (ssh). This key bounds the port.
+#
+# Unset means any port, which is the historical behaviour and what several
+# shipped plugins need -- home_assistant uses 8123, mcwsd 9080, and others reach
+# whatever base URL their own `options` name. A global list applies to every
+# plugin, so prefer the per-plugin `allowed_ports` below unless you have audited
+# all of them; a global ["443"] will break the plugins above.
+#
+# A plugin's own allowed_ports replaces this list rather than adding to it. The
+# check runs on the first request and on every redirect hop, and the port
+# compared is the one the URL names (defaulted from the scheme), so ["443"] is
+# not bypassed by writing the URL without a port.
+#
+# allowed_http_ports: ["443", "8006", "9200"]
+# ---------------------------------------------------------------------------
+
 plugins:
   # Plugins needing no credentials.
   get_datetime:
