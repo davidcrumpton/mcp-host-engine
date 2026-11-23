@@ -26,8 +26,8 @@ Severity summary: **10 High · 17 Medium · 19 Low**.
 
 ## Fix status
 
-First remediation tranche applied: **H1, H2, H3, H4, H5, H6, H7, H9**, plus M1 and M2 in
-the five files touched. Each fix has a regression test that was confirmed to **fail against
+First remediation tranche applied: **H1, H2, H3, H4, H5, H6, H7, H8, H9**, plus M1 and M2 in
+the files touched. Each fix has a regression test that was confirmed to **fail against
 the pre-fix source** and pass after (see "Verification" below).
 
 | ID | Status | Notes |
@@ -39,7 +39,9 @@ the pre-fix source** and pass after (see "Verification" below).
 | H5 | Fixed | `proxmox`: `JSON.parse` now applied to `resp.body`, not the response object |
 | H6 | Fixed | `microsoft_outlook`: same class of bug as H5 |
 | H7 | Fixed | `gitea`: `headers.toString()` → `headers` (7 sites) |
+| H8 | Fixed | `gitea`: success now from `response.status`, not `body.includes("ok")` (13 sites) |
 | H9 | Fixed | `gitea`: `config.options` guarded |
+| H10 | Open | `wikipedia_search` SSRF via agent-controlled host |
 
 Two corrections to the original write-up, found while writing the tests:
 
@@ -53,24 +55,22 @@ Two corrections to the original write-up, found while writing the tests:
   log line was never reached. The leak was real but conditional on config — which is why
   the regression test allow-lists the env vars to exercise the true path.
 
-**Not yet fixed:** H8 (`gitea` `includes("ok")`), H10, and the Medium/Low findings except
-M1/M2 in the files touched. H8 is next — it is the most likely to have already caused
-silent data loss.
+**Not yet fixed:** H10, and the Medium/Low findings except M1/M2 in the files touched.
 
 ### Verification
 
 Regression tests were added to `gmail`, `microsoft_outlook`, `proxmox`, `gitea` and
-`gitlab` (23 new cases; suite 100 → 123, all passing). Each was run against the stashed
+`gitlab` (32 new cases; suite 100 → 132, all passing). Each was run against the stashed
 pre-fix source to confirm it actually catches the bug:
 
 | Plugin | Failing before fix |
 |--------|--------------------|
 | `proxmox` | 4 of 6 |
 | `gmail` | 5 of 8 |
-| `gitea` | 3 of 5 |
+| `gitea` | 10 of 14 |
 | `gitlab` | 2 of 6 |
 
-`tsc --noEmit` error count went **417 → 404** with no new error kinds. Notably the type
+`tsc --noEmit` error count went **417 → 403** with no new error kinds. Notably the type
 checker had been flagging H2 all along: 7 × `TS2322: Type '{ Authorization: ... }' is not
 assignable to type 'string'`, now gone.
 
@@ -199,18 +199,39 @@ even with a valid `GITEA_API_KEY`.
 **Fix:** `headers: headers` at all seven sites.
 
 ## H8. `gitea` — success decided by substring-matching `"ok"` in the body; `status` never checked
-`gitea/plugin.ts` — 13 sites: 237, 270, 297, 333, 363, 393, 427, 463, 494, 526, 553, 580, 607 **[V]**
+`gitea/plugin.ts` — 13 sites, one per handler **[V]** — **FIXED**
 
 ```ts
 if (!response.body.includes("ok")) {
 ```
 
-No handler in the file inspects `response.status`. Both directions are wrong:
-- **False success (dangerous).** Gitea's 404 body is `{"message":"user redirect does not exist [name: okta/infra]", …}`. A failed `create_issue` against a nonexistent repo whose path contains `ok` returns `{success:true, result:"Issue undefined created successfully"}`. A failed write is reported to the model as a success.
-- **False failure.** `GET /repos/{id}/contents` returns a bare JSON array with no `"ok"`, so a successful `list_project_files` returns `{success:false}`.
+No handler inspected `response.status`. Both directions were wrong, and both are now
+confirmed against Gitea's own source rather than inferred:
 
-The heuristic is correct only for the two `search` endpoints that really return `{"ok":true,…}`.
-**Fix:** check `response.status` (200/201/204); delete the `includes("ok")` test.
+- **False success (dangerous).** Gitea answers a missing/expired token with 401
+  `{"message":"token is required"}` and an under-scoped token with 403
+  `{"message":"token does not have at least one of required scope(s), …"}`
+  (`routers/api/v1/api.go`). **Both contain `ok` inside `token`**, so every failed write
+  returned `{success:true, …}`. Confirmed empirically: a 401 from `create_issue` produced
+  `success: true` on the pre-fix code.
+- **False failure.** Gitea's write endpoints return the created object with no `ok` field —
+  `FileResponse` is `{content, commit}` and `Repository` has no `ok`
+  (`modules/structs/repo_file.go`, `repo.go`). So every *successful* `create_or_update_file`,
+  `push_files`, `create_repository`, `create_issue`, `create_merge_request`, `create_branch`
+  and `fork_repository` was reported as a failure, inviting the caller to retry a write that
+  had already landed.
+
+The heuristic happened to be correct only for the search endpoints, which really do return
+`{"ok":true,"data":[…],"total":N}`.
+
+**Fix:** a `giteaResult(response)` helper decides from `response.status` (2xx = success),
+extracts `data.message` for a readable error, and degrades gracefully when an error body is
+not JSON (a proxy HTML page previously escaped as an uncaught `JSON.parse` throw, since the
+file has no `catch` blocks). Two adjacent bugs found while fixing this:
+- `createOrUpdateFile` parsed the pre-lookup GET body without checking status; a 404 (the
+  normal create path) set `sha` from an error body. It now only trusts a 200.
+- `pushFiles` reported `` `Pushed ${files.length} files` ``, but `files` is a
+  `Record<path, content>` with no `.length`, so it always printed "Pushed undefined files".
 
 ## H9. `gitea` — `host.config.options` is dereferenced but absent from the shipped config; every call throws
 `gitea/plugin.ts:155-156` **[V]**

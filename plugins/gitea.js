@@ -223,9 +223,13 @@ module.exports = {
       headers
     });
     let sha = null;
-    if (fileResponse.body) {
-      const fileData = JSON.parse(fileResponse.body);
-      sha = fileData.sha;
+    if (fileResponse.status === 200 && fileResponse.body) {
+      try {
+        const fileData = JSON.parse(fileResponse.body);
+        sha = fileData.sha || null;
+      } catch (e) {
+        sha = null;
+      }
     }
     const body = {
       message: commit_message || `Update ${file_path}`,
@@ -239,19 +243,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `File ${file_path} ${sha ? "updated" : "created"} successfully`,
@@ -272,22 +271,18 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
+    const fileCount = files && typeof files === "object" ? Object.keys(files).length : 0;
     return {
       success: true,
-      result: `Pushed ${files.length} files successfully`,
+      result: `Pushed ${fileCount} files successfully`,
       data
     };
   },
@@ -299,19 +294,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Found ${data.total} repositories`,
@@ -335,19 +325,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Repository ${name} created successfully`,
@@ -365,19 +350,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Found ${data.length} files`,
@@ -395,19 +375,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `File contents for ${file_path}`,
@@ -429,19 +404,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Issue ${data.id} created successfully`,
@@ -465,19 +435,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Merge request ${data.number} created successfully`,
@@ -496,19 +461,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Repository forked successfully`,
@@ -528,19 +488,14 @@ module.exports = {
       headers,
       body: JSON.stringify(body)
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Branch ${branch} created successfully`,
@@ -555,19 +510,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Found ${data.total} repositories`,
@@ -582,19 +532,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Found ${data.total} issues`,
@@ -609,19 +554,14 @@ module.exports = {
       url: apiUrl,
       headers
     });
-    if (!response.body) {
+    const r = giteaResult(response);
+    if (!r.ok) {
       return {
         success: false,
-        error: "No response from server"
+        error: r.error
       };
     }
-    const data = JSON.parse(response.body);
-    if (!response.body.includes("ok")) {
-      return {
-        success: false,
-        error: data.message || JSON.stringify(data)
-      };
-    }
+    const data = r.data;
     return {
       success: true,
       result: `Found ${data.total} merge requests`,
@@ -629,3 +569,28 @@ module.exports = {
     };
   }
 };
+function giteaResult(response) {
+  const status = response && typeof response.status === "number" ? response.status : 0;
+  const body = response && typeof response.body === "string" ? response.body : "";
+  if (status < 200 || status >= 300) {
+    let detail = "";
+    try {
+      const parsed = JSON.parse(body);
+      detail = parsed.message || JSON.stringify(parsed);
+    } catch (e) {
+      detail = body ? body.slice(0, 200) : "";
+    }
+    return {
+      ok: false,
+      error: detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`
+    };
+  }
+  if (!body) {
+    return { ok: false, error: "No response from server" };
+  }
+  try {
+    return { ok: true, data: JSON.parse(body) };
+  } catch (e) {
+    return { ok: false, error: `HTTP ${status}: response was not JSON` };
+  }
+}
